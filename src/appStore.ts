@@ -12,11 +12,12 @@ import {
 
 export interface Attachment {
   id: string;
-  type: 'image' | 'camera' | 'file';
+  type: 'image' | 'camera' | 'file' | 'audio';
   name: string;
   dataUrl: string; // base64 or object URL
   mimeType: string;
   sizeBytes: number;
+  durationSec?: number;
 }
 
 export interface ChatMessage {

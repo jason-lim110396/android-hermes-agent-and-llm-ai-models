@@ -21,6 +21,11 @@ import {
   MicOff,
   Volume2,
   VolumeX,
+  Play,
+  Pause,
+  Radio,
+  AudioLines,
+  Square,
   Plus,
   Layers,
   ArrowRight,
@@ -74,7 +79,6 @@ export default function ChatView() {
   const [showModelPicker, setShowModelPicker] = useState(false);
   const [showSessionPicker, setShowSessionPicker] = useState(false);
   const [modelPromptDownload, setModelPromptDownload] = useState<ModelSpec | null>(null);
-  const [isRecordingVoice, setIsRecordingVoice] = useState(false);
   const [expandedSteps, setExpandedSteps] = useState<Record<string, boolean>>({});
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -118,57 +122,212 @@ export default function ChatView() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isGenerating]);
 
-  // Handle Speech-to-Text (Voice input)
-  const toggleVoiceRecording = () => {
-    if (isRecordingVoice) {
-      if (recognitionRef.current) {
-        recognitionRef.current.stop();
-      }
-      setIsRecordingVoice(false);
-      return;
-    }
+  // WhatsApp-Style Voice Note State
+  const [isRecordingVoice, setIsRecordingVoice] = useState(false);
+  const [recordDurationSec, setRecordDurationSec] = useState(0);
+  const [activeAudioPlayingId, setActiveAudioPlayingId] = useState<string | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const voiceTimerRef = useRef<any>(null);
+  const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
+  const currentTranscriptRef = useRef<string>('');
 
+  // Start WhatsApp-Style Voice Recording
+  const startWhatsAppVoiceRecording = async () => {
     if (typeof window === 'undefined') return;
 
+    audioChunksRef.current = [];
+    currentTranscriptRef.current = '';
+    setRecordDurationSec(0);
+
+    // Explicitly check / prompt for microphone permission if supported
+    try {
+      if (navigator.permissions && navigator.permissions.query) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const permStatus = await navigator.permissions.query({ name: 'microphone' as any });
+        if (permStatus.state === 'denied') {
+          alert('Microphone permission is blocked. Please grant microphone access in Android App Settings.');
+          return;
+        }
+      }
+    } catch (_) {}
+
+    // 1. Initialize Real Speech-to-Text in parallel with safe error handlers
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRec) {
-      alert('Speech Recognition is not supported by your browser/webview. You can type or use your mobile keyboard microphone.');
+    if (SpeechRec) {
+      try {
+        const rec = new SpeechRec();
+        rec.lang = 'en-US';
+        rec.continuous = true;
+        rec.interimResults = true;
+        rec.onresult = (event: any) => {
+          const transcript = Array.from(event.results)
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            .map((res: any) => res[0].transcript)
+            .join(' ');
+          currentTranscriptRef.current = transcript;
+          setInputVal(transcript);
+        };
+        rec.onerror = (event: any) => {
+          console.warn('SpeechRecognition notice:', event?.error);
+        };
+        rec.start();
+        recognitionRef.current = rec;
+      } catch (e) {
+        console.warn('SpeechRecognition initialization notice:', e);
+      }
+    }
+
+    // 2. Initialize MediaStream & MediaRecorder with safety timeout to prevent WebView thread ANR
+    let hasAudioStream = false;
+    try {
+      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+        // Use Promise.race with a 4-second timeout to prevent any native audio driver deadlocks / ANR
+        const mediaStreamPromise = navigator.mediaDevices.getUserMedia({ audio: true });
+        const timeoutPromise = new Promise<null>((_, reject) =>
+          setTimeout(() => reject(new Error('Audio permission/hardware timeout')), 4000)
+        );
+
+        const stream = await Promise.race([mediaStreamPromise, timeoutPromise]) as MediaStream | null;
+        if (stream) {
+          hasAudioStream = true;
+          const mediaRecorder = new MediaRecorder(stream);
+          mediaRecorderRef.current = mediaRecorder;
+
+          mediaRecorder.ondataavailable = (event) => {
+            if (event.data.size > 0) {
+              audioChunksRef.current.push(event.data);
+            }
+          };
+
+          mediaRecorder.start(100);
+        }
+      }
+    } catch (err: any) {
+      console.warn('Microphone access prompt notice:', err?.message || err);
+      // If mic is denied or timed out, stop speech rec and inform user gracefully without freezing
+      if (err?.name === 'NotAllowedError' || err?.name === 'PermissionDeniedError') {
+        alert('Microphone permission was denied. Please allow microphone access to record voice messages.');
+        if (recognitionRef.current) {
+          try { recognitionRef.current.stop(); } catch (_) {}
+          recognitionRef.current = null;
+        }
+        return;
+      }
+    }
+
+    setIsRecordingVoice(true);
+
+    // Recording seconds ticker
+    if (voiceTimerRef.current) clearInterval(voiceTimerRef.current);
+    voiceTimerRef.current = setInterval(() => {
+      setRecordDurationSec((prev) => prev + 1);
+    }, 1000);
+  };
+
+  // Cancel recording without sending (WhatsApp trash / slide to cancel)
+  const cancelVoiceRecording = () => {
+    if (voiceTimerRef.current) clearInterval(voiceTimerRef.current);
+    if (recognitionRef.current) {
+      try { recognitionRef.current.stop(); } catch (_) {}
+      recognitionRef.current = null;
+    }
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      try {
+        mediaRecorderRef.current.stop();
+        mediaRecorderRef.current.stream.getTracks().forEach((t) => t.stop());
+      } catch (_) {}
+      mediaRecorderRef.current = null;
+    }
+    audioChunksRef.current = [];
+    currentTranscriptRef.current = '';
+    setInputVal('');
+    setIsRecordingVoice(false);
+    setRecordDurationSec(0);
+  };
+
+  // Finish recording and send directly to LLM with audio voice note attachment!
+  const finishVoiceRecordingAndSend = async () => {
+    if (voiceTimerRef.current) clearInterval(voiceTimerRef.current);
+    const duration = recordDurationSec;
+
+    // Stop Speech Recognition
+    if (recognitionRef.current) {
+      try { recognitionRef.current.stop(); } catch (_) {}
+      recognitionRef.current = null;
+    }
+
+    let audioDataUrl = '';
+    const audioBlob = audioChunksRef.current.length > 0
+      ? new Blob(audioChunksRef.current, { type: 'audio/webm' })
+      : null;
+
+    if (audioBlob) {
+      try {
+        audioDataUrl = await new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result as string);
+          reader.readAsDataURL(audioBlob);
+        });
+      } catch (_) {}
+    }
+
+    // Stop media tracks
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      try {
+        mediaRecorderRef.current.stop();
+        mediaRecorderRef.current.stream.getTracks().forEach((t) => t.stop());
+      } catch (_) {}
+      mediaRecorderRef.current = null;
+    }
+
+    const transcribedPrompt = currentTranscriptRef.current.trim() || inputVal.trim() || 'Voice message';
+
+    // If audio blob was recorded, attach as voice note
+    if (audioDataUrl) {
+      const voiceAttachment: Attachment = {
+        id: `voice-${Date.now()}`,
+        type: 'audio',
+        name: `Voice Note (${Math.max(1, duration)}s)`,
+        dataUrl: audioDataUrl,
+        mimeType: 'audio/webm',
+        sizeBytes: audioBlob?.size || 12000,
+        durationSec: Math.max(1, duration),
+      };
+      addAttachment(voiceAttachment);
+    }
+
+    setIsRecordingVoice(false);
+    setRecordDurationSec(0);
+    setInputVal('');
+
+    // Trigger instant message dispatch to LLM!
+    setTimeout(() => {
+      sendMessage(transcribedPrompt);
+    }, 50);
+  };
+
+  // Audio Playback handler for voice notes
+  const togglePlayAudio = (dataUrl: string, id: string) => {
+    if (activeAudioPlayingId === id) {
+      if (audioPlayerRef.current) {
+        audioPlayerRef.current.pause();
+      }
+      setActiveAudioPlayingId(null);
       return;
     }
 
-    try {
-      const rec = new SpeechRec();
-      rec.lang = 'en-US';
-      rec.continuous = false;
-      rec.interimResults = true;
-
-      rec.onstart = () => {
-        setIsRecordingVoice(true);
-      };
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      rec.onresult = (event: any) => {
-        const transcript = Array.from(event.results)
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          .map((res: any) => res[0].transcript)
-          .join('');
-        setInputVal(transcript);
-      };
-
-      rec.onerror = () => {
-        setIsRecordingVoice(false);
-      };
-
-      rec.onend = () => {
-        setIsRecordingVoice(false);
-      };
-
-      rec.start();
-      recognitionRef.current = rec;
-    } catch (_) {
-      setIsRecordingVoice(false);
+    if (audioPlayerRef.current) {
+      audioPlayerRef.current.pause();
     }
+
+    const audio = new Audio(dataUrl);
+    audioPlayerRef.current = audio;
+    audio.onended = () => setActiveAudioPlayingId(null);
+    audio.onerror = () => setActiveAudioPlayingId(null);
+    audio.play();
+    setActiveAudioPlayingId(id);
   };
 
   const handleSend = () => {
@@ -464,25 +623,74 @@ export default function ChatView() {
                 {/* Attachments Display */}
                 {msg.attachments && msg.attachments.length > 0 && (
                   <div className="flex flex-wrap gap-1.5 mb-2">
-                    {msg.attachments.map((att) => (
-                      <div
-                        key={att.id}
-                        className="rounded-xl overflow-hidden border border-zinc-800 bg-zinc-900/90 flex items-center gap-2 p-1 text-xs"
-                      >
-                        {att.type === 'image' || att.type === 'camera' ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img src={att.dataUrl} alt={att.name} className="w-16 h-16 object-cover rounded-lg" />
-                        ) : (
-                          <div className="w-10 h-10 rounded-lg bg-zinc-800 flex items-center justify-center text-zinc-300">
-                            <FileCode className="w-5 h-5 text-cyan-400" />
+                    {msg.attachments.map((att) => {
+                      if (att.type === 'audio') {
+                        const isPlaying = activeAudioPlayingId === att.id;
+                        return (
+                          <div
+                            key={att.id}
+                            className="w-full max-w-xs rounded-2xl bg-zinc-900/90 border border-emerald-500/40 p-2.5 flex items-center gap-3 shadow-lg"
+                          >
+                            <button
+                              onClick={() => togglePlayAudio(att.dataUrl, att.id)}
+                              className={`w-9 h-9 rounded-full flex items-center justify-center transition-all cursor-pointer ${
+                                isPlaying
+                                  ? 'bg-rose-500 text-white shadow-md shadow-rose-500/30 animate-pulse'
+                                  : 'bg-emerald-500 text-black shadow-md shadow-emerald-500/20 hover:scale-105'
+                              }`}
+                            >
+                              {isPlaying ? <Pause className="w-4 h-4 fill-current" /> : <Play className="w-4 h-4 fill-current ml-0.5" />}
+                            </button>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-1.5 mb-1">
+                                <span className="text-[11px] font-bold text-emerald-400 truncate">
+                                  {att.name}
+                                </span>
+                                <span className="text-[9px] text-zinc-400 font-mono">
+                                  {att.durationSec ? `${att.durationSec}s` : 'Voice'}
+                                </span>
+                              </div>
+                              {/* WhatsApp Waveform visualization simulation */}
+                              <div className="flex items-center gap-0.5 h-3">
+                                {[35, 65, 45, 90, 75, 40, 85, 95, 60, 50, 70, 40, 80, 55, 30].map((h, i) => (
+                                  <div
+                                    key={i}
+                                    className={`w-1 rounded-full transition-all duration-300 ${
+                                      isPlaying
+                                        ? 'bg-emerald-400 animate-pulse'
+                                        : 'bg-zinc-600'
+                                    }`}
+                                    style={{
+                                      height: isPlaying ? `${Math.max(25, Math.round(h * Math.random()))}%` : `${h}%`
+                                    }}
+                                  />
+                                ))}
+                              </div>
+                            </div>
                           </div>
-                        )}
-                        <div className="pr-2 max-w-[120px] truncate">
-                          <p className="text-[10px] font-bold text-zinc-200 truncate">{att.name}</p>
-                          <p className="text-[8px] text-zinc-400 font-mono">{(att.sizeBytes / 1024).toFixed(1)} KB</p>
+                        );
+                      }
+
+                      return (
+                        <div
+                          key={att.id}
+                          className="rounded-xl overflow-hidden border border-zinc-800 bg-zinc-900/90 flex items-center gap-2 p-1 text-xs"
+                        >
+                          {att.type === 'image' || att.type === 'camera' ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={att.dataUrl} alt={att.name} className="w-16 h-16 object-cover rounded-lg" />
+                          ) : (
+                            <div className="w-10 h-10 rounded-lg bg-zinc-800 flex items-center justify-center text-zinc-300">
+                              <FileCode className="w-5 h-5 text-cyan-400" />
+                            </div>
+                          )}
+                          <div className="pr-2 max-w-[120px] truncate">
+                            <p className="text-[10px] font-bold text-zinc-200 truncate">{att.name}</p>
+                            <p className="text-[8px] text-zinc-400 font-mono">{(att.sizeBytes / 1024).toFixed(1)} KB</p>
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
 
@@ -600,6 +808,8 @@ export default function ChatView() {
               {att.type === 'image' || att.type === 'camera' ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={att.dataUrl} alt={att.name} className="w-6 h-6 object-cover rounded" />
+              ) : att.type === 'audio' ? (
+                <AudioLines className="w-4 h-4 text-emerald-400" />
               ) : (
                 <FileCode className="w-4 h-4 text-cyan-400" />
               )}
@@ -617,87 +827,133 @@ export default function ChatView() {
 
       {/* Bottom Input Area */}
       <div className="p-2 bg-zinc-950 border-t border-zinc-800 z-20 shrink-0">
-        <div className="relative flex items-end gap-1.5 bg-zinc-900 border border-zinc-800 rounded-2xl p-1.5 focus-within:border-cyan-500/50 transition-all shadow-xl">
-          {/* Action Buttons: Camera, Gallery, Files */}
-          <div className="flex items-center gap-0.5 pb-0.5 pl-1">
+        {isRecordingVoice ? (
+          /* WhatsApp-Style Voice Recording Bar */
+          <div className="relative flex items-center justify-between gap-2 bg-gradient-to-r from-zinc-950 via-zinc-900 to-zinc-950 border border-emerald-500/40 rounded-2xl px-3 py-2 shadow-2xl animate-in fade-in duration-200">
+            {/* Pulsing Recording Indicator & Timer */}
+            <div className="flex items-center gap-2.5">
+              <span className="relative flex h-3 w-3">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-3 w-3 bg-rose-500"></span>
+              </span>
+              <span className="font-mono text-xs font-bold text-rose-400 tracking-wider">
+                {Math.floor(recordDurationSec / 60)}:{(recordDurationSec % 60).toString().padStart(2, '0')}
+              </span>
+            </div>
+
+            {/* Live Audio Waves Simulation */}
+            <div className="flex-1 flex items-center justify-center gap-1 max-w-[180px] px-2">
+              {[40, 75, 100, 60, 85, 45, 95, 70, 50, 90, 65, 80, 40].map((h, i) => (
+                <div
+                  key={i}
+                  className="w-1 bg-emerald-400 rounded-full animate-pulse"
+                  style={{
+                    height: `${Math.max(15, (h * ((i + (recordDurationSec % 5)) % 4 + 1) / 4))}%`,
+                    animationDuration: `${400 + (i % 3) * 150}ms`
+                  }}
+                />
+              ))}
+            </div>
+
+            {/* Actions: Cancel (Trash) & Send (WhatsApp Paper Airplane) */}
+            <div className="flex items-center gap-2">
+              <button
+                onClick={cancelVoiceRecording}
+                title="Slide / Tap to cancel recording"
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-zinc-800/80 hover:bg-rose-950/60 border border-zinc-700/60 hover:border-rose-500/50 text-zinc-400 hover:text-rose-400 text-xs font-medium transition-all cursor-pointer"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span className="text-[10px]">Cancel</span>
+              </button>
+              <button
+                onClick={finishVoiceRecordingAndSend}
+                title="Send voice note to LLM"
+                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-black font-bold text-xs shadow-lg shadow-emerald-500/20 transition-all cursor-pointer"
+              >
+                <Send className="w-3.5 h-3.5 fill-current" />
+                <span>Send</span>
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="relative flex items-end gap-1.5 bg-zinc-900 border border-zinc-800 rounded-2xl p-1.5 focus-within:border-cyan-500/50 transition-all shadow-xl">
+            {/* Action Buttons: Camera, Gallery, Files */}
+            <div className="flex items-center gap-0.5 pb-0.5 pl-1">
+              <button
+                onClick={() => setIsCameraOpen(true)}
+                title="Camera snapshot"
+                className="p-2 rounded-xl text-zinc-400 hover:text-cyan-400 hover:bg-zinc-800 transition-all cursor-pointer"
+              >
+                <Camera className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => galleryInputRef.current?.click()}
+                title="Image upload"
+                className="p-2 rounded-xl text-zinc-400 hover:text-cyan-400 hover:bg-zinc-800 transition-all cursor-pointer"
+              >
+                <ImageIcon className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                title="File attachment"
+                className="p-2 rounded-xl text-zinc-400 hover:text-cyan-400 hover:bg-zinc-800 transition-all cursor-pointer"
+              >
+                <Paperclip className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Hidden File Inputs */}
+            <input
+              ref={galleryInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              className="hidden"
+              onChange={handleGalleryUpload}
+            />
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".txt,.md,.json,.js,.ts,.py,.csv"
+              multiple
+              className="hidden"
+              onChange={handleFileUpload}
+            />
+
+            {/* Prompt Textarea */}
+            <textarea
+              value={inputVal}
+              onChange={(e) => setInputVal(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder={
+                operatingMode === 'agent'
+                  ? 'Ask Hermes to solve, search, code, analyze...'
+                  : 'Chat with local model...'
+              }
+              rows={1}
+              className="flex-1 bg-transparent text-xs text-white placeholder-zinc-500 resize-none py-2 px-1 focus:outline-none max-h-28"
+            />
+
+            {/* WhatsApp-Style Push-to-Talk Microphone Button */}
             <button
-              onClick={() => setIsCameraOpen(true)}
-              title="Camera snapshot"
-              className="p-2 rounded-xl text-zinc-400 hover:text-cyan-400 hover:bg-zinc-800 transition-all cursor-pointer"
+              type="button"
+              onClick={startWhatsAppVoiceRecording}
+              title="Record voice note (WhatsApp style)"
+              className="p-2 rounded-xl bg-zinc-800/80 border border-zinc-700/80 text-zinc-300 hover:text-emerald-400 hover:bg-zinc-800 transition-all cursor-pointer group"
             >
-              <Camera className="w-4 h-4" />
+              <Mic className="w-4 h-4 group-hover:scale-110 transition-transform" />
             </button>
+
+            {/* Send Button */}
             <button
-              onClick={() => galleryInputRef.current?.click()}
-              title="Image upload"
-              className="p-2 rounded-xl text-zinc-400 hover:text-cyan-400 hover:bg-zinc-800 transition-all cursor-pointer"
+              onClick={handleSend}
+              disabled={(!inputVal.trim() && pendingAttachments.length === 0) || isGenerating}
+              className="p-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white disabled:opacity-30 disabled:cursor-not-allowed shadow-md shadow-cyan-500/20 transition-all cursor-pointer"
             >
-              <ImageIcon className="w-4 h-4" />
-            </button>
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              title="File attachment"
-              className="p-2 rounded-xl text-zinc-400 hover:text-cyan-400 hover:bg-zinc-800 transition-all cursor-pointer"
-            >
-              <Paperclip className="w-4 h-4" />
+              <Send className="w-4 h-4" />
             </button>
           </div>
-
-          {/* Hidden File Inputs */}
-          <input
-            ref={galleryInputRef}
-            type="file"
-            accept="image/*"
-            multiple
-            className="hidden"
-            onChange={handleGalleryUpload}
-          />
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".txt,.md,.json,.js,.ts,.py,.csv"
-            multiple
-            className="hidden"
-            onChange={handleFileUpload}
-          />
-
-          {/* Prompt Textarea */}
-          <textarea
-            value={inputVal}
-            onChange={(e) => setInputVal(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder={
-              operatingMode === 'agent'
-                ? 'Ask Hermes to solve, search, code, analyze...'
-                : 'Chat with local model...'
-            }
-            rows={1}
-            className="flex-1 bg-transparent text-xs text-white placeholder-zinc-500 resize-none py-2 px-1 focus:outline-none max-h-28"
-          />
-
-          {/* Voice Input Microphone Button */}
-          <button
-            type="button"
-            onClick={toggleVoiceRecording}
-            title={isRecordingVoice ? 'Recording voice... (tap to stop)' : 'Speak prompt (voice-to-text)'}
-            className={`p-2 rounded-xl border transition-all cursor-pointer ${
-              isRecordingVoice
-                ? 'bg-rose-600 border-rose-400 text-white animate-pulse shadow-lg shadow-rose-600/30'
-                : 'bg-zinc-800/80 border-zinc-700/80 text-zinc-300 hover:text-cyan-400 hover:bg-zinc-800'
-            }`}
-          >
-            {isRecordingVoice ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
-          </button>
-
-          {/* Send Button */}
-          <button
-            onClick={handleSend}
-            disabled={(!inputVal.trim() && pendingAttachments.length === 0) || isGenerating}
-            className="p-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white disabled:opacity-30 disabled:cursor-not-allowed shadow-md shadow-cyan-500/20 transition-all cursor-pointer"
-          >
-            <Send className="w-4 h-4" />
-          </button>
-        </div>
+        )}
       </div>
 
       {/* Unready Model Download Prompt Modal */}

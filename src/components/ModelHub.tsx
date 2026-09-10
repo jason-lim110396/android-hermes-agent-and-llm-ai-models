@@ -13,7 +13,10 @@ import {
   AlertTriangle,
   Sparkles,
   Search,
-  SlidersHorizontal,
+  Code,
+  Volume2,
+  Layers,
+  FileCode,
 } from 'lucide-react';
 import { AVAILABLE_MODELS, ModelSpec } from '@/models';
 import { useAppStore } from '@/appStore';
@@ -27,7 +30,8 @@ export default function ModelHub() {
   const deleteModel = useAppStore((s) => s.deleteModel);
   const checkCacheStatus = useAppStore((s) => s.checkCacheStatus);
 
-  const [selectedFamily, setSelectedFamily] = useState<'all' | 'hermes' | 'vision' | 'compact' | 'image'>('all');
+  const [selectedFamily, setSelectedFamily] = useState<'all' | 'hermes' | 'vision' | 'compact' | 'code' | 'image' | 'audio'>('all');
+  const [selectedOutputType, setSelectedOutputType] = useState<'all' | 'text' | 'code' | 'image' | 'audio'>('all');
   const [searchQuery, setSearchQuery] = useState('');
 
   React.useEffect(() => {
@@ -36,16 +40,27 @@ export default function ModelHub() {
 
   const filteredModels = AVAILABLE_MODELS.filter((m) => {
     if (selectedFamily !== 'all' && m.family !== selectedFamily) return false;
+    if (selectedOutputType !== 'all' && !m.outputTypes?.includes(selectedOutputType)) return false;
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       return (
         m.name.toLowerCase().includes(q) ||
         m.description.toLowerCase().includes(q) ||
-        m.tagline.toLowerCase().includes(q)
+        m.tagline.toLowerCase().includes(q) ||
+        m.outputTypes?.some((o) => o.toLowerCase().includes(q))
       );
     }
     return true;
   });
+
+  // Calculate output type counts
+  const outputCounts = {
+    all: AVAILABLE_MODELS.length,
+    text: AVAILABLE_MODELS.filter((m) => m.outputTypes?.includes('text')).length,
+    code: AVAILABLE_MODELS.filter((m) => m.outputTypes?.includes('code')).length,
+    image: AVAILABLE_MODELS.filter((m) => m.outputTypes?.includes('image')).length,
+    audio: AVAILABLE_MODELS.filter((m) => m.outputTypes?.includes('audio')).length,
+  };
 
   return (
     <div className="flex-1 flex flex-col overflow-y-auto bg-zinc-950 px-3 py-3 max-w-4xl mx-auto w-full pb-20">
@@ -59,7 +74,7 @@ export default function ModelHub() {
             </div>
             <h1 className="text-xl font-black text-white tracking-tight">Model Hub & Downloader</h1>
             <p className="text-xs text-zinc-400 max-w-md mt-1">
-              Download and run Hermes 3 Agent models, Vision Multimodal transformers, and compact LLMs privately on your smartphone with zero cloud dependency.
+              Download and run Hermes 3 Agent models, Vision Multimodal transformers, Code generators, and Diffusion Image engines on your smartphone with zero cloud dependency.
             </p>
           </div>
         </div>
@@ -84,37 +99,84 @@ export default function ModelHub() {
       </div>
 
       {/* Filters & Search */}
-      <div className="flex flex-col sm:flex-row gap-2 mb-3">
-        <div className="relative flex-1">
+      <div className="space-y-2 mb-3">
+        {/* Search Bar */}
+        <div className="relative">
           <Search className="absolute left-3 top-2.5 w-4 h-4 text-zinc-500" />
           <input
             type="text"
-            placeholder="Search Hermes, Vision, Code, Qwen..."
+            placeholder="Search models, text, code, image, audio..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full pl-9 pr-3 py-2 bg-zinc-900 border border-zinc-800 rounded-xl text-xs text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-cyan-500/50"
           />
         </div>
-        <div className="flex items-center gap-1 overflow-x-auto pb-1 sm:pb-0">
-          {(['all', 'hermes', 'vision', 'compact', 'image'] as const).map((fam) => (
+
+        {/* Filter by Output Type */}
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
+          <span className="text-[10px] font-extrabold uppercase tracking-wider text-zinc-400 flex items-center gap-1 shrink-0 mr-1">
+            <Layers className="w-3 h-3 text-cyan-400" />
+            Output Type:
+          </span>
+          {[
+            { id: 'all', label: 'All Outputs', icon: Sparkles, count: outputCounts.all },
+            { id: 'text', label: '📝 Text', count: outputCounts.text },
+            { id: 'code', label: '⚡ Code', count: outputCounts.code },
+            { id: 'image', label: '🎨 Image', count: outputCounts.image },
+            { id: 'audio', label: '🔊 Audio / Voice', count: outputCounts.audio },
+          ].map((typeItem) => {
+            const isActive = selectedOutputType === typeItem.id;
+            return (
+              <button
+                key={typeItem.id}
+                onClick={() => setSelectedOutputType(typeItem.id as any)}
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${
+                  isActive
+                    ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-md shadow-cyan-500/20 ring-1 ring-cyan-400'
+                    : 'bg-zinc-900 border border-zinc-800/80 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/60'
+                }`}
+              >
+                <span>{typeItem.label}</span>
+                <span
+                  className={`text-[9px] px-1.5 py-0.2 rounded-full font-mono font-bold ${
+                    isActive ? 'bg-white/20 text-white' : 'bg-zinc-800 text-zinc-400'
+                  }`}
+                >
+                  {typeItem.count}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Filter by Family */}
+        <div className="flex items-center gap-1 overflow-x-auto pb-1">
+          <span className="text-[10px] font-extrabold uppercase tracking-wider text-zinc-400 shrink-0 mr-1">
+            Family:
+          </span>
+          {(['all', 'hermes', 'vision', 'compact', 'code', 'image', 'audio'] as const).map((fam) => (
             <button
               key={fam}
               onClick={() => setSelectedFamily(fam)}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold uppercase tracking-wider transition-all whitespace-nowrap cursor-pointer ${
+              className={`px-2.5 py-1 rounded-xl text-xs font-bold uppercase tracking-wider transition-all whitespace-nowrap cursor-pointer ${
                 selectedFamily === fam
-                  ? 'bg-cyan-500 text-black shadow-md shadow-cyan-500/20'
+                  ? 'bg-zinc-200 text-black shadow-md'
                   : 'bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white'
               }`}
             >
               {fam === 'all'
-                ? 'All Models'
+                ? 'All'
                 : fam === 'hermes'
                 ? 'Hermes Agent'
                 : fam === 'vision'
-                ? 'Vision VLM'
+                ? 'Vision'
+                : fam === 'code'
+                ? 'Coder'
                 : fam === 'image'
-                ? '🎨 Image AI'
-                : 'Compact Mobile'}
+                ? 'Image AI'
+                : fam === 'audio'
+                ? 'Audio'
+                : 'Compact'}
             </button>
           ))}
         </div>
@@ -159,6 +221,18 @@ export default function ModelHub() {
                       <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-fuchsia-500/20 border border-fuchsia-500/40 text-fuchsia-300 text-[9px] font-bold">
                         <Sparkles className="w-2.5 h-2.5" />
                         Image Synthesis
+                      </span>
+                    )}
+                    {model.family === 'audio' && (
+                      <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300 text-[9px] font-bold">
+                        <Volume2 className="w-2.5 h-2.5" />
+                        Audio & Voice
+                      </span>
+                    )}
+                    {model.family === 'code' && (
+                      <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-violet-500/20 border border-violet-500/40 text-violet-300 text-[9px] font-bold">
+                        <FileCode className="w-2.5 h-2.5" />
+                        Code Specialist
                       </span>
                     )}
                     {model.family === 'compact' && (

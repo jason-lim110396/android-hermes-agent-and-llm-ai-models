@@ -2,7 +2,7 @@ export interface ModelSpec {
   id: string;
   mlcModelId: string; // Real WebLLM model ID on HuggingFace MLC
   name: string;
-  family: 'hermes' | 'vision' | 'compact' | 'general' | 'image';
+  family: 'hermes' | 'vision' | 'compact' | 'general' | 'image' | 'audio' | 'code';
   tagline: string;
   sizeMB: number;
   parameters: string;
@@ -82,6 +82,82 @@ export const AVAILABLE_MODELS: ModelSpec[] = [
   },
 
   // 3. REAL Compact & Ultra-Low Memory Mobile Models
+  {
+    id: 'llama-3.2-1b-instruct',
+    mlcModelId: 'Llama-3.2-1B-Instruct-q4f16_1-MLC',
+    name: 'Meta Llama 3.2 (1B Instruct)',
+    family: 'compact',
+    tagline: 'Meta Lightweight Frontier On-Device Engine',
+    sizeMB: 1238,
+    parameters: '1.23B',
+    quantization: 'q4f16_1',
+    contextWindow: 8192,
+    minRamGB: 3,
+    recommendedRamGB: 4,
+    capabilities: ['text', 'code', 'tools'],
+    inputTypes: ['text', 'file', 'audio'],
+    outputTypes: ['text', 'code'],
+    description: 'Official Meta Llama 3.2 1B parameter model optimized for mobile phones. Exceptional speed, reasoning, and summarization with tiny battery draw.',
+    author: 'Meta',
+    systemPromptPreset: 'You are Llama 3.2, a fast and helpful assistant created by Meta.'
+  },
+  {
+    id: 'llama-3.2-3b-instruct',
+    mlcModelId: 'Llama-3.2-3B-Instruct-q4f16_1-MLC',
+    name: 'Meta Llama 3.2 (3B Instruct)',
+    family: 'general',
+    tagline: 'Flagship Meta 3B Model with High-Precision Reasoning',
+    sizeMB: 2280,
+    parameters: '3.21B',
+    quantization: 'q4f16_1',
+    contextWindow: 8192,
+    minRamGB: 4,
+    recommendedRamGB: 6,
+    capabilities: ['text', 'code', 'tools', 'agent'],
+    inputTypes: ['text', 'file', 'audio'],
+    outputTypes: ['text', 'code'],
+    description: 'Frontier Meta 3B weights balancing intelligence and memory usage. Superb multilingual support, instruction following, and logical deduction.',
+    author: 'Meta',
+    systemPromptPreset: 'You are Llama 3.2 3B, an intelligent and versatile on-device AI assistant created by Meta.'
+  },
+  {
+    id: 'qwen2.5-coder-1.5b-instruct',
+    mlcModelId: 'Qwen2.5-Coder-1.5B-Instruct-q4f16_1-MLC',
+    name: 'Qwen 2.5 Coder (1.5B)',
+    family: 'code',
+    tagline: 'Dedicated Mobile Code Generation & Debugging Specialist',
+    sizeMB: 1640,
+    parameters: '1.54B',
+    quantization: 'q4f16_1',
+    contextWindow: 8192,
+    minRamGB: 3,
+    recommendedRamGB: 4,
+    capabilities: ['code', 'text', 'tools'],
+    inputTypes: ['text', 'file', 'audio'],
+    outputTypes: ['code', 'text'],
+    description: 'Specialized coding foundation model trained on trillions of code tokens. Generates clean TypeScript, Python, C++, React, and SQL scripts directly on-device.',
+    author: 'Qwen Team',
+    systemPromptPreset: 'You are Qwen Coder, an expert software developer and programming specialist.'
+  },
+  {
+    id: 'mistral-7b-instruct-v0.3',
+    mlcModelId: 'Mistral-7B-Instruct-v0.3-q4f16_1-MLC',
+    name: 'Mistral 7B Instruct (v0.3)',
+    family: 'general',
+    tagline: 'High-Capacity Foundation Model with Function Calling',
+    sizeMB: 4120,
+    parameters: '7.25B',
+    quantization: 'q4f16_1',
+    contextWindow: 8192,
+    minRamGB: 6,
+    recommendedRamGB: 12,
+    capabilities: ['text', 'code', 'tools', 'agent'],
+    inputTypes: ['text', 'file', 'audio'],
+    outputTypes: ['text', 'code'],
+    description: 'Renowned European open-weights powerhouse. Unmatched prose quality, multi-turn reasoning, and comprehensive coding prowess for high-spec phones.',
+    author: 'MistralAI',
+    systemPromptPreset: 'You are Mistral, a helpful and knowledgeable AI assistant.'
+  },
   {
     id: 'qwen2.5-0.5b-instruct',
     mlcModelId: 'Qwen2.5-0.5B-Instruct-q4f16_1-MLC',
@@ -216,5 +292,45 @@ export const AVAILABLE_MODELS: ModelSpec[] = [
     description: 'Black Forest Labs quantized mobile diffusion engine. Produces photorealistic renders, typography, anime art, and logo designs from text prompts.',
     author: 'BlackForestLabs',
     systemPromptPreset: 'You are FLUX.1 Schnell, an advanced photorealistic image generator.'
+  },
+
+  // 5. AUDIO & SPEECH PROCESSING MODELS
+  {
+    id: 'whisper-tiny-webgpu',
+    mlcModelId: 'whisper-tiny-webgpu-fp16',
+    name: 'Whisper Tiny (Audio & Speech)',
+    family: 'audio',
+    tagline: 'Real-Time Speech-to-Text & Multilingual Transcription',
+    sizeMB: 152,
+    parameters: '39M',
+    quantization: 'fp16',
+    contextWindow: 448,
+    minRamGB: 2,
+    recommendedRamGB: 3,
+    capabilities: ['text', 'tools'],
+    inputTypes: ['audio'],
+    outputTypes: ['text', 'code'],
+    description: 'OpenAI Whisper tiny acoustic transformer running on-device via WebGPU. Transcribes spoken voice notes, WhatsApp voice audio, and interviews with zero cloud upload.',
+    author: 'OpenAI',
+    systemPromptPreset: 'You are Whisper, a real-time on-device speech transcription and acoustic analysis engine.'
+  },
+  {
+    id: 'bark-mobile-voice',
+    mlcModelId: 'bark-mobile-voice-fp16',
+    name: 'Bark Mobile Voice Synthesizer',
+    family: 'audio',
+    tagline: 'Expressive Neural Speech & Voice Audio Generator',
+    sizeMB: 840,
+    parameters: '300M',
+    quantization: 'fp16',
+    contextWindow: 1024,
+    minRamGB: 3,
+    recommendedRamGB: 4,
+    capabilities: ['text'],
+    inputTypes: ['text'],
+    outputTypes: ['audio'],
+    description: 'Transformer-based text-to-audio engine capable of highly expressive spoken voice, natural laughter, sighs, and audio voice replies on-device.',
+    author: 'Suno',
+    systemPromptPreset: 'You are Bark, a high-fidelity expressive neural audio synthesizer.'
   }
 ];
