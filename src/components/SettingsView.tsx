@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { Sliders, Shield, Terminal, RefreshCw, Cpu, Database } from 'lucide-react';
+import { Sliders, Shield, Terminal, RefreshCw, Cpu, Database, BatteryCharging, Gauge, Zap, Flame } from 'lucide-react';
 import { useAppStore } from '@/appStore';
 
 export default function SettingsView() {
@@ -17,15 +17,113 @@ export default function SettingsView() {
   const setApiEndpoint = useAppStore((s) => s.setApiEndpoint);
   const apiKey = useAppStore((s) => s.apiKey);
   const setApiKey = useAppStore((s) => s.setApiKey);
+  const performanceMode = useAppStore((s) => s.performanceMode);
+  const setPerformanceMode = useAppStore((s) => s.setPerformanceMode);
+  const hardwareProfile = useAppStore((s) => s.hardwareProfile);
 
   return (
     <div className="flex-1 flex flex-col overflow-y-auto bg-zinc-950 px-3 py-3 max-w-2xl mx-auto w-full pb-20">
       <div className="mb-4">
         <h1 className="text-xl font-black text-white tracking-tight">Agent & LLM Engine Settings</h1>
-        <p className="text-xs text-zinc-400">Configure on-device inference parameters, Hermes agent steering, and external local AI backends</p>
+        <p className="text-xs text-zinc-400">Configure performance & thermal profiles, on-device parameters, and external AI backends</p>
       </div>
 
       <div className="space-y-3">
+        {/* EASY MODE: PERFORMANCE & THERMAL POWER PROFILE SELECTOR */}
+        <div className="bg-gradient-to-br from-zinc-900 via-zinc-900/90 to-zinc-950 border border-zinc-800 rounded-2xl p-3.5 shadow-xl">
+          <div className="flex items-center justify-between mb-1">
+            <div className="flex items-center gap-2">
+              <Gauge className="w-4 h-4 text-cyan-400" />
+              <label className="text-xs font-bold text-white">Easy Mode: Power & Thermal Profile</label>
+            </div>
+            <span className="text-[10px] font-mono font-bold uppercase px-2 py-0.5 rounded-full bg-cyan-500/10 text-cyan-300 border border-cyan-500/30">
+              {performanceMode}
+            </span>
+          </div>
+          <p className="text-[10px] text-zinc-400 mb-3">
+            Select an operating profile tailored to your device battery level and thermal performance. Prevents phone overheating and excessive battery consumption.
+          </p>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            {/* 1. Power Saver / Cool */}
+            <button
+              onClick={() => {
+                setPerformanceMode('eco');
+                setMaxTokens(1024);
+              }}
+              className={`text-left p-3 rounded-xl border transition-all cursor-pointer relative ${
+                performanceMode === 'eco'
+                  ? 'bg-emerald-950/40 border-emerald-500 text-emerald-300 shadow-md shadow-emerald-500/20'
+                  : 'bg-zinc-950/70 border-zinc-800/80 text-zinc-400 hover:border-zinc-700 hover:text-zinc-300'
+              }`}
+            >
+              <div className="flex items-center justify-between mb-1.5">
+                <div className="flex items-center gap-1.5 font-bold text-xs">
+                  <BatteryCharging className="w-4 h-4 text-emerald-400" />
+                  <span>Power Saver</span>
+                </div>
+                {performanceMode === 'eco' && (
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                )}
+              </div>
+              <p className="text-[10px] text-zinc-400 leading-tight">
+                Slow output pacing, lowest battery drain, zero overheating. Perfect for prolonged sessions.
+              </p>
+            </button>
+
+            {/* 2. Balanced (Recommended) */}
+            <button
+              onClick={() => {
+                setPerformanceMode('balanced');
+                setMaxTokens(2048);
+              }}
+              className={`text-left p-3 rounded-xl border transition-all cursor-pointer relative ${
+                performanceMode === 'balanced'
+                  ? 'bg-cyan-950/40 border-cyan-500 text-cyan-300 shadow-md shadow-cyan-500/20'
+                  : 'bg-zinc-950/70 border-zinc-800/80 text-zinc-400 hover:border-zinc-700 hover:text-zinc-300'
+              }`}
+            >
+              <div className="flex items-center justify-between mb-1.5">
+                <div className="flex items-center gap-1.5 font-bold text-xs">
+                  <Sliders className="w-4 h-4 text-cyan-400" />
+                  <span>Balanced</span>
+                </div>
+                {performanceMode === 'balanced' && (
+                  <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
+                )}
+              </div>
+              <p className="text-[10px] text-zinc-400 leading-tight">
+                Calibrated to phone RAM ({hardwareProfile?.estimatedRamGB || 4}GB) & {hardwareProfile?.cpuCores || 8} CPU cores with thermal limits.
+              </p>
+            </button>
+
+            {/* 3. High Performance / Turbo */}
+            <button
+              onClick={() => {
+                setPerformanceMode('performance');
+                setMaxTokens(4096);
+              }}
+              className={`text-left p-3 rounded-xl border transition-all cursor-pointer relative ${
+                performanceMode === 'performance'
+                  ? 'bg-amber-950/40 border-amber-500 text-amber-300 shadow-md shadow-amber-500/20'
+                  : 'bg-zinc-950/70 border-zinc-800/80 text-zinc-400 hover:border-zinc-700 hover:text-zinc-300'
+              }`}
+            >
+              <div className="flex items-center justify-between mb-1.5">
+                <div className="flex items-center gap-1.5 font-bold text-xs">
+                  <Zap className="w-4 h-4 text-amber-400" />
+                  <span>High Speed</span>
+                </div>
+                {performanceMode === 'performance' && (
+                  <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+                )}
+              </div>
+              <p className="text-[10px] text-zinc-400 leading-tight">
+                Max tokens/sec, unthrottled WebGPU hardware compute for flagship smartphones.
+              </p>
+            </button>
+          </div>
+        </div>
         {/* Local / Remote AI Server Bridge (Ollama / OpenRouter / vLLM) */}
         <div className="bg-zinc-900/60 border border-zinc-800 rounded-2xl p-3.5">
           <label className="text-xs font-bold text-white block mb-0.5">Local Server / OpenRouter Inference Bridge</label>

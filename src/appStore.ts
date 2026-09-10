@@ -108,6 +108,10 @@ interface AppStore {
   sendMessage: (userText: string) => Promise<void>;
   stopAllRunningTasks: () => void;
 
+  // Performance & Power Efficiency Mode
+  performanceMode: 'balanced' | 'eco' | 'performance';
+  setPerformanceMode: (mode: 'balanced' | 'eco' | 'performance') => void;
+
   // Settings & Real LLM Endpoint
   apiEndpoint: string;
   setApiEndpoint: (ep: string) => void;
@@ -699,6 +703,9 @@ export const useAppStore = create<AppStore>((set, get) => ({
     }
   },
 
+  performanceMode: 'balanced',
+  setPerformanceMode: (mode) => set({ performanceMode: mode }),
+
   systemPrompt: 'You are Hermes AI Agent, a sovereign on-device intelligence. You reason thoroughly, plan autonomously, and utilize local tools with extreme precision.',
   setSystemPrompt: (prompt) => set({ systemPrompt: prompt }),
   temperature: 0.7,
@@ -789,7 +796,7 @@ async function executeHermesAgent(
     contextPrompt += `\n\n[Tool Observation from ${toolToCall.name}]:\n${step1.toolResult}\n\nPlease synthesize the final answer taking into account the tool observation.`;
   }
 
-  const { apiEndpoint, apiKey, systemPrompt, temperature, maxTokens } = get();
+  const { apiEndpoint, apiKey, systemPrompt, temperature, maxTokens, performanceMode } = get();
 
   let visualPrefix = prefixNotice;
   if (attachments.some((a) => a.type === 'image' || a.type === 'camera')) {
@@ -802,6 +809,7 @@ async function executeHermesAgent(
     systemPrompt: systemPrompt || model?.systemPromptPreset || 'You are Hermes 3, an expert autonomous agent.',
     temperature,
     maxTokens,
+    performanceMode,
     config: {
       backendType: apiEndpoint ? 'api' : 'webllm',
       apiEndpoint,
@@ -837,7 +845,7 @@ async function executeDirectChat(
   get: any
 ) {
   const model = AVAILABLE_MODELS.find((m) => m.id === modelId);
-  const { apiEndpoint, apiKey, systemPrompt, temperature, maxTokens } = get();
+  const { apiEndpoint, apiKey, systemPrompt, temperature, maxTokens, performanceMode } = get();
 
   let attachPrefix = prefixNotice;
   if (attachments.length > 0) {
@@ -850,6 +858,7 @@ async function executeDirectChat(
     systemPrompt: systemPrompt || model?.systemPromptPreset || 'You are an intelligent on-device local assistant.',
     temperature,
     maxTokens,
+    performanceMode,
     config: {
       backendType: apiEndpoint ? 'api' : 'webllm',
       apiEndpoint,
