@@ -12,6 +12,18 @@ export interface InferenceBackendConfig {
 let activeMLCEngine: MLCEngine | null = null;
 let currentLoadedModelId: string | null = null;
 
+// Global In-Flight Abort Controller for LLM inference & synthetic generation
+let activeInferenceAbortController: AbortController | null = null;
+
+export function abortAllInference(): void {
+  if (activeInferenceAbortController) {
+    try {
+      activeInferenceAbortController.abort();
+    } catch (_) {}
+    activeInferenceAbortController = null;
+  }
+}
+
 export async function getOrInitWebLLMEngine(
   modelId: string,
   onProgress?: (report: InitProgressReport) => void
@@ -107,110 +119,145 @@ export async function callRealLLMInference({
 }): Promise<string> {
   const modelSpec = AVAILABLE_MODELS.find((m) => m.id === modelId);
 
-  // If active model is an Image Generation Model (e.g. SD-Turbo, FLUX.1 Schnell)
-  if (modelSpec?.capabilities.includes('image-gen') || modelSpec?.family === 'image') {
-    const userPrompt = messages[messages.length - 1]?.content || 'Futuristic AI concept art';
-    const dataUrl = await generateOnDeviceAIImage(userPrompt, modelSpec.name, onProgress);
-    const resultText = `Here is your generated image synthesized by **${modelSpec.name}**:\n\n![Generated Image](${dataUrl})\n\n**Prompt:** "${userPrompt}"\n**Resolution:** 640x640 High-Fidelity • **Engine:** On-Device Diffusion Latent Pipeline`;
-    onStreamChunk(resultText);
-    return resultText;
-  }
+  // Setup abort controller for this inference run
+  const abortCtrl = new AbortController();
+  activeInferenceAbortController = abortCtrl;
+  const signal = abortCtrl.signal;
 
-  // Option A: If User provided an external Local Server / Ollama / OpenRouter API
-  if (config?.apiEndpoint) {
-    try {
-      const endpoint = config.apiEndpoint.replace(/\/+$/, '');
-      const url = endpoint.endsWith('/chat/completions') ? endpoint : `${endpoint}/chat/completions`;
-      const modelName = config.customModelName || (modelId.includes('hermes') ? 'nousresearch/hermes-3-llama-3.2-3b' : modelId);
-
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : {}),
-        },
-        body: JSON.stringify({
-          model: modelName,
-          messages: [{ role: 'system', content: systemPrompt }, ...messages],
-          temperature,
-          max_tokens: maxTokens,
-          stream: true,
-        }),
-      });
-
-      if (!res.ok) {
-        throw new Error(`API HTTP Error: ${res.status} ${res.statusText}`);
+  try {
+    // If active model is an Image Generation Model (e.g. SD-Turbo, FLUX.1 Schnell)
+    if (modelSpec?.capabilities.includes('image-gen') || modelSpec?.family === 'image') {
+      const userPrompt = messages[messages.length - 1]?.content || 'Futuristic AI concept art';
+      const dataUrl = await generateOnDeviceAIImage(userPrompt, modelSpec.name, onProgress, signal);
+      if (signal.aborted) {
+        throw new Error('Task stopped by user');
       }
+      const resultText = `Here is your generated image synthesized by **${modelSpec.name}**:\n\n![Generated Image](${dataUrl})\n\n**Prompt:** "${userPrompt}"\n**Resolution:** 640x640 High-Fidelity • **Engine:** On-Device Diffusion Latent Pipeline`;
+      onStreamChunk(resultText);
+      return resultText;
+    }
 
-      if (res.body) {
-        const reader = res.body.getReader();
-        const decoder = new TextDecoder();
-        let fullText = '';
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          const chunk = decoder.decode(value, { stream: true });
-          const lines = chunk.split('\n');
-          for (const line of lines) {
-            if (line.startsWith('data: ')) {
-              const dataStr = line.slice(6).trim();
-              if (dataStr === '[DONE]') continue;
-              try {
-                const parsed = JSON.parse(dataStr);
-                const delta = parsed.choices?.[0]?.delta?.content || '';
-                if (delta) {
-                  fullText += delta;
-                  onStreamChunk(fullText);
-                }
-              } catch (_) {}
+    // Option A: If User provided an external Local Server / Ollama / OpenRouter API
+    if (config?.apiEndpoint) {
+      try {
+        const endpoint = config.apiEndpoint.replace(/\/+$/, '');
+        const url = endpoint.endsWith('/chat/completions') ? endpoint : `${endpoint}/chat/completions`;
+        const modelName = config.customModelName || (modelId.includes('hermes') ? 'nousresearch/hermes-3-llama-3.2-3b' : modelId);
+
+        const res = await fetch(url, {
+          method: 'POST',
+          signal,
+          headers: {
+            'Content-Type': 'application/json',
+            ...(config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : {}),
+          },
+          body: JSON.stringify({
+            model: modelName,
+            messages: [{ role: 'system', content: systemPrompt }, ...messages],
+            temperature,
+            max_tokens: maxTokens,
+            stream: true,
+          }),
+        });
+
+        if (!res.ok) {
+          throw new Error(`API HTTP Error: ${res.status} ${res.statusText}`);
+        }
+
+        if (res.body) {
+          const reader = res.body.getReader();
+          const decoder = new TextDecoder();
+          let fullText = '';
+          while (true) {
+            if (signal.aborted) {
+              try { await reader.cancel(); } catch (_) {}
+              throw new Error('Task stopped by user');
+            }
+            const { done, value } = await reader.read();
+            if (done) break;
+            const chunk = decoder.decode(value, { stream: true });
+            const lines = chunk.split('\n');
+            for (const line of lines) {
+              if (signal.aborted) throw new Error('Task stopped by user');
+              if (line.startsWith('data: ')) {
+                const dataStr = line.slice(6).trim();
+                if (dataStr === '[DONE]') continue;
+                try {
+                  const parsed = JSON.parse(dataStr);
+                  const delta = parsed.choices?.[0]?.delta?.content || '';
+                  if (delta) {
+                    fullText += delta;
+                    onStreamChunk(fullText);
+                  }
+                } catch (_) {}
+              }
             }
           }
+          if (fullText) return fullText;
         }
-        if (fullText) return fullText;
-      }
-    } catch (err: unknown) {
-      console.warn('API endpoint unavailable, transitioning to on-device WebGPU WebLLM:', err);
-    }
-  }
-
-  // Option B: REAL ON-DEVICE WEBGPU INFERENCE VIA WEBLLM
-  try {
-    if (onProgress) onProgress('Initializing real on-device model weights...', 10);
-    const engine = await getOrInitWebLLMEngine(modelId, (report) => {
-      if (onProgress) {
-        onProgress(report.text, Math.round(report.progress * 100));
-      }
-    });
-
-    const formattedMessages = [
-      { role: 'system' as const, content: systemPrompt },
-      ...messages.map((m) => ({
-        role: (m.role === 'user' ? 'user' : 'assistant') as 'user' | 'assistant',
-        content: m.content,
-      })),
-    ];
-
-    const chunks = await engine.chat.completions.create({
-      messages: formattedMessages,
-      temperature,
-      max_tokens: maxTokens,
-      stream: true,
-    });
-
-    let fullGenerated = '';
-    for await (const chunk of chunks) {
-      const delta = chunk.choices[0]?.delta?.content || '';
-      if (delta) {
-        fullGenerated += delta;
-        onStreamChunk(fullGenerated);
+      } catch (err: unknown) {
+        if (signal.aborted) throw err;
+        console.warn('API endpoint unavailable, transitioning to on-device WebGPU WebLLM:', err);
       }
     }
 
-    return fullGenerated;
-  } catch (webllmError: unknown) {
-    console.warn('WebGPU on-device inference encountered an issue (e.g. device without WebGPU support):', webllmError);
-    // Graceful fallback for non-WebGPU low-end webviews: Autonomous knowledge generator
-    return generateAutonomousFallbackResponse(messages, modelId, onStreamChunk);
+    if (signal.aborted) throw new Error('Task stopped by user');
+
+    // Option B: REAL ON-DEVICE WEBGPU INFERENCE VIA WEBLLM
+    try {
+      if (onProgress) onProgress('Initializing real on-device model weights...', 10);
+      const engine = await getOrInitWebLLMEngine(modelId, (report) => {
+        if (signal.aborted) return;
+        if (onProgress) {
+          onProgress(report.text, Math.round(report.progress * 100));
+        }
+      });
+
+      if (signal.aborted) throw new Error('Task stopped by user');
+
+      const formattedMessages = [
+        { role: 'system' as const, content: systemPrompt },
+        ...messages.map((m) => ({
+          role: (m.role === 'user' ? 'user' : 'assistant') as 'user' | 'assistant',
+          content: m.content,
+        })),
+      ];
+
+      const chunks = await engine.chat.completions.create({
+        messages: formattedMessages,
+        temperature,
+        max_tokens: maxTokens,
+        stream: true,
+      });
+
+      let fullGenerated = '';
+      for await (const chunk of chunks) {
+        if (signal.aborted) {
+          try {
+            if (typeof (engine as any).interruptGenerate === 'function') {
+              (engine as any).interruptGenerate();
+            }
+          } catch (_) {}
+          throw new Error('Task stopped by user');
+        }
+        const delta = chunk.choices[0]?.delta?.content || '';
+        if (delta) {
+          fullGenerated += delta;
+          onStreamChunk(fullGenerated);
+        }
+      }
+
+      return fullGenerated;
+    } catch (webllmError: unknown) {
+      if (signal.aborted) throw webllmError;
+      console.warn('WebGPU on-device inference encountered an issue (e.g. device without WebGPU support):', webllmError);
+      // Graceful fallback for non-WebGPU low-end webviews: Autonomous knowledge generator
+      return generateAutonomousFallbackResponse(messages, modelId, onStreamChunk, signal);
+    }
+  } finally {
+    if (activeInferenceAbortController === abortCtrl) {
+      activeInferenceAbortController = null;
+    }
   }
 }
 
@@ -218,7 +265,8 @@ export async function callRealLLMInference({
 async function generateAutonomousFallbackResponse(
   messages: { role: string; content: string }[],
   modelId: string,
-  onStreamChunk: (text: string) => void
+  onStreamChunk: (text: string) => void,
+  signal?: AbortSignal
 ): Promise<string> {
   const lastUserMsg = messages[messages.length - 1]?.content || '';
   const trimmed = lastUserMsg.trim();
@@ -272,6 +320,9 @@ async function generateAutonomousFallbackResponse(
   let streamed = '';
   const words = answer.split(' ');
   for (let i = 0; i < words.length; i++) {
+    if (signal?.aborted) {
+      throw new Error('Task stopped by user');
+    }
     streamed += (i === 0 ? '' : ' ') + words[i];
     onStreamChunk(streamed);
     await new Promise((r) => setTimeout(r, 12));
@@ -284,14 +335,19 @@ async function generateAutonomousFallbackResponse(
 export async function generateOnDeviceAIImage(
   prompt: string,
   modelName: string,
-  onProgress?: (text: string, pct: number) => void
+  onProgress?: (text: string, pct: number) => void,
+  signal?: AbortSignal
 ): Promise<string> {
+  if (signal?.aborted) throw new Error('Task stopped by user');
   if (onProgress) onProgress('Compiling diffusion latent space...', 20);
   await new Promise((r) => setTimeout(r, 350));
+  if (signal?.aborted) throw new Error('Task stopped by user');
   if (onProgress) onProgress('Executing step 1/4 (denoising latents)...', 50);
   await new Promise((r) => setTimeout(r, 450));
+  if (signal?.aborted) throw new Error('Task stopped by user');
   if (onProgress) onProgress('VAE Decoding & High-Res Upscale...', 85);
   await new Promise((r) => setTimeout(r, 400));
+  if (signal?.aborted) throw new Error('Task stopped by user');
 
   if (typeof document === 'undefined') return '';
 

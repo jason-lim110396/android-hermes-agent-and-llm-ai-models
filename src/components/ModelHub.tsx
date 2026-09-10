@@ -17,6 +17,7 @@ import {
   Volume2,
   Layers,
   FileCode,
+  Octagon,
 } from 'lucide-react';
 import { AVAILABLE_MODELS, ModelSpec } from '@/models';
 import { useAppStore } from '@/appStore';
@@ -27,6 +28,8 @@ export default function ModelHub() {
   const hardwareProfile = useAppStore((s) => s.hardwareProfile);
   const downloads = useAppStore((s) => s.downloads);
   const startDownloadModel = useAppStore((s) => s.startDownloadModel);
+  const pauseDownloadModel = useAppStore((s) => s.pauseDownloadModel);
+  const stopAllRunningTasks = useAppStore((s) => s.stopAllRunningTasks);
   const deleteModel = useAppStore((s) => s.deleteModel);
   const checkCacheStatus = useAppStore((s) => s.checkCacheStatus);
 
@@ -77,6 +80,18 @@ export default function ModelHub() {
               Download and run Hermes 3 Agent models, Vision Multimodal transformers, Code generators, and Diffusion Image engines on your smartphone with zero cloud dependency.
             </p>
           </div>
+
+          {/* Global Stop All Button in ModelHub */}
+          {Object.values(downloads).some((d) => d.isDownloading) && (
+            <button
+              onClick={stopAllRunningTasks}
+              title="Stop all active downloads"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-500/20 border border-rose-500/50 text-rose-300 hover:bg-rose-500/30 text-xs font-bold transition-all cursor-pointer shadow-lg animate-pulse"
+            >
+              <Octagon className="w-3.5 h-3.5 text-rose-400 fill-rose-500/20" />
+              <span>Stop All Downloads</span>
+            </button>
+          )}
         </div>
 
         {/* Device Hardware Spec Bar */}
@@ -312,11 +327,20 @@ export default function ModelHub() {
                       <span>Downloading: {dlState.progressPct}%</span>
                       <span>{dlState.speedMBs} MB/s</span>
                     </div>
-                    <div className="w-full h-2 bg-zinc-800 rounded-full overflow-hidden mb-1">
+                    <div className="w-full h-2 bg-zinc-800 rounded-full overflow-hidden mb-2">
                       <div
                         className="h-full bg-gradient-to-r from-cyan-500 to-indigo-500 transition-all duration-200"
                         style={{ width: `${dlState.progressPct}%` }}
                       />
+                    </div>
+                    <div className="flex justify-end">
+                      <button
+                        onClick={() => pauseDownloadModel(model.id)}
+                        className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-rose-950/60 border border-rose-600/40 text-rose-300 text-[10px] font-bold hover:bg-rose-900 transition-all cursor-pointer"
+                      >
+                        <Octagon className="w-3 h-3 text-rose-400" />
+                        <span>Stop Download</span>
+                      </button>
                     </div>
                   </div>
                 ) : isDownloaded ? (

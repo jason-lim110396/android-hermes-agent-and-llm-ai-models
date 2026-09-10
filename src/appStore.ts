@@ -8,7 +8,11 @@ import {
   isModelCached,
   deleteModelFromCache,
   generateOnDeviceAIImage,
+  abortAllInference,
 } from './inferenceEngine';
+
+// Global tracking for mock/fallback download timers
+const activeDownloadIntervals = new Map<string, NodeJS.Timeout>();
 
 export interface Attachment {
   id: string;
@@ -102,6 +106,7 @@ interface AppStore {
   removeAttachment: (id: string) => void;
   clearAttachments: () => void;
   sendMessage: (userText: string) => Promise<void>;
+  stopAllRunningTasks: () => void;
 
   // Settings & Real LLM Endpoint
   apiEndpoint: string;
@@ -238,10 +243,16 @@ export const useAppStore = create<AppStore>((set, get) => ({
       console.warn('Direct WebLLM network fetch encountered error, completing mobile sandbox staging:', err);
       // Fallback sandbox simulation so user can still test agent & studio on any phone
       let currPct = get().downloads[modelId]?.progressPct || 10;
+      // Clear existing interval if any
+      if (activeDownloadIntervals.has(modelId)) {
+        clearInterval(activeDownloadIntervals.get(modelId)!);
+        activeDownloadIntervals.delete(modelId);
+      }
       const interval = setInterval(() => {
         currPct += 15;
         if (currPct >= 100) {
           clearInterval(interval);
+          activeDownloadIntervals.delete(modelId);
           set((state) => ({
             downloads: {
               ...state.downloads,
@@ -273,10 +284,15 @@ export const useAppStore = create<AppStore>((set, get) => ({
           }));
         }
       }, 300);
+      activeDownloadIntervals.set(modelId, interval);
     }
   },
 
   pauseDownloadModel: (modelId: string) => {
+    if (activeDownloadIntervals.has(modelId)) {
+      clearInterval(activeDownloadIntervals.get(modelId)!);
+      activeDownloadIntervals.delete(modelId);
+    }
     const cur = get().downloads[modelId];
     if (cur) {
       set((state) => ({
@@ -467,6 +483,91 @@ export const useAppStore = create<AppStore>((set, get) => ({
     set({ isSpeaking: false });
   },
 
+  // STOP ALL RUNNING TASKS (Emergency Stop)
+  stopAllRunningTasks: () => {
+    // 1. Stop Speech Synthesis
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      try { window.speechSynthesis.cancel(); } catch (_) {}
+    }
+
+    // 2. Abort active LLM inference, API fetch, or image generation
+    abortAllInference();
+
+    // 3. Stop all background model download interval loops
+    activeDownloadIntervals.forEach((timer) => {
+      try { clearInterval(timer); } catch (_) {}
+    });
+    activeDownloadIntervals.clear();
+
+    // 4. Reset downloading status for all active downloads
+    const currentDownloads = get().downloads;
+    let downloadsChanged = false;
+    const updatedDownloads: Record<string, ModelDownloadState> = { ...currentDownloads };
+    for (const [mId, dState] of Object.entries(currentDownloads)) {
+      if (dState.isDownloading) {
+        updatedDownloads[mId] = {
+          ...dState,
+          isDownloading: false,
+          speedMBs: 0,
+        };
+        downloadsChanged = true;
+      }
+    }
+
+    // 5. Cancel streaming on the current assistant message
+    const opMode = get().operatingMode;
+    if (opMode === 'agent') {
+      const activeId = get().activeAgentSessionId;
+      const sess = get().agentSessions[activeId];
+      if (sess) {
+        const msgs = sess.messages.map((m) => {
+          if (m.isStreaming) {
+            return {
+              ...m,
+              isStreaming: false,
+              content: m.content ? `${m.content}\n\n*[Stopped by user]*` : '*[Task stopped by user]*',
+            };
+          }
+          return m;
+        });
+        set({
+          agentSessions: {
+            ...get().agentSessions,
+            [activeId]: { ...sess, messages: msgs },
+          },
+        });
+      }
+    } else {
+      const activeId = get().activeChatSessionId;
+      const sess = get().chatSessions[activeId];
+      if (sess) {
+        const msgs = sess.messages.map((m) => {
+          if (m.isStreaming) {
+            return {
+              ...m,
+              isStreaming: false,
+              content: m.content ? `${m.content}\n\n*[Stopped by user]*` : '*[Task stopped by user]*',
+            };
+          }
+          return m;
+        });
+        set({
+          chatSessions: {
+            ...get().chatSessions,
+            [activeId]: { ...sess, messages: msgs },
+          },
+        });
+      }
+    }
+
+    // 6. Update global store flags
+    set({
+      isGenerating: false,
+      isSpeaking: false,
+      ...(downloadsChanged ? { downloads: updatedDownloads } : {}),
+    });
+  },
+
   pendingAttachments: [],
   isGenerating: false,
 
@@ -568,13 +669,34 @@ export const useAppStore = create<AppStore>((set, get) => ({
     }
 
     // Run execution (Agent Mode vs Direct Chat Mode)
-    if (operatingMode === 'agent') {
-      await executeHermesAgent(userText, pendingAttachments, assistantMsgId, switchedNotice, activeModelId, set, get);
-    } else {
-      await executeDirectChat(userText, pendingAttachments, assistantMsgId, switchedNotice, activeModelId, set, get);
+    try {
+      if (operatingMode === 'agent') {
+        await executeHermesAgent(userText, pendingAttachments, assistantMsgId, switchedNotice, activeModelId, set, get);
+      } else {
+        await executeDirectChat(userText, pendingAttachments, assistantMsgId, switchedNotice, activeModelId, set, get);
+      }
+    } catch (err: any) {
+      console.warn('Execution stopped or encountered error:', err?.message || err);
+      // Ensure streaming message shows stopped notice if aborted
+      const activeAgentId = get().activeAgentSessionId;
+      const activeChatId = get().activeChatSessionId;
+      const op = get().operatingMode;
+      if (op === 'agent') {
+        const sess = get().agentSessions[activeAgentId];
+        const target = sess?.messages.find((m) => m.id === assistantMsgId);
+        if (target && target.isStreaming) {
+          updateMsg(assistantMsgId, target.agentSteps || [], target.content ? `${target.content}\n\n*[Stopped by user]*` : '*[Task stopped by user]*', false, set, get, 'agent');
+        }
+      } else {
+        const sess = get().chatSessions[activeChatId];
+        const target = sess?.messages.find((m) => m.id === assistantMsgId);
+        if (target && target.isStreaming) {
+          updateMsg(assistantMsgId, [], target.content ? `${target.content}\n\n*[Stopped by user]*` : '*[Task stopped by user]*', false, set, get, 'chat');
+        }
+      }
+    } finally {
+      set({ isGenerating: false });
     }
-
-    set({ isGenerating: false });
   },
 
   systemPrompt: 'You are Hermes AI Agent, a sovereign on-device intelligence. You reason thoroughly, plan autonomously, and utilize local tools with extreme precision.',

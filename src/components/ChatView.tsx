@@ -39,6 +39,7 @@ import {
   PhoneCall,
   Disc,
   Waves,
+  Octagon,
 } from 'lucide-react';
 import { useAppStore, Attachment } from '@/appStore';
 import { AVAILABLE_MODELS, ModelSpec } from '@/models';
@@ -80,6 +81,7 @@ export default function ChatView() {
   const addAttachment = useAppStore((s) => s.addAttachment);
   const removeAttachment = useAppStore((s) => s.removeAttachment);
   const sendMessage = useAppStore((s) => s.sendMessage);
+  const stopAllRunningTasks = useAppStore((s) => s.stopAllRunningTasks);
 
   const [inputVal, setInputVal] = useState('');
   const [isCameraOpen, setIsCameraOpen] = useState(false);
@@ -688,6 +690,23 @@ export default function ChatView() {
             {isVoiceOutputEnabled ? <Volume2 className="w-3.5 h-3.5 animate-pulse" /> : <VolumeX className="w-3.5 h-3.5" />}
           </button>
 
+          {/* Emergency Stop All Running Tasks Button */}
+          <button
+            onClick={() => {
+              stopAllRunningTasks();
+              stopRealtimeVoiceMode();
+            }}
+            title="Stop all running tasks, speech, downloads and generations"
+            className={`flex items-center gap-1 px-2 py-1.5 rounded-xl border transition-all cursor-pointer ${
+              isGenerating || isSpeaking || Object.values(downloads).some((d) => d.isDownloading) || isRealtimeListening
+                ? 'bg-rose-500/20 border-rose-500/50 text-rose-300 hover:bg-rose-500/30 animate-pulse shadow-md shadow-rose-500/20'
+                : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-rose-400 hover:border-rose-500/30'
+            }`}
+          >
+            <Octagon className="w-3.5 h-3.5 text-rose-400 fill-rose-500/20" />
+            <span className="text-[10px] font-bold text-rose-300">Stop All</span>
+          </button>
+
           {/* Clear Current Session History Button */}
           <button
             onClick={clearCurrentConversation}
@@ -1256,14 +1275,25 @@ export default function ChatView() {
               <Mic className="w-4 h-4 group-hover:scale-110 transition-transform" />
             </button>
 
-            {/* Send Button */}
-            <button
-              onClick={handleSend}
-              disabled={(!inputVal.trim() && pendingAttachments.length === 0) || isGenerating}
-              className="p-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white disabled:opacity-30 disabled:cursor-not-allowed shadow-md shadow-cyan-500/20 transition-all cursor-pointer"
-            >
-              <Send className="w-4 h-4" />
-            </button>
+            {/* Send or Stop Generation Button */}
+            {isGenerating ? (
+              <button
+                type="button"
+                onClick={stopAllRunningTasks}
+                title="Stop generation"
+                className="p-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white shadow-md shadow-rose-600/30 transition-all cursor-pointer animate-pulse"
+              >
+                <Square className="w-4 h-4 fill-current" />
+              </button>
+            ) : (
+              <button
+                onClick={handleSend}
+                disabled={(!inputVal.trim() && pendingAttachments.length === 0)}
+                className="p-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white disabled:opacity-30 disabled:cursor-not-allowed shadow-md shadow-cyan-500/20 transition-all cursor-pointer"
+              >
+                <Send className="w-4 h-4" />
+              </button>
+            )}
           </div>
         )}
       </div>
