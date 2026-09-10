@@ -213,14 +213,53 @@ export default function ChatView() {
             try { rec.stop(); } catch (_) {}
             setIsRealtimeListening(false);
             setRealtimeVoiceStatus('thinking');
+            setRealtimeLiveTranscript('');
 
             // Dispatch message to active session
             await sendMessage(promptToSend);
 
-            // After AI finishes responding and speaking, resume listening
+            // After AI finishes generating, get the latest assistant reply and speak it
+            setRealtimeVoiceStatus('speaking');
+
+            // Re-enable voice output and speak final reply aloud
+            // We wait a tiny beat for store state to settle, then grab the last assistant message
+            await new Promise((r) => setTimeout(r, 150));
+            try {
+              const lastEl = document.querySelector('[data-last-assistant]');
+              const rawText = lastEl?.textContent?.trim() ?? '';
+              if (rawText && 'speechSynthesis' in window) {
+                // Strip markdown image/link syntax without regexp for compat
+                let clean = rawText.slice(0, 500);
+                // Remove image markdown ![...](...)
+                while (clean.includes('![') && clean.includes('](')) {
+                  const s = clean.indexOf('![');
+                  const e = clean.indexOf(')', clean.indexOf('](', s));
+                  if (s >= 0 && e >= 0) {
+                    clean = clean.slice(0, s) + clean.slice(e + 1);
+                  } else break;
+                }
+                clean = clean.split('').filter((c: string) => c !== '`' && c !== '*' && c !== '#' && c !== '_' && c !== '~').join('').trim();
+                if (clean) {
+                  window.speechSynthesis.cancel();
+                  const utt = new SpeechSynthesisUtterance(clean);
+                  utt.rate = 1.05;
+                  utt.pitch = 1.0;
+                  const resumeListening = () => {
+                    setRealtimeVoiceStatus('listening');
+                    startRealtimeListening();
+                  };
+                  utt.onend = resumeListening;
+                  utt.onerror = resumeListening;
+                  window.speechSynthesis.speak(utt);
+                  return; // onend will resume listening
+                }
+              }
+            } catch (_err) {}
+
+            // Fallback if no speech available — resume listening immediately
             setRealtimeVoiceStatus('listening');
-            setRealtimeLiveTranscript('');
             startRealtimeListening();
+
           }, 1400);
         }
       };
@@ -527,193 +566,205 @@ export default function ChatView() {
 
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden bg-zinc-950 relative">
-      {/* Top Floating Control Bar */}
-      <div className="px-2.5 py-2 border-b border-zinc-800/80 bg-zinc-950/90 backdrop-blur-md flex items-center justify-between z-20 gap-1.5">
-        {/* Model Selector Dropdown Button (Only shows Ready Models, else prompts download) */}
-        <div className="relative">
-          <button
-            onClick={() => setShowModelPicker(!showModelPicker)}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-zinc-900 border border-zinc-800 text-xs font-bold text-white hover:border-zinc-700 transition-all cursor-pointer max-w-[155px]"
-          >
-            <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse shrink-0" />
-            <span className="truncate">{currentModel?.name || 'Select Model'}</span>
-            <ChevronDown className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
-          </button>
+      {/* ── TOP CONTROL BAR  (2 compact rows) ── */}
+      <div className="border-b border-zinc-800/80 bg-zinc-950/90 backdrop-blur-md z-20">
+        {/* Row 1: Model Selector  |  Text/Voice Tab  |  Chat/Agent Mode */}
+        <div className="px-2 pt-2 pb-1.5 flex items-center gap-1.5 overflow-x-hidden">
+          {/* Model Selector */}
+          <div className="relative shrink-0">
+            <button
+              onClick={() => setShowModelPicker(!showModelPicker)}
+              className="flex items-center gap-1.5 px-2 py-1.5 rounded-xl bg-zinc-900 border border-zinc-800 text-[11px] font-bold text-white hover:border-zinc-700 transition-all cursor-pointer max-w-[140px]"
+            >
+              <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse shrink-0" />
+              <span className="truncate">{currentModel?.name || 'Select Model'}</span>
+              <ChevronDown className="w-3 h-3 text-zinc-400 shrink-0" />
+            </button>
 
-          {/* Model Dropdown Menu */}
-          {showModelPicker && (
-            <div className="absolute left-0 top-full mt-1.5 w-72 bg-zinc-900 border border-zinc-800 rounded-xl shadow-2xl p-1.5 z-30 space-y-1.5 max-h-80 overflow-y-auto">
-              {/* Ready Models Section */}
-              <div className="px-2 py-1 text-[10px] uppercase font-bold text-emerald-400 flex items-center justify-between">
-                <span>Ready Local Models ({readyModels.length})</span>
-                <CheckCircle2 className="w-3 h-3 text-emerald-400" />
-              </div>
-
-              {readyModels.length > 0 ? (
-                readyModels.map((m) => {
-                  const isCur = m.id === selectedModelId;
-                  return (
-                    <button
-                      key={m.id}
-                      onClick={() => {
-                        setSelectedModelId(m.id);
-                        setShowModelPicker(false);
-                      }}
-                      className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs flex items-center justify-between transition-all cursor-pointer ${
-                        isCur
-                          ? 'bg-cyan-500/20 text-cyan-300 font-bold border border-cyan-500/40'
-                          : 'hover:bg-zinc-800 text-zinc-300'
-                      }`}
-                    >
-                      <div className="truncate pr-2">
-                        <div className="truncate font-semibold">{m.name}</div>
-                        <div className="text-[9px] text-zinc-500">{m.parameters} • {m.quantization}</div>
-                      </div>
-                      <span className="text-[9px] text-emerald-400 font-bold px-1.5 py-0.5 rounded bg-emerald-500/10 shrink-0">Active</span>
-                    </button>
-                  );
-                })
-              ) : (
-                <div className="px-2.5 py-2 text-zinc-500 text-[11px] italic bg-zinc-950/60 rounded-lg">
-                  No model downloaded yet. Tap a model below to download.
+            {/* Model Dropdown Menu */}
+            {showModelPicker && (
+              <div className="absolute left-0 top-full mt-1.5 w-72 bg-zinc-900 border border-zinc-800 rounded-xl shadow-2xl p-1.5 z-30 space-y-1.5 max-h-80 overflow-y-auto">
+                {/* Ready Models Section */}
+                <div className="px-2 py-1 text-[10px] uppercase font-bold text-emerald-400 flex items-center justify-between">
+                  <span>Ready Local Models ({readyModels.length})</span>
+                  <CheckCircle2 className="w-3 h-3 text-emerald-400" />
                 </div>
-              )}
 
-              {/* Unready / Need Download Section */}
-              <div className="pt-2 border-t border-zinc-800 px-2 py-1 text-[10px] uppercase font-bold text-zinc-400 flex items-center justify-between">
-                <span>Downloadable Models ({unreadyModels.length})</span>
-                <Download className="w-3 h-3 text-cyan-400" />
-              </div>
-
-              {unreadyModels.map((m) => (
-                <button
-                  key={m.id}
-                  onClick={() => {
-                    setShowModelPicker(false);
-                    setModelPromptDownload(m);
-                  }}
-                  className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs flex items-center justify-between hover:bg-zinc-800/80 text-zinc-400 transition-all cursor-pointer"
-                >
-                  <div className="truncate pr-2">
-                    <div className="truncate text-zinc-300">{m.name}</div>
-                    <div className="text-[9px] text-zinc-500">{(m.sizeMB / 1024).toFixed(1)} GB • {m.family}</div>
+                {readyModels.length > 0 ? (
+                  readyModels.map((m) => {
+                    const isCur = m.id === selectedModelId;
+                    // In voice mode, highlight models that support voice/text output
+                    const supportsVoice = m.outputTypes?.includes('audio') || m.outputTypes?.includes('text');
+                    return (
+                      <button
+                        key={m.id}
+                        onClick={() => {
+                          setSelectedModelId(m.id);
+                          setShowModelPicker(false);
+                        }}
+                        className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs flex items-center justify-between transition-all cursor-pointer ${
+                          isCur
+                            ? 'bg-cyan-500/20 text-cyan-300 font-bold border border-cyan-500/40'
+                            : 'hover:bg-zinc-800 text-zinc-300'
+                        }`}
+                      >
+                        <div className="truncate pr-2">
+                          <div className="truncate font-semibold">{m.name}</div>
+                          <div className="text-[9px] text-zinc-500">{m.parameters} • {m.quantization}
+                            {chatTabMode === 'voice' && !supportsVoice && (
+                              <span className="ml-1 text-amber-500/80">· no voice</span>
+                            )}
+                          </div>
+                        </div>
+                        <span className="text-[9px] text-emerald-400 font-bold px-1.5 py-0.5 rounded bg-emerald-500/10 shrink-0">Active</span>
+                      </button>
+                    );
+                  })
+                ) : (
+                  <div className="px-2.5 py-2 text-zinc-500 text-[11px] italic bg-zinc-950/60 rounded-lg">
+                    No model downloaded yet. Tap a model below to download.
                   </div>
-                  <span className="text-[9px] text-cyan-400 font-bold px-1.5 py-0.5 rounded bg-cyan-500/10 border border-cyan-500/30 shrink-0 flex items-center gap-1">
-                    <Download className="w-2.5 h-2.5" />
-                    <span>Get</span>
-                  </span>
-                </button>
-              ))}
-            </div>
-          )}
+                )}
+
+                {/* Unready / Need Download Section */}
+                <div className="pt-2 border-t border-zinc-800 px-2 py-1 text-[10px] uppercase font-bold text-zinc-400 flex items-center justify-between">
+                  <span>Downloadable Models ({unreadyModels.length})</span>
+                  <Download className="w-3 h-3 text-cyan-400" />
+                </div>
+
+                {unreadyModels.map((m) => (
+                  <button
+                    key={m.id}
+                    onClick={() => {
+                      setShowModelPicker(false);
+                      setModelPromptDownload(m);
+                    }}
+                    className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs flex items-center justify-between hover:bg-zinc-800/80 text-zinc-400 transition-all cursor-pointer"
+                  >
+                    <div className="truncate pr-2">
+                      <div className="truncate text-zinc-300">{m.name}</div>
+                      <div className="text-[9px] text-zinc-500">{(m.sizeMB / 1024).toFixed(1)} GB • {m.family}</div>
+                    </div>
+                    <span className="text-[9px] text-cyan-400 font-bold px-1.5 py-0.5 rounded bg-cyan-500/10 border border-cyan-500/30 shrink-0 flex items-center gap-1">
+                      <Download className="w-2.5 h-2.5" />
+                      <span>Get</span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Text vs Voice Tab Switcher */}
+          <div className="flex items-center gap-0.5 bg-zinc-900 border border-zinc-800 p-0.5 rounded-xl shrink-0">
+            <button
+              onClick={() => setChatTabMode('text')}
+              className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${
+                chatTabMode === 'text'
+                  ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-md shadow-cyan-500/20'
+                  : 'text-zinc-400 hover:text-white'
+              }`}
+            >
+              <MessageSquare className="w-3 h-3" />
+              <span>Text</span>
+            </button>
+            <button
+              onClick={() => {
+                setChatTabMode('voice');
+                setIsVoiceOutputEnabled(true); // Always enable voice output when entering live voice mode
+                startRealtimeListening();
+              }}
+              className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${
+                chatTabMode === 'voice'
+                  ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-black font-extrabold shadow-md shadow-emerald-500/20'
+                  : 'text-zinc-400 hover:text-emerald-400'
+              }`}
+            >
+              <Headphones className="w-3 h-3" />
+              <span>Live</span>
+            </button>
+          </div>
+
+          {/* Operating Mode Switcher (Chat vs Hermes Agent) */}
+          <div className="flex items-center gap-0.5 bg-zinc-900 border border-zinc-800 p-0.5 rounded-xl shrink-0">
+            <button
+              onClick={() => setOperatingMode('chat')}
+              className={`px-2 py-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${
+                operatingMode === 'chat'
+                  ? 'bg-zinc-800 text-white'
+                  : 'text-zinc-400 hover:text-white'
+              }`}
+            >
+              Chat
+            </button>
+            <button
+              onClick={() => setOperatingMode('agent')}
+              className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${
+                operatingMode === 'agent'
+                  ? 'bg-indigo-600 text-white shadow-md'
+                  : 'text-zinc-400 hover:text-white'
+              }`}
+            >
+              <Bot className="w-3 h-3" />
+              <span>Agent</span>
+            </button>
+          </div>
         </div>
 
-        {/* Text vs Voice Tab Switcher */}
-        <div className="flex items-center gap-0.5 bg-zinc-900 border border-zinc-800 p-0.5 rounded-xl">
-          <button
-            onClick={() => setChatTabMode('text')}
-            className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${
-              chatTabMode === 'text'
-                ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-md shadow-cyan-500/20'
-                : 'text-zinc-400 hover:text-white'
-            }`}
-          >
-            <MessageSquare className="w-3 h-3" />
-            <span>Text</span>
-          </button>
-          <button
-            onClick={() => {
-              setChatTabMode('voice');
-              startRealtimeListening();
-            }}
-            className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${
-              chatTabMode === 'voice'
-                ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-black font-extrabold shadow-md shadow-emerald-500/20 animate-pulse'
-                : 'text-zinc-400 hover:text-emerald-400'
-            }`}
-          >
-            <Headphones className="w-3 h-3" />
-            <span>Live Voice</span>
-          </button>
-        </div>
-
-        {/* Operating Mode Switcher (Chat vs Hermes Agent) */}
-        <div className="hidden sm:flex items-center gap-0.5 bg-zinc-900 border border-zinc-800 p-0.5 rounded-xl">
-          <button
-            onClick={() => setOperatingMode('chat')}
-            className={`px-2 py-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${
-              operatingMode === 'chat'
-                ? 'bg-zinc-800 text-white'
-                : 'text-zinc-400 hover:text-white'
-            }`}
-          >
-            Chat
-          </button>
-          <button
-            onClick={() => setOperatingMode('agent')}
-            className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${
-              operatingMode === 'agent'
-                ? 'bg-indigo-600 text-white shadow-md'
-                : 'text-zinc-400 hover:text-white'
-            }`}
-          >
-            <Bot className="w-3 h-3" />
-            <span>Agent</span>
-          </button>
-        </div>
-
-        {/* Action Controls: New Session, Speech Toggle, Clear */}
-        <div className="flex items-center gap-1">
-          {/* New Session Button */}
+        {/* Row 2: Action buttons */}
+        <div className="px-2 pb-2 flex items-center gap-1.5">
+          {/* New Session */}
           <button
             onClick={() => createNewSession()}
             title="New Chat / New Hermes Session"
-            className="flex items-center gap-1 px-2 py-1.5 rounded-xl bg-zinc-900 border border-zinc-800 hover:border-cyan-500/50 text-cyan-400 text-xs font-bold transition-all cursor-pointer"
+            className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-zinc-900 border border-zinc-800 hover:border-cyan-500/50 text-cyan-400 text-[10px] font-bold transition-all cursor-pointer"
           >
             <Plus className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline text-[10px]">New</span>
+            <span>New</span>
           </button>
 
-          {/* Voice Speech Toggle */}
+          {/* Voice Output Toggle */}
           <button
             onClick={() => {
               if (isSpeaking) stopSpeaking();
               setIsVoiceOutputEnabled(!isVoiceOutputEnabled);
             }}
-            title={isVoiceOutputEnabled ? 'Voice reply enabled (tap to mute)' : 'Voice reply muted (tap to enable)'}
-            className={`p-1.5 rounded-lg border transition-all cursor-pointer ${
+            title={isVoiceOutputEnabled ? 'Voice reply ON – tap to mute' : 'Voice reply muted – tap to enable'}
+            className={`flex items-center gap-1 px-2.5 py-1 rounded-xl border text-[10px] font-bold transition-all cursor-pointer ${
               isVoiceOutputEnabled
                 ? 'bg-cyan-500/20 border-cyan-500/40 text-cyan-300'
                 : 'bg-zinc-900 border-zinc-800 text-zinc-500'
             }`}
           >
-            {isVoiceOutputEnabled ? <Volume2 className="w-3.5 h-3.5 animate-pulse" /> : <VolumeX className="w-3.5 h-3.5" />}
+            {isVoiceOutputEnabled ? <Volume2 className="w-3.5 h-3.5" /> : <VolumeX className="w-3.5 h-3.5" />}
+            <span>{isVoiceOutputEnabled ? 'Voice On' : 'Muted'}</span>
           </button>
 
-          {/* Emergency Stop All Running Tasks Button */}
+          {/* Emergency Stop All */}
           <button
             onClick={() => {
               stopAllRunningTasks();
               stopRealtimeVoiceMode();
             }}
             title="Stop all running tasks, speech, downloads and generations"
-            className={`flex items-center gap-1 px-2 py-1.5 rounded-xl border transition-all cursor-pointer ${
+            className={`flex items-center gap-1 px-2.5 py-1 rounded-xl border text-[10px] font-bold transition-all cursor-pointer ${
               isGenerating || isSpeaking || Object.values(downloads).some((d) => d.isDownloading) || isRealtimeListening
                 ? 'bg-rose-500/20 border-rose-500/50 text-rose-300 hover:bg-rose-500/30 animate-pulse shadow-md shadow-rose-500/20'
                 : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-rose-400 hover:border-rose-500/30'
             }`}
           >
-            <Octagon className="w-3.5 h-3.5 text-rose-400 fill-rose-500/20" />
-            <span className="text-[10px] font-bold text-rose-300">Stop All</span>
+            <Octagon className="w-3.5 h-3.5 fill-rose-500/20" />
+            <span>Stop All</span>
           </button>
 
-          {/* Clear Current Session History Button */}
+          {/* Clear Session */}
           <button
             onClick={clearCurrentConversation}
             title="Clear current session messages"
-            className="p-1.5 rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-rose-400 transition-all cursor-pointer"
+            className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-rose-400 hover:border-rose-500/30 text-[10px] font-bold transition-all cursor-pointer"
           >
             <Trash2 className="w-3.5 h-3.5" />
+            <span>Clear</span>
           </button>
         </div>
       </div>
@@ -876,7 +927,17 @@ export default function ChatView() {
               <div className="bg-zinc-900/90 border border-zinc-800 rounded-2xl p-3 shadow-xl max-h-32 overflow-y-auto">
                 <span className="text-[10px] uppercase font-bold text-cyan-400 block mb-1">Hermes AI Replied:</span>
                 <p className="text-xs text-zinc-200 line-clamp-3 leading-relaxed">
-                  {messages[messages.length - 1].content.replace(/!\[.*?\]\(.*?\)/g, '')}
+                  {(() => {
+                    const raw = messages[messages.length - 1].content;
+                    // Strip image data URLs from voice subtitle card
+                    const idx = raw.indexOf('](data:image');
+                    if (idx > 0) {
+                      const start = raw.lastIndexOf('![', idx);
+                      const end = raw.indexOf(')', idx);
+                      if (start >= 0 && end >= 0) return raw.slice(0, start) + raw.slice(end + 1);
+                    }
+                    return raw;
+                  })()}
                 </p>
               </div>
             ) : null}
@@ -928,7 +989,7 @@ export default function ChatView() {
             {messages.map((msg) => {
               const isUser = msg.role === 'user';
               const isStepsOpen = expandedSteps[msg.id] ?? true;
-
+            const lastAssistantId = messages.filter(m => m.role === 'assistant' && !m.isStreaming).at(-1)?.id;
           return (
             <div
               key={msg.id}
@@ -940,7 +1001,10 @@ export default function ChatView() {
                 </div>
               )}
 
-              <div className={`flex flex-col ${isUser ? 'items-end' : 'items-start'} max-w-[90%] sm:max-w-[85%]`}>
+              <div
+                className={`flex flex-col ${isUser ? 'items-end' : 'items-start'} max-w-[90%] sm:max-w-[85%]`}
+                data-last-assistant={(!isUser && msg.id === lastAssistantId) ? 'true' : undefined}
+              >
                 {/* Message Meta */}
                 <div className="flex items-center gap-2 mb-1 text-[10px] text-zinc-400 px-1">
                   <span>{isUser ? 'You' : msg.modelUsed || 'Hermes AI'}</span>
@@ -1072,49 +1136,53 @@ export default function ChatView() {
                 )}
 
                 {/* Message Bubble */}
-                <div
-                  className={`p-3 rounded-2xl text-xs leading-relaxed ${
-                    isUser
-                      ? 'bg-cyan-600 text-white rounded-br-xs shadow-md'
-                      : 'bg-zinc-900 border border-zinc-800 text-zinc-200 rounded-bl-xs shadow-md'
-                  }`}
-                >
-                  {/* If message has generated image markdown ![alt](data:image...) */}
-                  {msg.content.includes('![') && msg.content.includes('](data:image') ? (
-                    <div className="space-y-2">
-                      {(() => {
-                        const match = msg.content.match(/!\[(.*?)\]\((data:image\/[^)]+)\)/);
-                        const caption = match ? match[1] : '';
-                        const imgSrc = match ? match[2] : '';
-                        const remainingText = msg.content.replace(/!\[(.*?)\]\((data:image\/[^)]+)\)/, '').trim();
+                {/* For image-gen messages, make the bubble wider (up to full column width) with no padding */}
+                {msg.content.includes('![') && msg.content.includes('](data:image') ? (
+                  <div className="w-full rounded-2xl overflow-hidden border border-zinc-700/80 bg-zinc-950 shadow-xl">
+                    {(() => {
+                      // Manual parsing to avoid regexp literals that trigger Turbopack issues
+                      const content = msg.content;
+                      const imgStart = content.indexOf('](data:image');
+                      const altStart = imgStart > 0 ? content.lastIndexOf('![', imgStart) : -1;
+                      const imgUrlEnd = imgStart > 0 ? content.indexOf(')', imgStart) : -1;
+                      const caption = altStart >= 0 && imgStart > altStart ? content.slice(altStart + 2, imgStart) : '';
+                      const imgSrc = imgStart >= 0 && imgUrlEnd > imgStart ? content.slice(imgStart + 2, imgUrlEnd) : '';
+                      const remainingText = (altStart >= 0 && imgUrlEnd >= 0)
+                        ? (content.slice(0, altStart) + content.slice(imgUrlEnd + 1)).trim()
+                        : content.trim();
 
-                        return (
-                          <>
-                            {imgSrc && (
-                              <div className="rounded-xl overflow-hidden border border-zinc-700/80 my-1 bg-black shadow-lg">
-                                {/* eslint-disable-next-line @next/next/no-img-element */}
-                                <img
-                                  src={imgSrc}
-                                  alt={caption || 'Generated AI Image'}
-                                  className="w-full max-h-72 object-contain mx-auto"
-                                />
-                              </div>
-                            )}
-                            {remainingText && (
-                              <div className="whitespace-pre-wrap font-sans text-xs">
-                                {remainingText}
-                              </div>
-                            )}
-                          </>
-                        );
-                      })()}
-                    </div>
-                  ) : (
+                      return (
+                        <>
+                          {imgSrc && (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              src={imgSrc}
+                              alt={caption || 'Generated AI Image'}
+                              className="w-full object-cover block"
+                            />
+                          )}
+                          {remainingText && (
+                            <div className="p-2.5 text-xs text-zinc-300 whitespace-pre-wrap font-sans border-t border-zinc-800/80 bg-zinc-900">
+                              {remainingText}
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()}
+                  </div>
+                ) : (
+                  <div
+                    className={`p-3 rounded-2xl text-xs leading-relaxed ${
+                      isUser
+                        ? 'bg-cyan-600 text-white rounded-br-xs shadow-md'
+                        : 'bg-zinc-900 border border-zinc-800 text-zinc-200 rounded-bl-xs shadow-md'
+                    }`}
+                  >
                     <div className="whitespace-pre-wrap font-sans text-xs">
                       {msg.content || (msg.isStreaming ? 'Thinking...' : '')}
                     </div>
-                  )}
-                </div>
+                  </div>
+                )}
               </div>
 
               {isUser && (
