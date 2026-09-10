@@ -57,6 +57,8 @@ interface AppStore {
   // Active Modes
   operatingMode: 'chat' | 'agent'; // Direct Chat vs Hermes Autonomous Agent
   setOperatingMode: (mode: 'chat' | 'agent') => void;
+  chatTabMode: 'text' | 'voice'; // Text Chat vs Real-Time Hands-Free Voice Mode
+  setChatTabMode: (mode: 'text' | 'voice') => void;
 
   // Active Model
   selectedModelId: string;
@@ -125,6 +127,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
   operatingMode: 'agent', // Default to Hermes Autonomous Agent!
   setOperatingMode: (mode) => set({ operatingMode: mode }),
+  chatTabMode: 'text',
+  setChatTabMode: (mode) => set({ chatTabMode: mode }),
 
   selectedModelId: 'hermes-3-llama-3.2-3b',
   setSelectedModelId: (id) => set({ selectedModelId: id }),

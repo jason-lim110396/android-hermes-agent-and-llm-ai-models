@@ -34,6 +34,11 @@ import {
   HardDrive,
   Activity,
   Gauge,
+  MessageSquare,
+  Headphones,
+  PhoneCall,
+  Disc,
+  Waves,
 } from 'lucide-react';
 import { useAppStore, Attachment } from '@/appStore';
 import { AVAILABLE_MODELS, ModelSpec } from '@/models';
@@ -43,6 +48,8 @@ export default function ChatView() {
   const hardwareProfile = useAppStore((s) => s.hardwareProfile);
   const operatingMode = useAppStore((s) => s.operatingMode);
   const setOperatingMode = useAppStore((s) => s.setOperatingMode);
+  const chatTabMode = useAppStore((s) => s.chatTabMode);
+  const setChatTabMode = useAppStore((s) => s.setChatTabMode);
   const selectedModelId = useAppStore((s) => s.selectedModelId);
   const setSelectedModelId = useAppStore((s) => s.setSelectedModelId);
   const autoSwitchVision = useAppStore((s) => s.autoSwitchVision);
@@ -131,6 +138,132 @@ export default function ChatView() {
   const voiceTimerRef = useRef<any>(null);
   const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
   const currentTranscriptRef = useRef<string>('');
+
+  // Real-Time Live Conversational Voice State (Like ChatGPT Voice / Gemini Live)
+  const [isRealtimeListening, setIsRealtimeListening] = useState(false);
+  const [realtimeVoiceStatus, setRealtimeVoiceStatus] = useState<'idle' | 'listening' | 'thinking' | 'speaking'>('idle');
+  const [realtimeLiveTranscript, setRealtimeLiveTranscript] = useState<string>('');
+  const realtimeRecRef = useRef<any>(null);
+  const realtimeSilenceTimerRef = useRef<any>(null);
+
+  // Stop real-time voice session
+  const stopRealtimeVoiceMode = () => {
+    setIsRealtimeListening(false);
+    setRealtimeVoiceStatus('idle');
+    setRealtimeLiveTranscript('');
+    if (realtimeSilenceTimerRef.current) clearTimeout(realtimeSilenceTimerRef.current);
+    if (realtimeRecRef.current) {
+      try {
+        realtimeRecRef.current.onend = null;
+        realtimeRecRef.current.stop();
+      } catch (_) {}
+      realtimeRecRef.current = null;
+    }
+    stopSpeaking();
+  };
+
+  // Start continuous hands-free real-time listening
+  const startRealtimeListening = () => {
+    if (typeof window === 'undefined') return;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRec) {
+      alert('Speech Recognition is not supported by your browser/webview. You can use text mode or your keyboard mic.');
+      return;
+    }
+
+    try {
+      if (realtimeRecRef.current) {
+        try { realtimeRecRef.current.stop(); } catch (_) {}
+      }
+
+      const rec = new SpeechRec();
+      rec.lang = 'en-US';
+      rec.continuous = true;
+      rec.interimResults = true;
+
+      rec.onstart = () => {
+        setIsRealtimeListening(true);
+        setRealtimeVoiceStatus('listening');
+      };
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      rec.onresult = (event: any) => {
+        const transcript = Array.from(event.results)
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          .map((res: any) => res[0].transcript)
+          .join(' ');
+
+        if (transcript.trim()) {
+          setRealtimeLiveTranscript(transcript);
+          setRealtimeVoiceStatus('listening');
+
+          // Reset silence timer on new speech tokens
+          if (realtimeSilenceTimerRef.current) clearTimeout(realtimeSilenceTimerRef.current);
+
+          // Auto-VAD: After 1.4s of silence following user speech, dispatch to LLM!
+          realtimeSilenceTimerRef.current = setTimeout(async () => {
+            const promptToSend = transcript.trim();
+            if (!promptToSend) return;
+
+            // Pause listening while LLM thinks & speaks
+            try { rec.stop(); } catch (_) {}
+            setIsRealtimeListening(false);
+            setRealtimeVoiceStatus('thinking');
+
+            // Dispatch message to active session
+            await sendMessage(promptToSend);
+
+            // After AI finishes responding and speaking, resume listening
+            setRealtimeVoiceStatus('listening');
+            setRealtimeLiveTranscript('');
+            startRealtimeListening();
+          }, 1400);
+        }
+      };
+
+      rec.onerror = (e: any) => {
+        console.warn('Real-time Speech Recognition notice:', e?.error);
+      };
+
+      rec.onend = () => {
+        // If still in real-time voice mode and not generating, keep listening alive
+        if (chatTabMode === 'voice' && !isGenerating && realtimeVoiceStatus !== 'thinking' && realtimeVoiceStatus !== 'speaking') {
+          try { rec.start(); } catch (_) {}
+        }
+      };
+
+      rec.start();
+      realtimeRecRef.current = rec;
+      setIsRealtimeListening(true);
+      setRealtimeVoiceStatus('listening');
+    } catch (err) {
+      console.warn('Could not start continuous speech engine:', err);
+      setIsRealtimeListening(false);
+      setRealtimeVoiceStatus('idle');
+    }
+  };
+
+  // Sync real-time voice mode status with AI speaking / generating lifecycle
+  React.useEffect(() => {
+    if (chatTabMode === 'voice') {
+      if (isSpeaking) {
+        setRealtimeVoiceStatus('speaking');
+      } else if (isGenerating) {
+        setRealtimeVoiceStatus('thinking');
+      } else if (isRealtimeListening) {
+        setRealtimeVoiceStatus('listening');
+      }
+    }
+  }, [isSpeaking, isGenerating, isRealtimeListening, chatTabMode]);
+
+  // Clean up real-time voice if leaving voice tab
+  React.useEffect(() => {
+    if (chatTabMode !== 'voice') {
+      stopRealtimeVoiceMode();
+    }
+  }, [chatTabMode]);
 
   // Start WhatsApp-Style Voice Recording
   const startWhatsAppVoiceRecording = async () => {
@@ -473,13 +606,42 @@ export default function ChatView() {
           )}
         </div>
 
-        {/* Operating Mode Switcher (Chat vs Hermes Agent) */}
+        {/* Text vs Voice Tab Switcher */}
         <div className="flex items-center gap-0.5 bg-zinc-900 border border-zinc-800 p-0.5 rounded-xl">
+          <button
+            onClick={() => setChatTabMode('text')}
+            className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${
+              chatTabMode === 'text'
+                ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-md shadow-cyan-500/20'
+                : 'text-zinc-400 hover:text-white'
+            }`}
+          >
+            <MessageSquare className="w-3 h-3" />
+            <span>Text</span>
+          </button>
+          <button
+            onClick={() => {
+              setChatTabMode('voice');
+              startRealtimeListening();
+            }}
+            className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${
+              chatTabMode === 'voice'
+                ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-black font-extrabold shadow-md shadow-emerald-500/20 animate-pulse'
+                : 'text-zinc-400 hover:text-emerald-400'
+            }`}
+          >
+            <Headphones className="w-3 h-3" />
+            <span>Live Voice</span>
+          </button>
+        </div>
+
+        {/* Operating Mode Switcher (Chat vs Hermes Agent) */}
+        <div className="hidden sm:flex items-center gap-0.5 bg-zinc-900 border border-zinc-800 p-0.5 rounded-xl">
           <button
             onClick={() => setOperatingMode('chat')}
             className={`px-2 py-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${
               operatingMode === 'chat'
-                ? 'bg-cyan-500 text-black shadow-md'
+                ? 'bg-zinc-800 text-white'
                 : 'text-zinc-400 hover:text-white'
             }`}
           >
@@ -489,7 +651,7 @@ export default function ChatView() {
             onClick={() => setOperatingMode('agent')}
             className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${
               operatingMode === 'agent'
-                ? 'bg-gradient-to-r from-indigo-500 to-cyan-500 text-white shadow-md'
+                ? 'bg-indigo-600 text-white shadow-md'
                 : 'text-zinc-400 hover:text-white'
             }`}
           >
@@ -592,11 +754,161 @@ export default function ChatView() {
         </div>
       )}
 
-      {/* Messages Thread */}
-      <div className="flex-1 overflow-y-auto p-3 space-y-3">
-        {messages.map((msg) => {
-          const isUser = msg.role === 'user';
-          const isStepsOpen = expandedSteps[msg.id] ?? true;
+      {/* MAIN VIEW: TEXT MODE VS REAL-TIME HANDS-FREE VOICE MODE */}
+      {chatTabMode === 'voice' ? (
+        /* Real-Time Hands-Free Conversational Voice Screen (ChatGPT Voice / Gemini Live Style) */
+        <div className="flex-1 flex flex-col items-center justify-between p-6 bg-gradient-to-b from-zinc-950 via-zinc-900 to-zinc-950 relative overflow-hidden select-none">
+          {/* Ambient Glows */}
+          <div className="absolute top-1/4 w-72 h-72 rounded-full bg-cyan-500/10 blur-3xl pointer-events-none" />
+          <div className="absolute bottom-1/4 w-72 h-72 rounded-full bg-indigo-500/10 blur-3xl pointer-events-none" />
+
+          {/* Top Voice Header Status */}
+          <div className="flex flex-col items-center gap-2 text-center z-10 pt-4">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-zinc-900/90 border border-zinc-800 text-xs font-bold shadow-lg">
+              <span className={`w-2.5 h-2.5 rounded-full ${
+                realtimeVoiceStatus === 'listening'
+                  ? 'bg-emerald-400 animate-ping'
+                  : realtimeVoiceStatus === 'thinking'
+                  ? 'bg-amber-400 animate-pulse'
+                  : realtimeVoiceStatus === 'speaking'
+                  ? 'bg-cyan-400 animate-bounce'
+                  : 'bg-zinc-500'
+              }`} />
+              <span className="capitalize text-zinc-200">
+                {realtimeVoiceStatus === 'listening'
+                  ? 'Listening to you...'
+                  : realtimeVoiceStatus === 'thinking'
+                  ? 'Thinking...'
+                  : realtimeVoiceStatus === 'speaking'
+                  ? 'Hermes is Speaking...'
+                  : 'Tap Microphone to Speak'}
+              </span>
+            </div>
+            <p className="text-xs text-zinc-400 max-w-xs">
+              Hands-free continuous conversation with on-device model <strong>{currentModel?.name}</strong>. Speak naturally!
+            </p>
+          </div>
+
+          {/* Central Live Neural Audio Orb (Siri / Gemini Live Style) */}
+          <div className="relative flex items-center justify-center my-auto z-10">
+            {/* Outer Ripple Rings */}
+            <div className={`absolute w-64 h-64 rounded-full border border-cyan-500/20 transition-all duration-700 ${
+              realtimeVoiceStatus === 'listening' || realtimeVoiceStatus === 'speaking'
+                ? 'scale-125 opacity-70 animate-ping'
+                : 'scale-90 opacity-20'
+            }`} />
+            <div className={`absolute w-52 h-52 rounded-full border border-indigo-500/30 transition-all duration-500 ${
+              realtimeVoiceStatus === 'listening' || realtimeVoiceStatus === 'speaking'
+                ? 'scale-110 opacity-80'
+                : 'scale-95 opacity-30'
+            }`} />
+
+            {/* Glowing Core Sphere */}
+            <button
+              onClick={() => {
+                if (isRealtimeListening) {
+                  stopRealtimeVoiceMode();
+                } else {
+                  startRealtimeListening();
+                }
+              }}
+              className={`relative w-36 h-36 rounded-full flex flex-col items-center justify-center shadow-2xl transition-all duration-300 cursor-pointer ${
+                realtimeVoiceStatus === 'listening'
+                  ? 'bg-gradient-to-tr from-emerald-600 via-teal-500 to-cyan-400 shadow-emerald-500/40 scale-105'
+                  : realtimeVoiceStatus === 'thinking'
+                  ? 'bg-gradient-to-tr from-amber-600 via-orange-500 to-yellow-400 shadow-amber-500/40 animate-spin-slow'
+                  : realtimeVoiceStatus === 'speaking'
+                  ? 'bg-gradient-to-tr from-cyan-500 via-indigo-600 to-fuchsia-500 shadow-cyan-500/50 scale-110'
+                  : 'bg-zinc-800 border-2 border-zinc-700 hover:border-zinc-500 text-zinc-400'
+              }`}
+            >
+              {realtimeVoiceStatus === 'listening' ? (
+                <div className="flex flex-col items-center text-black">
+                  <Waves className="w-10 h-10 animate-pulse" />
+                  <span className="text-[10px] font-black uppercase mt-1">Listening</span>
+                </div>
+              ) : realtimeVoiceStatus === 'thinking' ? (
+                <div className="flex flex-col items-center text-white">
+                  <Sparkles className="w-10 h-10 animate-bounce" />
+                  <span className="text-[10px] font-black uppercase mt-1">Thinking</span>
+                </div>
+              ) : realtimeVoiceStatus === 'speaking' ? (
+                <div className="flex flex-col items-center text-white">
+                  <Volume2 className="w-10 h-10 animate-pulse" />
+                  <span className="text-[10px] font-black uppercase mt-1">Speaking</span>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center text-zinc-300">
+                  <Mic className="w-10 h-10" />
+                  <span className="text-[10px] font-black uppercase mt-1">Tap to Start</span>
+                </div>
+              )}
+            </button>
+          </div>
+
+          {/* Subtitle / Live Transcript Card */}
+          <div className="w-full max-w-md z-10 space-y-3">
+            {realtimeLiveTranscript ? (
+              <div className="bg-zinc-900/90 border border-emerald-500/30 rounded-2xl p-3 shadow-xl text-center animate-in fade-in">
+                <span className="text-[10px] uppercase font-bold text-emerald-400 block mb-1">You Are Saying:</span>
+                <p className="text-sm text-white font-medium italic">"{realtimeLiveTranscript}"</p>
+              </div>
+            ) : messages.length > 0 && messages[messages.length - 1].role === 'assistant' ? (
+              <div className="bg-zinc-900/90 border border-zinc-800 rounded-2xl p-3 shadow-xl max-h-32 overflow-y-auto">
+                <span className="text-[10px] uppercase font-bold text-cyan-400 block mb-1">Hermes AI Replied:</span>
+                <p className="text-xs text-zinc-200 line-clamp-3 leading-relaxed">
+                  {messages[messages.length - 1].content.replace(/!\[.*?\]\(.*?\)/g, '')}
+                </p>
+              </div>
+            ) : null}
+
+            {/* Bottom Real-Time Voice Controls */}
+            <div className="flex items-center justify-center gap-4 pt-2">
+              <button
+                onClick={() => setChatTabMode('text')}
+                className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-zinc-300 text-xs font-bold transition-all cursor-pointer shadow-lg"
+              >
+                <MessageSquare className="w-4 h-4 text-cyan-400" />
+                <span>Switch to Text</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  if (isRealtimeListening) {
+                    stopRealtimeVoiceMode();
+                  } else {
+                    startRealtimeListening();
+                  }
+                }}
+                className={`flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-lg ${
+                  isRealtimeListening
+                    ? 'bg-rose-950/80 border border-rose-500/50 text-rose-300 hover:bg-rose-900'
+                    : 'bg-emerald-500 text-black font-extrabold hover:bg-emerald-400'
+                }`}
+              >
+                {isRealtimeListening ? (
+                  <>
+                    <Square className="w-4 h-4 fill-current" />
+                    <span>Pause Listening</span>
+                  </>
+                ) : (
+                  <>
+                    <Play className="w-4 h-4 fill-current" />
+                    <span>Resume Live Voice</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : (
+        /* STANDARD TEXT & MULTIMODAL CHAT TIMELINE */
+        <>
+          {/* Messages Thread */}
+          <div className="flex-1 overflow-y-auto p-3 space-y-3">
+            {messages.map((msg) => {
+              const isUser = msg.role === 'user';
+              const isStepsOpen = expandedSteps[msg.id] ?? true;
 
           return (
             <div
@@ -955,6 +1267,8 @@ export default function ChatView() {
           </div>
         )}
       </div>
+      </>
+      )}
 
       {/* Unready Model Download Prompt Modal */}
       {modelPromptDownload && (
