@@ -1,4 +1,4 @@
-# 🤖 Hermes AI Agent & Local LLM Studio for Android
+# 🤖 Hermes AI Agent & Local LLM Studio for Android *Beta
 
 [![Android](https://img.shields.io/badge/Platform-Android%20%7C%20WebGPU-green.svg)](https://developer.android.com/)
 [![WebLLM](https://img.shields.io/badge/Engine-%40mlc--ai%2Fweb--llm-blue.svg)](https://github.com/mlc-ai/web-llm)
