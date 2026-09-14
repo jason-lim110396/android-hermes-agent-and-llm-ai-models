@@ -5,6 +5,7 @@ import { AgentStep, AGENT_TOOLS } from './agentTools';
 import {
   callRealLLMInference,
   getOrInitWebLLMEngine,
+  downloadModelWeightsOnly,
   isModelCached,
   deleteModelFromCache,
   generateOnDeviceAIImage,
@@ -44,6 +45,7 @@ export interface ModelDownloadState {
   totalMB: number;
   speedMBs: number;
   isReady: boolean;
+  errorMessage?: string;
 }
 
 export interface ChatSession {
@@ -64,11 +66,13 @@ interface AppStore {
   chatTabMode: 'text' | 'voice'; // Text Chat vs Real-Time Hands-Free Voice Mode
   setChatTabMode: (mode: 'text' | 'voice') => void;
 
+  // Real-Time Inference Metrics
+  liveTps: number;
+  setLiveTps: (tps: number) => void;
+
   // Active Model
   selectedModelId: string;
   setSelectedModelId: (id: string) => void;
-  autoSwitchVision: boolean;
-  setAutoSwitchVision: (val: boolean) => void;
 
   // Hardware Profiling
   hardwareProfile: DeviceHardwareProfile | null;
@@ -105,7 +109,7 @@ interface AppStore {
   addAttachment: (att: Attachment) => void;
   removeAttachment: (id: string) => void;
   clearAttachments: () => void;
-  sendMessage: (userText: string) => Promise<void>;
+  sendMessage: (userText: string, options?: { isLive?: boolean }) => Promise<void>;
   stopAllRunningTasks: () => void;
 
   // Performance & Power Efficiency Mode
@@ -134,15 +138,54 @@ export const useAppStore = create<AppStore>((set, get) => ({
   apiKey: '',
   setApiKey: (k) => set({ apiKey: k }),
 
-  operatingMode: 'agent', // Default to Hermes Autonomous Agent!
-  setOperatingMode: (mode) => set({ operatingMode: mode }),
+  operatingMode: (() => {
+    if (typeof window !== 'undefined') {
+      const savedMode = localStorage.getItem('androidllm_operating_mode');
+      if (savedMode === 'chat' || savedMode === 'agent') {
+        return savedMode;
+      }
+    }
+    return 'chat'; // Default to Direct Fast LLM Chat
+  })(),
+  setOperatingMode: (mode) => {
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem('androidllm_operating_mode', mode);
+      } catch (_) {}
+    }
+    set({ operatingMode: mode });
+  },
   chatTabMode: 'text',
   setChatTabMode: (mode) => set({ chatTabMode: mode }),
 
-  selectedModelId: 'hermes-3-llama-3.2-3b',
-  setSelectedModelId: (id) => set({ selectedModelId: id }),
-  autoSwitchVision: true,
-  setAutoSwitchVision: (val) => set({ autoSwitchVision: val }),
+  liveTps: 0,
+  setLiveTps: (tps) => set({ liveTps: tps }),
+
+  selectedModelId: (() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('androidllm_selected_model');
+      if (saved && AVAILABLE_MODELS.some((m) => m.id === saved)) {
+        return saved;
+      }
+    }
+    return 'smollm2-360m-cpu';
+  })(),
+  setSelectedModelId: (id) => {
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem('androidllm_selected_model', id);
+      } catch (_) {}
+    }
+    set({ selectedModelId: id });
+    // Auto-download: if the newly selected model has not been downloaded and isn't already
+    // downloading, kick off the download automatically so users don't have to manually press
+    // the Download button every time they pick a new model.
+    const current = get().downloads[id];
+    if (!current?.isReady && !current?.isDownloading) {
+      // Fire-and-forget — errors are handled inside startDownloadModel
+      get().startDownloadModel(id);
+    }
+  },
 
   hardwareProfile: null,
   isProfiling: false,
@@ -154,14 +197,6 @@ export const useAppStore = create<AppStore>((set, get) => ({
         hardwareProfile: profile,
         isProfiling: false,
       });
-      set({
-        hardwareProfile: profile,
-        isProfiling: false,
-      });
-      // Set recommended model selection
-      if (profile.recommendedModelId) {
-        set({ selectedModelId: profile.recommendedModelId });
-      }
     } catch (_) {
       set({ isProfiling: false });
     }
@@ -185,7 +220,17 @@ export const useAppStore = create<AppStore>((set, get) => ({
         };
       }
     }
-    set({ downloads: updated });
+    // If the currently selected model is NOT downloaded/ready, but another downloaded model is ready,
+    // and the user has saved a preference or has a downloaded model, ensure we honor the user's ready model.
+    const currentSelected = get().selectedModelId;
+    let nextSelected = currentSelected;
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('androidllm_selected_model');
+      if (saved && updated[saved]?.isReady) {
+        nextSelected = saved;
+      }
+    }
+    set({ downloads: updated, selectedModelId: nextSelected });
   },
 
   startDownloadModel: async (modelId: string) => {
@@ -203,13 +248,14 @@ export const useAppStore = create<AppStore>((set, get) => ({
           totalMB: spec.sizeMB,
           speedMBs: 35.0,
           isReady: false,
+          errorMessage: undefined,
         },
       },
     }));
 
     try {
-      // Trigger real WebLLM engine download pipeline
-      await getOrInitWebLLMEngine(modelId, (report) => {
+      // Trigger real WebLLM download: caches weights without occupying the GPU engine
+      await downloadModelWeightsOnly(modelId, (report) => {
         const pct = Math.min(99, Math.max(1, Math.round(report.progress * 100)));
         const dlMB = Math.round((pct / 100) * spec.sizeMB);
         set((state) => ({
@@ -243,52 +289,35 @@ export const useAppStore = create<AppStore>((set, get) => ({
           },
         },
       }));
-    } catch (err) {
-      console.warn('Direct WebLLM network fetch encountered error, completing mobile sandbox staging:', err);
-      // Fallback sandbox simulation so user can still test agent & studio on any phone
-      let currPct = get().downloads[modelId]?.progressPct || 10;
-      // Clear existing interval if any
+    } catch (err: any) {
+      console.error(`WebLLM real weight download failed for ${modelId}:`, err);
+      // Clear any pending download intervals
       if (activeDownloadIntervals.has(modelId)) {
         clearInterval(activeDownloadIntervals.get(modelId)!);
         activeDownloadIntervals.delete(modelId);
       }
-      const interval = setInterval(() => {
-        currPct += 15;
-        if (currPct >= 100) {
-          clearInterval(interval);
-          activeDownloadIntervals.delete(modelId);
-          set((state) => ({
-            downloads: {
-              ...state.downloads,
-              [modelId]: {
-                modelId,
-                isDownloading: false,
-                progressPct: 100,
-                downloadedMB: spec.sizeMB,
-                totalMB: spec.sizeMB,
-                speedMBs: 0,
-                isReady: true,
-              },
-            },
-          }));
-        } else {
-          set((state) => ({
-            downloads: {
-              ...state.downloads,
-              [modelId]: {
-                modelId,
-                isDownloading: true,
-                progressPct: currPct,
-                downloadedMB: Math.round((currPct / 100) * spec.sizeMB),
-                totalMB: spec.sizeMB,
-                speedMBs: 32.4,
-                isReady: false,
-              },
-            },
-          }));
-        }
-      }, 300);
-      activeDownloadIntervals.set(modelId, interval);
+      const rawMsg = err?.message || String(err) || 'Network or WebGPU error';
+      const friendlyMsg = /gpu|adapter|webgpu/i.test(rawMsg)
+        ? 'Your device/browser does not support WebGPU, which real on-device AI requires. Try updating Android System WebView from the Play Store, or use a WebGPU-capable device.'
+        : `Failed to download ${spec.name} weights: ${rawMsg}`;
+      // Set download state to failed/not ready so the user knows real weights were not downloaded.
+      // NOTE: intentionally not re-thrown — ModelHub/ChatView call this fire-and-forget, so a thrown
+      // error here would become an unhandled promise rejection that never reaches the user.
+      set((state) => ({
+        downloads: {
+          ...state.downloads,
+          [modelId]: {
+            modelId,
+            isDownloading: false,
+            progressPct: 0,
+            downloadedMB: 0,
+            totalMB: spec.sizeMB,
+            speedMBs: 0,
+            isReady: false,
+            errorMessage: friendlyMsg,
+          },
+        },
+      }));
     }
   },
 
@@ -460,17 +489,29 @@ export const useAppStore = create<AppStore>((set, get) => ({
     if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
     try {
       window.speechSynthesis.cancel();
-      // Strip markdown syntax and images before speaking
+      // Strip think tags, markdown syntax, and data URLs before speaking
       const clean = text
+        .replace(/<think>[\s\S]*?<\/think>/gi, '') // remove think blocks
+        .replace(/<think>[\s\S]*/gi, '') // remove unclosed think blocks
         .replace(/!\[.*?\]\(.*?\)/g, '') // remove markdown images
         .replace(/\[.*?\]\(.*?\)/g, '')
-        .replace(/[`*#_~]/g, '')
+        .replace(/[`*#_~>]/g, '')
         .trim();
       if (!clean) return;
 
       const utterance = new SpeechSynthesisUtterance(clean.slice(0, 500)); // mobile friendly chunk
-      utterance.rate = 1.05;
+      utterance.rate = 1.0;
       utterance.pitch = 1.0;
+
+      // Select highest quality natural/Google voice available on the device
+      const voices = window.speechSynthesis.getVoices();
+      if (voices && voices.length > 0) {
+        const naturalVoice = voices.find(
+          (v) => (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('Neural') || v.name.includes('Premium')) && v.lang.startsWith('en')
+        ) || voices.find((v) => v.lang.startsWith('en')) || voices[0];
+        if (naturalVoice) utterance.voice = naturalVoice;
+      }
+
       utterance.onstart = () => set({ isSpeaking: true });
       utterance.onend = () => set({ isSpeaking: false });
       utterance.onerror = () => set({ isSpeaking: false });
@@ -568,6 +609,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
     set({
       isGenerating: false,
       isSpeaking: false,
+      liveTps: 0,
       ...(downloadsChanged ? { downloads: updatedDownloads } : {}),
     });
   },
@@ -579,10 +621,9 @@ export const useAppStore = create<AppStore>((set, get) => ({
   removeAttachment: (id) => set((state) => ({ pendingAttachments: state.pendingAttachments.filter((a) => a.id !== id) })),
   clearAttachments: () => set({ pendingAttachments: [] }),
 
-  sendMessage: async (userText: string) => {
+  sendMessage: async (userText: string, options?: { isLive?: boolean }) => {
     const {
       selectedModelId,
-      autoSwitchVision,
       operatingMode,
       pendingAttachments,
       chatSessions,
@@ -594,24 +635,9 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
     if (!userText.trim() && pendingAttachments.length === 0) return;
 
-    let activeModelId = selectedModelId;
-    let switchedNotice = '';
-
-    // Check if attachments contain image or camera
-    const hasVisuals = pendingAttachments.some((a) => a.type === 'image' || a.type === 'camera');
-    const currentModelSpec = AVAILABLE_MODELS.find((m) => m.id === activeModelId);
-
-    // AUTO-SWITCH TO VISION MODEL IF NEEDED
-    if (hasVisuals && autoSwitchVision && currentModelSpec && !currentModelSpec.capabilities.includes('vision')) {
-      const visionCandidate = AVAILABLE_MODELS.find((m) => m.capabilities.includes('vision') && downloads[m.id]?.isReady)
-        || AVAILABLE_MODELS.find((m) => m.capabilities.includes('vision'));
-
-      if (visionCandidate) {
-        activeModelId = visionCandidate.id;
-        set({ selectedModelId: visionCandidate.id });
-        switchedNotice = `[Auto-Switched to Vision Engine: ${visionCandidate.name} to process visual input]\n\n`;
-      }
-    }
+    // Strict manual model choice — no automatic model switching!
+    const activeModelId = selectedModelId;
+    const switchedNotice = '';
 
     const userMessage: ChatMessage = {
       id: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
@@ -675,9 +701,9 @@ export const useAppStore = create<AppStore>((set, get) => ({
     // Run execution (Agent Mode vs Direct Chat Mode)
     try {
       if (operatingMode === 'agent') {
-        await executeHermesAgent(userText, pendingAttachments, assistantMsgId, switchedNotice, activeModelId, set, get);
+        await executeHermesAgent(userText, pendingAttachments, assistantMsgId, switchedNotice, activeModelId, set, get, options?.isLive);
       } else {
-        await executeDirectChat(userText, pendingAttachments, assistantMsgId, switchedNotice, activeModelId, set, get);
+        await executeDirectChat(userText, pendingAttachments, assistantMsgId, switchedNotice, activeModelId, set, get, options?.isLive);
       }
     } catch (err: any) {
       console.warn('Execution stopped or encountered error:', err?.message || err);
@@ -699,7 +725,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
         }
       }
     } finally {
-      set({ isGenerating: false });
+      set({ isGenerating: false, liveTps: 0 });
     }
   },
 
@@ -722,7 +748,8 @@ async function executeHermesAgent(
   prefixNotice: string,
   modelId: string,
   set: any,
-  get: any
+  get: any,
+  isLive?: boolean
 ) {
   const steps: AgentStep[] = [];
   const model = AVAILABLE_MODELS.find((m) => m.id === modelId);
@@ -733,35 +760,46 @@ async function executeHermesAgent(
     initialThought += `Found ${attachments.length} attachment(s) (${attachments.map((a) => a.name || a.type).join(', ')}). `;
   }
 
-  // Determine needed tool
+  // Determine needed tool (Agent mode autonomous reasoning)
   let toolToCall: (typeof AGENT_TOOLS)[0] | null = null;
-  const q = userText.toLowerCase();
+  const q = userText.trim().toLowerCase();
 
-  if (q.includes('search') || q.includes('who') || q.includes('what is') || q.includes('latest') || q.includes('price') || q.includes('weather')) {
+  // Stricter keyword matching for mock agent tools to prevent false positives on general chat
+  const isSearchQuery = /^(search(\s+for)?|look\s*up|google|find\s+online|latest\s+news|what\s+is\s+the\s+weather|current\s+price)\b/i.test(q) ||
+    (/\b(weather in|stock price of|crypto price)\b/i.test(q));
+  const isMathQuery = /^(\d+\s*[\+\-\*\/\^%]|calculate\b|compute\b|solve\b|evaluate\b)/i.test(q);
+  const isDiagQuery = /\b(battery level|battery percentage|device diagnostics|device stats|hardware spec|system info)\b/i.test(q);
+  const isImageGenQuery = /^(generate|draw|create|render|paint)\s+(an?\s+)?(image|picture|photo|artwork|illustration|logo|drawing)\b/i.test(q);
+
+  if (isSearchQuery) {
     toolToCall = AGENT_TOOLS.find((t) => t.name === 'web_search') || null;
     initialThought += 'Decided to call the web_search tool to gather factual grounding.';
-  } else if (q.includes('calculate') || q.includes('math') || q.includes('+') || q.includes('*') || q.includes('sqrt') || q.includes('code')) {
+  } else if (isMathQuery) {
     toolToCall = AGENT_TOOLS.find((t) => t.name === 'code_interpreter') || null;
     initialThought += 'Decided to call code_interpreter sandbox to run precise computation.';
-  } else if (q.includes('device') || q.includes('battery') || q.includes('ram') || q.includes('hardware') || q.includes('phone')) {
+  } else if (isDiagQuery) {
     toolToCall = AGENT_TOOLS.find((t) => t.name === 'device_diagnostics') || null;
     initialThought += 'Decided to query device_diagnostics for local smartphone metrics.';
-  } else if (q.includes('image') || q.includes('draw') || q.includes('generate photo') || q.includes('picture') || q.includes('artwork') || q.includes('logo')) {
+  } else if (isImageGenQuery) {
     toolToCall = AGENT_TOOLS.find((t) => t.name === 'create_image') || null;
-    initialThought += 'Decided to call create_image tool to synthesize mobile neural canvas artwork.';
-  } else if (attachments.some((a) => a.type === 'file')) {
-    toolToCall = AGENT_TOOLS.find((t) => t.name === 'document_analyzer') || null;
-    initialThought += 'Invoking document_analyzer to parse attached file structures.';
+    initialThought += 'Decided to invoke create_image tool to synthesize diffusion art.';
   }
 
-  const step1: AgentStep = { thought: initialThought };
-  steps.push(step1);
-  updateMsg(assistantMsgId, steps, '', true, set, get, 'agent');
-
-  await new Promise((r) => setTimeout(r, 600));
-
-  // Step 2: Tool Execution if applicable
   if (toolToCall) {
+    initialThought += `Decided to invoke local tool \`${toolToCall.name}\`.`;
+  } else {
+    initialThought += 'No external tool required. Proceeding with direct reasoning and synthesis.';
+  }
+
+  const step1: AgentStep = {
+    thought: initialThought,
+  };
+  steps.push(step1);
+  updateMsg(assistantMsgId, steps, prefixNotice, true, set, get, 'agent');
+
+  // Step 2: Tool Execution (if required)
+  if (toolToCall) {
+    await new Promise((r) => setTimeout(r, 400));
     step1.toolCall = {
       name: toolToCall.name,
       arguments: toolToCall.name === 'web_search'
@@ -770,7 +808,7 @@ async function executeHermesAgent(
         ? { prompt: userText }
         : { code: userText },
     };
-    updateMsg(assistantMsgId, steps, '', true, set, get, 'agent');
+    updateMsg(assistantMsgId, steps, prefixNotice, true, set, get, 'agent');
 
     await new Promise((r) => setTimeout(r, 500));
 
@@ -779,13 +817,14 @@ async function executeHermesAgent(
     // If create_image, synthesize actual visual image dataUrl
     if (toolToCall.name === 'create_image') {
       try {
-        const imgDataUrl = await generateOnDeviceAIImage(userText, 'Hermes Diffusion Studio');
-        toolResult += `\n\n![Generated Art](${imgDataUrl})`;
+        const cleanArtPrompt = userText.replace(/^(generate|draw|create|render|paint|make)(\s+(an?\s+)?(image|picture|photo|artwork|illustration|drawing|art|logo))?(\s+(of|about|depicting|showing))?\s*/i, '').trim() || userText;
+        const imgDataUrl = await generateOnDeviceAIImage(cleanArtPrompt, 'Hermes Diffusion Studio');
+        toolResult += `\n\n![Generated Art](${imgDataUrl})\n\n**Visual Prompt:** "${cleanArtPrompt}"`;
       } catch (_) {}
     }
 
     step1.toolResult = toolResult;
-    updateMsg(assistantMsgId, steps, '', true, set, get, 'agent');
+    updateMsg(assistantMsgId, steps, prefixNotice, true, set, get, 'agent');
 
     await new Promise((r) => setTimeout(r, 400));
   }
@@ -803,12 +842,43 @@ async function executeHermesAgent(
     visualPrefix += `### 👁️ Multimodal Visual Context Ingested\nInspected image attachments via **${model?.name}** with clear visual features.\n\n`;
   }
 
+  // Retrieve prior conversation history in active session for multi-turn LLM reasoning
+  const activeAgentId = get().activeAgentSessionId;
+  const currentAgentSess = get().agentSessions[activeAgentId];
+  
+  // LIVE MODE: Auto-clear / trim context window to prevent memory overflow during continuous spoken conversation
+  // Doubao-style sliding window: In Live mode, only keep the most recent 4 turns (approx 600-800 tokens max)
+  const maxTurnsToKeep = isLive ? 4 : 10;
+  
+  const priorMessages = (currentAgentSess?.messages || [])
+    .filter((m: ChatMessage) => m.id !== assistantMsgId && m.content)
+    .slice(-maxTurnsToKeep)
+    .map((m: ChatMessage) => ({
+      role: m.role,
+      content: m.content,
+    }));
+
+  // Ensure conversation history includes all previous turns plus current contextPrompt as the final user message
+  const messagesToSend = priorMessages.length > 0 && priorMessages[priorMessages.length - 1]?.role === 'user'
+    ? [
+        ...priorMessages.slice(0, -1),
+        { role: 'user', content: contextPrompt },
+      ]
+    : [
+        ...priorMessages,
+        { role: 'user', content: contextPrompt },
+      ];
+
+  const liveSystemPrompt = isLive
+    ? 'You are a real-time conversational voice assistant. Reply naturally, conversationally, and concisely (1-3 sentences). Match the exact language the user speaks (English, Chinese, Cantonese, Spanish, etc.).'
+    : (systemPrompt || model?.systemPromptPreset || 'You are Hermes 3, an expert autonomous agent.');
+
   await callRealLLMInference({
-    messages: [{ role: 'user', content: contextPrompt }],
+    messages: messagesToSend,
     modelId,
-    systemPrompt: systemPrompt || model?.systemPromptPreset || 'You are Hermes 3, an expert autonomous agent.',
+    systemPrompt: liveSystemPrompt,
     temperature,
-    maxTokens,
+    maxTokens: isLive ? 256 : maxTokens,
     performanceMode,
     config: {
       backendType: apiEndpoint ? 'api' : 'webllm',
@@ -816,14 +886,13 @@ async function executeHermesAgent(
       apiKey,
     },
     onProgress: (statusText, pct) => {
-      updateMsg(assistantMsgId, steps, `${visualPrefix}*[Loading On-Device Model Weights: ${pct}% - ${statusText}]*`, true, set, get, 'agent');
+      updateMsg(assistantMsgId, steps, `${visualPrefix}*[Autonomous Agent Reasoning: ${pct}% - ${statusText}]*`, true, set, get, 'agent');
     },
     onStreamChunk: (chunkText) => {
       updateMsg(assistantMsgId, steps, visualPrefix + chunkText, true, set, get, 'agent');
     },
   });
 
-  const activeAgentId = get().activeAgentSessionId;
   const finalMsg = get().agentSessions[activeAgentId]?.messages.find((m: ChatMessage) => m.id === assistantMsgId);
   const finalText = finalMsg?.content || visualPrefix;
   updateMsg(assistantMsgId, steps, finalText, false, set, get, 'agent');
@@ -842,7 +911,8 @@ async function executeDirectChat(
   prefixNotice: string,
   modelId: string,
   set: any,
-  get: any
+  get: any,
+  isLive?: boolean
 ) {
   const model = AVAILABLE_MODELS.find((m) => m.id === modelId);
   const { apiEndpoint, apiKey, systemPrompt, temperature, maxTokens, performanceMode } = get();
@@ -852,12 +922,45 @@ async function executeDirectChat(
     attachPrefix += `*Received ${attachments.length} attachment(s) (${attachments.map((a) => a.name || a.type).join(', ')})*\n\n`;
   }
 
+  // Retrieve prior conversation history in active chat session
+  const activeChatId = get().activeChatSessionId;
+  const currentChatSess = get().chatSessions[activeChatId];
+  
+  // LIVE MODE: Auto-clear / trim context window to prevent memory overflow during continuous spoken conversation
+  // Doubao-style sliding window: In Live mode, only keep the most recent 4 turns (approx 600-800 tokens max)
+  const maxTurnsToKeep = isLive ? 4 : 10;
+
+  const priorMessages = (currentChatSess?.messages || [])
+    .filter((m: ChatMessage) => m.id !== assistantMsgId && m.content)
+    .slice(-maxTurnsToKeep)
+    .map((m: ChatMessage) => ({
+      role: m.role,
+      content: m.content,
+    }));
+
+  const messagesToSend = priorMessages.length > 0 && priorMessages[priorMessages.length - 1]?.role === 'user'
+    ? [
+        ...priorMessages.slice(0, -1),
+        { role: 'user', content: userText },
+      ]
+    : [
+        ...priorMessages,
+        { role: 'user', content: userText },
+      ];
+
+  let tokenCount = 0;
+  let inferenceStartTime = 0;
+
+  const liveSystemPrompt = isLive
+    ? 'You are a real-time conversational voice assistant. Reply naturally, conversationally, and concisely (1-3 sentences). Match the exact language the user speaks (English, Chinese, Cantonese, Spanish, etc.).'
+    : (systemPrompt || model?.systemPromptPreset || 'You are an intelligent, helpful on-device assistant.');
+
   await callRealLLMInference({
-    messages: [{ role: 'user', content: userText }],
+    messages: messagesToSend,
     modelId,
-    systemPrompt: systemPrompt || model?.systemPromptPreset || 'You are an intelligent on-device local assistant.',
+    systemPrompt: liveSystemPrompt,
     temperature,
-    maxTokens,
+    maxTokens: isLive ? 256 : maxTokens,
     performanceMode,
     config: {
       backendType: apiEndpoint ? 'api' : 'webllm',
@@ -868,11 +971,17 @@ async function executeDirectChat(
       updateMsg(assistantMsgId, [], `${attachPrefix}*[Loading On-Device Model Weights: ${pct}% - ${statusText}]*`, true, set, get, 'chat');
     },
     onStreamChunk: (chunkText) => {
+      if (!inferenceStartTime) inferenceStartTime = performance.now();
+      tokenCount++;
+      const elapsedSec = (performance.now() - inferenceStartTime) / 1000;
+      if (elapsedSec > 0.3) {
+        const currentTps = Math.round((tokenCount / elapsedSec) * 10) / 10;
+        set({ liveTps: currentTps });
+      }
       updateMsg(assistantMsgId, [], attachPrefix + chunkText, true, set, get, 'chat');
     },
   });
 
-  const activeChatId = get().activeChatSessionId;
   const finalMsg = get().chatSessions[activeChatId]?.messages.find((m: ChatMessage) => m.id === assistantMsgId);
   const finalText = finalMsg?.content || attachPrefix;
   updateMsg(assistantMsgId, [], finalText, false, set, get, 'chat');

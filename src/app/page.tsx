@@ -17,13 +17,16 @@ export default function Home() {
   const downloads = useAppStore((s) => s.downloads);
   const stopAllRunningTasks = useAppStore((s) => s.stopAllRunningTasks);
 
+  const checkCacheStatus = useAppStore((s) => s.checkCacheStatus);
+
   const isDownloadingAny = Object.values(downloads).some((d) => d.isDownloading);
   const hasRunningTasks = isGenerating || isSpeaking || isDownloadingAny;
 
-  // Run hardware detection automatically on mount
+  // Run hardware detection and check cached models automatically on mount
   useEffect(() => {
     refreshHardwareProfile();
-  }, [refreshHardwareProfile]);
+    checkCacheStatus();
+  }, [refreshHardwareProfile, checkCacheStatus]);
 
   return (
     <main className="fixed inset-0 w-full h-full bg-zinc-950 text-white flex flex-col overflow-hidden font-sans select-none">

@@ -11,8 +11,6 @@ export default function SettingsView() {
   const setTemperature = useAppStore((s) => s.setTemperature);
   const maxTokens = useAppStore((s) => s.maxTokens);
   const setMaxTokens = useAppStore((s) => s.setMaxTokens);
-  const autoSwitchVision = useAppStore((s) => s.autoSwitchVision);
-  const setAutoSwitchVision = useAppStore((s) => s.setAutoSwitchVision);
   const apiEndpoint = useAppStore((s) => s.apiEndpoint);
   const setApiEndpoint = useAppStore((s) => s.setApiEndpoint);
   const apiKey = useAppStore((s) => s.apiKey);
@@ -160,27 +158,7 @@ export default function SettingsView() {
           />
         </div>
 
-        {/* Auto Vision Switch Toggle */}
-        <div className="bg-zinc-900/60 border border-zinc-800 rounded-2xl p-3.5 flex items-center justify-between">
-          <div>
-            <div className="text-xs font-bold text-white">Smart Multimodal Auto-Switching</div>
-            <p className="text-[10px] text-zinc-400 max-w-sm mt-0.5">
-              Automatically switch to the downloaded Vision VLM model when camera photos or images are attached.
-            </p>
-          </div>
-          <button
-            onClick={() => setAutoSwitchVision(!autoSwitchVision)}
-            className={`w-12 h-6 rounded-full transition-colors relative cursor-pointer ${
-              autoSwitchVision ? 'bg-cyan-500' : 'bg-zinc-800'
-            }`}
-          >
-            <div
-              className={`w-5 h-5 rounded-full bg-white transition-transform absolute top-0.5 ${
-                autoSwitchVision ? 'left-6.5' : 'left-0.5'
-              }`}
-            />
-          </button>
-        </div>
+
 
         {/* Temperature */}
         <div className="bg-zinc-900/60 border border-zinc-800 rounded-2xl p-3.5">

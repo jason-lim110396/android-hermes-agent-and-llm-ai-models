@@ -11,6 +11,7 @@ import {
   Smartphone,
   Gauge,
   Info,
+  ShieldAlert,
 } from 'lucide-react';
 import { useAppStore } from '@/appStore';
 import { AVAILABLE_MODELS } from '@/models';
@@ -41,6 +42,26 @@ export default function DeviceDiagnostics() {
           <span>Re-profile</span>
         </button>
       </div>
+
+      {/* WebGPU Missing Warning */}
+      {hardwareProfile && !hardwareProfile.hasWebGpu && (
+        <div className="flex items-start gap-2 px-3 py-2.5 rounded-xl bg-rose-950/40 border border-rose-800/60 text-rose-300 text-[11px] mb-4">
+          <ShieldAlert className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+          <div className="space-y-1">
+            <div>
+              <strong>WebGPU not detected.</strong> Real on-device LLM downloads and inference require WebGPU, and this device/WebView
+              is currently falling back to WebGL2, which cannot run these models. Update <strong>Android System WebView</strong> from the
+              Play Store (Android 13+ with a recent WebView build supports WebGPU), or connect an external API endpoint in Settings instead.
+            </div>
+            {hardwareProfile.webviewVersion && (
+              <div className="font-mono text-[10px] text-rose-400/80">Detected WebView/Chromium build: {hardwareProfile.webviewVersion}</div>
+            )}
+            {hardwareProfile.webGpuUnavailableReason && (
+              <div className="font-mono text-[10px] text-rose-400/80 break-all">Reason: {hardwareProfile.webGpuUnavailableReason}</div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Grid of hardware metrics */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mb-4">
@@ -134,6 +155,7 @@ export default function DeviceDiagnostics() {
         <div className="p-3 rounded-xl bg-zinc-950 font-mono text-[11px] text-zinc-400 space-y-1">
           <div><span className="text-zinc-500">Renderer:</span> {hardwareProfile?.gpuRenderer}</div>
           <div><span className="text-zinc-500">Platform:</span> Mobile Web & Capacitor Android WebView</div>
+          <div><span className="text-zinc-500">WebView/Chromium Build:</span> {hardwareProfile?.webviewVersion || 'Unknown'}</div>
           <div><span className="text-zinc-500">Execution Threading:</span> Web Workers / SIMD Enabled</div>
           <div><span className="text-zinc-500">Thermal Safety Throttle:</span> Normal (No Thermal Throttling)</div>
         </div>

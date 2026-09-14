@@ -6,18 +6,19 @@ import {
   Check,
   Cpu,
   HardDrive,
-  Eye,
   Bot,
   Zap,
   Trash2,
   AlertTriangle,
   Sparkles,
   Search,
-  Code,
   Volume2,
   Layers,
-  FileCode,
   Octagon,
+  ShieldCheck,
+  ShieldAlert,
+  MessageSquare,
+  Image as ImageIcon,
 } from 'lucide-react';
 import { AVAILABLE_MODELS, ModelSpec } from '@/models';
 import { useAppStore } from '@/appStore';
@@ -33,36 +34,59 @@ export default function ModelHub() {
   const deleteModel = useAppStore((s) => s.deleteModel);
   const checkCacheStatus = useAppStore((s) => s.checkCacheStatus);
 
-  const [selectedFamily, setSelectedFamily] = useState<'all' | 'hermes' | 'vision' | 'compact' | 'code' | 'image' | 'audio'>('all');
-  const [selectedOutputType, setSelectedOutputType] = useState<'all' | 'text' | 'code' | 'image' | 'audio'>('all');
+  const [selectedFamily, setSelectedFamily] = useState<'all' | 'recommended' | 'chat' | 'image' | 'audio'>('all');
   const [searchQuery, setSearchQuery] = useState('');
 
   React.useEffect(() => {
     checkCacheStatus();
   }, [checkCacheStatus]);
 
-  const filteredModels = AVAILABLE_MODELS.filter((m) => {
-    if (selectedFamily !== 'all' && m.family !== selectedFamily) return false;
-    if (selectedOutputType !== 'all' && !m.outputTypes?.includes(selectedOutputType)) return false;
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      return (
-        m.name.toLowerCase().includes(q) ||
-        m.description.toLowerCase().includes(q) ||
-        m.tagline.toLowerCase().includes(q) ||
-        m.outputTypes?.some((o) => o.toLowerCase().includes(q))
-      );
-    }
-    return true;
-  });
+  // Filter and sort models:
+  // 1. Strictly Chat, Image, and Audio/Voice models (or Recommended)
+  // 2. Sort by downloaded / ready 1st!
+  const filteredModels = AVAILABLE_MODELS
+    .filter((m) => {
+      if (selectedFamily === 'recommended') {
+        const isRec = m.isRecommended || hardwareProfile?.recommendedModelId === m.id;
+        if (!isRec) return false;
+      } else if (selectedFamily !== 'all' && m.family !== selectedFamily) {
+        return false;
+      }
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase();
+        return (
+          m.name.toLowerCase().includes(q) ||
+          m.description.toLowerCase().includes(q) ||
+          m.tagline.toLowerCase().includes(q) ||
+          m.family.toLowerCase().includes(q)
+        );
+      }
+      return true;
+    })
+    .sort((a, b) => {
+      const aReady = downloads[a.id]?.isReady ? 1 : 0;
+      const bReady = downloads[b.id]?.isReady ? 1 : 0;
+      if (aReady !== bReady) return bReady - aReady; // Downloaded / Ready first!
 
-  // Calculate output type counts
-  const outputCounts = {
+      const aDownloading = downloads[a.id]?.isDownloading ? 1 : 0;
+      const bDownloading = downloads[b.id]?.isDownloading ? 1 : 0;
+      if (aDownloading !== bDownloading) return bDownloading - aDownloading;
+
+      const aRec = (a.isRecommended || hardwareProfile?.recommendedModelId === a.id) ? 1 : 0;
+      const bRec = (b.isRecommended || hardwareProfile?.recommendedModelId === b.id) ? 1 : 0;
+      if (aRec !== bRec) return bRec - aRec;
+
+      // Prioritize compact mobile models with lowest memory requirement
+      return a.sizeMB - b.sizeMB;
+    });
+
+  // Calculate counts for categories
+  const categoryCounts = {
     all: AVAILABLE_MODELS.length,
-    text: AVAILABLE_MODELS.filter((m) => m.outputTypes?.includes('text')).length,
-    code: AVAILABLE_MODELS.filter((m) => m.outputTypes?.includes('code')).length,
-    image: AVAILABLE_MODELS.filter((m) => m.outputTypes?.includes('image')).length,
-    audio: AVAILABLE_MODELS.filter((m) => m.outputTypes?.includes('audio')).length,
+    recommended: AVAILABLE_MODELS.filter((m) => m.isRecommended || hardwareProfile?.recommendedModelId === m.id).length,
+    chat: AVAILABLE_MODELS.filter((m) => m.family === 'chat').length,
+    image: AVAILABLE_MODELS.filter((m) => m.family === 'image').length,
+    audio: AVAILABLE_MODELS.filter((m) => m.family === 'audio').length,
   };
 
   return (
@@ -73,11 +97,11 @@ export default function ModelHub() {
           <div>
             <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 text-[10px] font-bold uppercase tracking-wider mb-2">
               <Sparkles className="w-3 h-3" />
-              <span>On-Device Local AI Repository</span>
+              <span>Verified On-Device Local AI Repository</span>
             </div>
-            <h1 className="text-xl font-black text-white tracking-tight">Model Hub & Downloader</h1>
+            <h1 className="text-xl font-black text-white tracking-tight">Local AI Hub</h1>
             <p className="text-xs text-zinc-400 max-w-md mt-1">
-              Download and run Hermes 3 Agent models, Vision Multimodal transformers, Code generators, and Diffusion Image engines on your smartphone with zero cloud dependency.
+              Select verified local AI models for <strong>Chat</strong>, <strong>Image Generation</strong>, and <strong>Voice & Speech</strong>.
             </p>
           </div>
 
@@ -107,11 +131,21 @@ export default function ModelHub() {
             </div>
             <div className="flex items-center gap-1.5 text-zinc-300">
               <Zap className="w-3.5 h-3.5 text-amber-400" />
-              <span>{hardwareProfile.hasWebGpu ? 'WebGPU Ultra' : 'WebGL Accelerated'}</span>
+              <span>{hardwareProfile.hasWebGpu ? 'WebGPU Accelerated' : 'CPU WebAssembly'}</span>
             </div>
           </div>
         )}
       </div>
+
+      {/* WebGPU Note */}
+      {hardwareProfile && !hardwareProfile.hasWebGpu && (
+        <div className="flex items-start gap-2 px-3 py-2.5 rounded-xl bg-cyan-950/40 border border-cyan-800/60 text-cyan-300 text-[11px] mb-3">
+          <ShieldCheck className="w-4 h-4 text-cyan-400 shrink-0 mt-0.5" />
+          <span>
+            <strong>Universal CPU Engine Enabled:</strong> Models with the <strong className="text-teal-300">CPU Universal</strong> badge execute directly on CPU via WebAssembly with zero GPU driver errors.
+          </span>
+        </div>
+      )}
 
       {/* Filters & Search */}
       <div className="space-y-2 mb-3">
@@ -120,82 +154,61 @@ export default function ModelHub() {
           <Search className="absolute left-3 top-2.5 w-4 h-4 text-zinc-500" />
           <input
             type="text"
-            placeholder="Search models, text, code, image, audio..."
+            placeholder="Search chat, image, or voice models..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full pl-9 pr-3 py-2 bg-zinc-900 border border-zinc-800 rounded-xl text-xs text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-cyan-500/50"
           />
         </div>
 
-        {/* Filter by Output Type */}
+        {/* Filter by Category: Chat, Image Generation, Voice */}
         <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
           <span className="text-[10px] font-extrabold uppercase tracking-wider text-zinc-400 flex items-center gap-1 shrink-0 mr-1">
             <Layers className="w-3 h-3 text-cyan-400" />
-            Output Type:
+            Category:
           </span>
           {[
-            { id: 'all', label: 'All Outputs', icon: Sparkles, count: outputCounts.all },
-            { id: 'text', label: '📝 Text', count: outputCounts.text },
-            { id: 'code', label: '⚡ Code', count: outputCounts.code },
-            { id: 'image', label: '🎨 Image', count: outputCounts.image },
-            { id: 'audio', label: '🔊 Audio / Voice', count: outputCounts.audio },
-          ].map((typeItem) => {
-            const isActive = selectedOutputType === typeItem.id;
+            { id: 'all', label: 'All Models', count: categoryCounts.all },
+            { id: 'recommended', label: '★ Recommended', count: categoryCounts.recommended },
+            { id: 'chat', label: '💬 Chat', count: categoryCounts.chat },
+            { id: 'image', label: '🎨 Image Gen', count: categoryCounts.image },
+            { id: 'audio', label: '🔊 Voice', count: categoryCounts.audio },
+          ].map((catItem) => {
+            const isActive = selectedFamily === catItem.id;
             return (
               <button
-                key={typeItem.id}
-                onClick={() => setSelectedOutputType(typeItem.id as any)}
-                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${
+                key={catItem.id}
+                onClick={() => setSelectedFamily(catItem.id as any)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${
                   isActive
-                    ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-md shadow-cyan-500/20 ring-1 ring-cyan-400'
+                    ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-md shadow-cyan-500/20 ring-1 ring-cyan-400 font-bold'
                     : 'bg-zinc-900 border border-zinc-800/80 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/60'
                 }`}
               >
-                <span>{typeItem.label}</span>
+                <span>{catItem.label}</span>
                 <span
                   className={`text-[9px] px-1.5 py-0.2 rounded-full font-mono font-bold ${
                     isActive ? 'bg-white/20 text-white' : 'bg-zinc-800 text-zinc-400'
                   }`}
                 >
-                  {typeItem.count}
+                  {catItem.count}
                 </span>
               </button>
             );
           })}
         </div>
-
-        {/* Filter by Family */}
-        <div className="flex items-center gap-1 overflow-x-auto pb-1">
-          <span className="text-[10px] font-extrabold uppercase tracking-wider text-zinc-400 shrink-0 mr-1">
-            Family:
-          </span>
-          {(['all', 'hermes', 'vision', 'compact', 'code', 'image', 'audio'] as const).map((fam) => (
-            <button
-              key={fam}
-              onClick={() => setSelectedFamily(fam)}
-              className={`px-2.5 py-1 rounded-xl text-xs font-bold uppercase tracking-wider transition-all whitespace-nowrap cursor-pointer ${
-                selectedFamily === fam
-                  ? 'bg-zinc-200 text-black shadow-md'
-                  : 'bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white'
-              }`}
-            >
-              {fam === 'all'
-                ? 'All'
-                : fam === 'hermes'
-                ? 'Hermes Agent'
-                : fam === 'vision'
-                ? 'Vision'
-                : fam === 'code'
-                ? 'Coder'
-                : fam === 'image'
-                ? 'Image AI'
-                : fam === 'audio'
-                ? 'Audio'
-                : 'Compact'}
-            </button>
-          ))}
-        </div>
       </div>
+
+      {/* Empty State */}
+      {filteredModels.length === 0 && (
+        <div className="flex flex-col items-center justify-center text-center py-10 px-4 bg-zinc-900/40 border border-zinc-800/80 rounded-2xl">
+          <AlertTriangle className="w-6 h-6 text-amber-400 mb-2" />
+          <p className="text-sm font-bold text-white mb-1">No matching models</p>
+          <p className="text-xs text-zinc-400 max-w-xs">
+            Try adjusting your search query or selecting another category.
+          </p>
+        </div>
+      )}
 
       {/* Models Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -204,8 +217,7 @@ export default function ModelHub() {
           const dlState = downloads[model.id];
           const isDownloaded = dlState?.isReady;
           const isDownloading = dlState?.isDownloading;
-          const isRecommended = hardwareProfile?.recommendedModelId === model.id;
-          const exceedsRam = hardwareProfile ? hardwareProfile.estimatedRamGB < model.minRamGB : false;
+          const isRecommended = model.isRecommended || hardwareProfile?.recommendedModelId === model.id;
 
           return (
             <div
@@ -220,40 +232,28 @@ export default function ModelHub() {
                 {/* Top Badges */}
                 <div className="flex items-center justify-between gap-2 mb-2">
                   <div className="flex items-center gap-1.5 flex-wrap">
-                    {model.family === 'hermes' && (
-                      <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-indigo-500/20 border border-indigo-500/40 text-indigo-400 text-[9px] font-bold">
-                        <Bot className="w-2.5 h-2.5" />
-                        Hermes Specialist
-                      </span>
-                    )}
-                    {model.family === 'vision' && (
+                    {model.family === 'chat' && (
                       <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-cyan-500/20 border border-cyan-500/40 text-cyan-300 text-[9px] font-bold">
-                        <Eye className="w-2.5 h-2.5" />
-                        Multimodal Vision
+                        <MessageSquare className="w-2.5 h-2.5" />
+                        Chat Model
                       </span>
                     )}
                     {model.family === 'image' && (
                       <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-fuchsia-500/20 border border-fuchsia-500/40 text-fuchsia-300 text-[9px] font-bold">
-                        <Sparkles className="w-2.5 h-2.5" />
-                        Image Synthesis
+                        <ImageIcon className="w-2.5 h-2.5" />
+                        Image Generation
                       </span>
                     )}
                     {model.family === 'audio' && (
                       <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300 text-[9px] font-bold">
                         <Volume2 className="w-2.5 h-2.5" />
-                        Audio & Voice
+                        Voice & Audio
                       </span>
                     )}
-                    {model.family === 'code' && (
-                      <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-violet-500/20 border border-violet-500/40 text-violet-300 text-[9px] font-bold">
-                        <FileCode className="w-2.5 h-2.5" />
-                        Code Specialist
-                      </span>
-                    )}
-                    {model.family === 'compact' && (
-                      <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 text-[9px] font-bold">
-                        <Zap className="w-2.5 h-2.5" />
-                        Low-RAM Friendly
+                    {model.engine === 'cpu-wasm' && (
+                      <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-teal-500/20 border border-teal-500/40 text-teal-300 text-[9px] font-bold" title="Runs on pure CPU via WebAssembly — no WebGPU needed, works on any phone">
+                        <ShieldCheck className="w-2.5 h-2.5" />
+                        CPU Universal (Crash-Free)
                       </span>
                     )}
                   </div>
@@ -270,30 +270,6 @@ export default function ModelHub() {
                 <p className="text-[11px] text-cyan-400 font-medium mb-1.5">{model.tagline}</p>
                 <p className="text-[10px] text-zinc-400 leading-relaxed mb-2.5">{model.description}</p>
 
-                {/* Accepted Input and Output Tags */}
-                <div className="bg-zinc-950/70 border border-zinc-800/70 rounded-xl p-2 mb-3 space-y-1 text-[10px]">
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-zinc-500 font-bold uppercase tracking-wider text-[9px] shrink-0">Inputs:</span>
-                    <div className="flex flex-wrap items-center gap-1">
-                      {model.inputTypes?.map((inp) => (
-                        <span key={inp} className="px-1.5 py-0.2 rounded bg-zinc-800/90 text-cyan-300 font-mono text-[9px]">
-                          {inp === 'camera' ? '📷 camera' : inp === 'image' ? '🖼️ image' : inp === 'file' ? '📁 file' : inp === 'audio' ? '🎙️ voice' : '💬 text'}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-zinc-500 font-bold uppercase tracking-wider text-[9px] shrink-0">Outputs:</span>
-                    <div className="flex flex-wrap items-center gap-1">
-                      {model.outputTypes?.map((out) => (
-                        <span key={out} className="px-1.5 py-0.2 rounded bg-zinc-800/90 text-emerald-300 font-mono text-[9px]">
-                          {out === 'image' ? '🎨 image render' : out === 'code' ? '⚡ executable code' : out === 'audio' ? '🔊 voice audio' : '📝 text'}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-
                 {/* Specs Pill List */}
                 <div className="flex flex-wrap items-center gap-1.5 mb-3 text-[10px] font-mono text-zinc-400">
                   <span className="px-2 py-0.5 rounded bg-zinc-950 border border-zinc-800">
@@ -309,14 +285,6 @@ export default function ModelHub() {
                     📜 {model.contextWindow.toLocaleString()} ctx
                   </span>
                 </div>
-
-                {/* RAM Warning */}
-                {exceedsRam && (
-                  <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-rose-950/40 border border-rose-800/60 text-rose-300 text-[10px] mb-3">
-                    <AlertTriangle className="w-3.5 h-3.5 text-rose-400 shrink-0" />
-                    <span>Requires {model.minRamGB}GB RAM (Phone estimated: {hardwareProfile?.estimatedRamGB}GB). May experience lag.</span>
-                  </div>
-                )}
               </div>
 
               {/* Action Bar / Download Progress */}
@@ -370,15 +338,25 @@ export default function ModelHub() {
                     </div>
                   </div>
                 ) : (
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] text-zinc-500">Not Downloaded</span>
-                    <button
-                      onClick={() => startDownloadModel(model.id)}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white text-xs font-bold shadow-lg shadow-cyan-600/20 cursor-pointer transition-all"
-                    >
-                      <Download className="w-3.5 h-3.5" />
-                      <span>Download ({(model.sizeMB / 1024).toFixed(1)} GB)</span>
-                    </button>
+                  <div>
+                    {dlState?.errorMessage && (
+                      <div className="flex items-start gap-1.5 px-2 py-1.5 rounded-lg bg-rose-950/40 border border-rose-800/50 text-rose-300 text-[10px] mb-2 leading-relaxed">
+                        <AlertTriangle className="w-3 h-3 text-rose-400 shrink-0 mt-0.5" />
+                        <span>{dlState.errorMessage}</span>
+                      </div>
+                    )}
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] text-zinc-500">
+                        {dlState?.errorMessage ? 'Download Failed' : 'Not Downloaded'}
+                      </span>
+                      <button
+                        onClick={() => startDownloadModel(model.id)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white text-xs font-bold shadow-lg shadow-cyan-600/20 cursor-pointer transition-all"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        <span>{dlState?.errorMessage ? 'Retry' : `Download (${(model.sizeMB / 1024).toFixed(1)} GB)`}</span>
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>

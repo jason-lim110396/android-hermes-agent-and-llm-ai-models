@@ -1,7 +1,9 @@
-﻿export interface DeviceHardwareProfile {
+export interface DeviceHardwareProfile {
   estimatedRamGB: number;
   cpuCores: number;
   hasWebGpu: boolean;
+  webGpuUnavailableReason: string | null;
+  webviewVersion: string | null;
   gpuRenderer: string;
   storageEstimateGB: {
     quota: number;
@@ -25,15 +27,31 @@ export async function profileMobileHardware(): Promise<DeviceHardwareProfile> {
 
   // Check WebGPU & WebGL Renderer
   let hasWebGpu = false;
+  let webGpuUnavailableReason: string | null = null;
   let gpuRenderer = 'Standard Mobile Adreno/Mali GPU';
 
   if (typeof navigator !== 'undefined' && 'gpu' in navigator) {
     try {
       const adapter = await (navigator as unknown as { gpu: { requestAdapter: () => Promise<unknown> } }).gpu.requestAdapter();
-      if (adapter) hasWebGpu = true;
-    } catch (_) {
+      if (adapter) {
+        hasWebGpu = true;
+      } else {
+        webGpuUnavailableReason = 'navigator.gpu.requestAdapter() resolved to null — the WebView reports a WebGPU API surface but no compatible GPU adapter was found.';
+      }
+    } catch (err) {
       hasWebGpu = false;
+      webGpuUnavailableReason = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
     }
+  } else {
+    webGpuUnavailableReason = 'navigator.gpu is undefined — this WebView build has no WebGPU API at all (needs a newer Android System WebView).';
+  }
+
+  // Extract the Chromium/WebView build number from the UA string (e.g. "...Chrome/131.0.6778.200...")
+  // so users know exactly which WebView version they need to update to.
+  let webviewVersion: string | null = null;
+  if (typeof navigator !== 'undefined') {
+    const match = navigator.userAgent.match(/Chrome\/([\d.]+)/);
+    if (match) webviewVersion = match[1];
   }
 
   if (typeof document !== 'undefined') {
@@ -68,19 +86,28 @@ export async function profileMobileHardware(): Promise<DeviceHardwareProfile> {
 
   if (ram <= 3 || cores <= 4) {
     deviceTier = 'ultra-light';
-    recommendedModelId = 'qwen2.5-1.5b-instruct';
+    recommendedModelId = 'smollm2-360m-cpu';
   } else if (ram >= 8 && (hasWebGpu || cores >= 8)) {
     deviceTier = 'flagship';
     recommendedModelId = 'hermes-3-llama-3.2-3b';
   } else {
     deviceTier = 'standard';
-    recommendedModelId = 'hermes-3-llama-3.2-3b';
+    recommendedModelId = 'smollm2-360m-cpu';
+  }
+
+  if (!hasWebGpu) {
+    recommendedModelId = ram <= 3 ? 'smollm2-360m-cpu' : 'qwen2.5-0.5b-cpu';
+  } else if (ram < 6 || cores < 8) {
+    // For mid-range or budget Android phones, default to 100% reliable universal model to prevent GPU driver buffer mapping crashes
+    recommendedModelId = 'smollm2-360m-cpu';
   }
 
   return {
     estimatedRamGB: ram,
     cpuCores: cores,
     hasWebGpu,
+    webGpuUnavailableReason: hasWebGpu ? null : webGpuUnavailableReason,
+    webviewVersion,
     gpuRenderer,
     storageEstimateGB: {
       quota,
