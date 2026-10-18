@@ -273,9 +273,21 @@ export async function callCpuLLMInference({
 
     if (cpuInferenceAborted) throw new Error('Task stopped by user');
 
+    // Customize system prompt with each model's primary specialty
+    let effectiveSystemPrompt = systemPrompt;
+    if (spec?.id === 'minicpm-v-1b-cpu') {
+      effectiveSystemPrompt = `${systemPrompt}\n[Role Specialization]: You are MiniCPM-V 4.7, an edge vision & multimodal intelligence. Excel at parsing visual details, OCR text extraction, photos, and camera scenes.`;
+    } else if (spec?.id === 'qwen2.5-1.5b-cpu') {
+      effectiveSystemPrompt = `${systemPrompt}\n[Role Specialization]: You are Qwen 2.5 1.5B, specialized in complex algorithms, code generation, mathematical analysis, and structured outputs.`;
+    } else if (spec?.id === 'qwen2.5-0.5b-cpu') {
+      effectiveSystemPrompt = `${systemPrompt}\n[Role Specialization]: You are Qwen 2.5 0.5B, ultra-fast concise mobile assistant. Deliver rapid, accurate, high-efficiency answers.`;
+    } else if (spec?.id === 'gemma-2-2b-cpu') {
+      effectiveSystemPrompt = `${systemPrompt}\n[Role Specialization]: You are Google Gemma 2, specialized in articulate writing, nuanced logic, factual synthesis, and creative explanations.`;
+    }
+
     // Build messages in the format wllama expects
     const formattedMessages = [
-      { role: 'system' as const, content: systemPrompt },
+      { role: 'system' as const, content: effectiveSystemPrompt },
       ...messages.map((m) => ({
         role: (m.role === 'user' ? 'user' : 'assistant') as 'user' | 'assistant',
         content: m.content,

@@ -786,16 +786,21 @@ async function executeHermesAgent(
   let toolToCall: (typeof AGENT_TOOLS)[0] | null = null;
   const q = userText.trim().toLowerCase();
 
-  // Stricter keyword matching for mock agent tools to prevent false positives on general chat
-  const isSearchQuery = /^(search(\s+for)?|look\s*up|google|find\s+online|latest\s+news|what\s+is\s+the\s+weather|current\s+price)\b/i.test(q) ||
-    (/\b(weather in|stock price of|crypto price)\b/i.test(q));
+  // Expanded intent matching for Hermes Autonomous Agent
+  const isSearchQuery = /^(search(\s+for)?|look\s*up|google|bing|find\s+online|latest\s+news|what\s+is\s+the\s+weather|current\s+price|who\s+is|what\s+is|when\s+did|where\s+is|how\s+to|news\s+about|wiki\b)/i.test(q) ||
+    (/\b(weather in|stock price of|crypto price|latest news|release date|net worth|founder of|history of)\b/i.test(q));
+  const isFileSearchQuery = /\b(find\s+file|search\s+file|locate\s+file|find\s+video|find\s+photo|find\s+image|find\s+doc|find\s+pdf|on-device\s+file|storage\s+file|gemma\s+file)\b/i.test(q) ||
+    /^(find|locate|search)\s+(my\s+)?(video|photo|picture|file|doc|pdf|code|recording|memo|receipt)s?\b/i.test(q);
   const isMathQuery = /^(\d+\s*[\+\-\*\/\^%]|calculate\b|compute\b|solve\b|evaluate\b)/i.test(q);
-  const isDiagQuery = /\b(battery level|battery percentage|device diagnostics|device stats|hardware spec|system info)\b/i.test(q);
+  const isDiagQuery = /\b(battery level|battery percentage|device diagnostics|device stats|hardware spec|system info|memory usage|ram available)\b/i.test(q);
   const isImageGenQuery = /^(generate|draw|create|render|paint)\s+(an?\s+)?(image|picture|photo|artwork|illustration|logo|drawing)\b/i.test(q);
 
-  if (isSearchQuery) {
+  if (isFileSearchQuery) {
+    toolToCall = AGENT_TOOLS.find((t) => t.name === 'find_device_files') || null;
+    initialThought += 'Decided to call the on-device EmbeddingGemma 2 find_device_files tool to search phone storage.';
+  } else if (isSearchQuery) {
     toolToCall = AGENT_TOOLS.find((t) => t.name === 'web_search') || null;
-    initialThought += 'Decided to call the web_search tool to gather factual grounding.';
+    initialThought += 'Decided to call the live web_search tool to gather factual grounding and external facts.';
   } else if (isMathQuery) {
     toolToCall = AGENT_TOOLS.find((t) => t.name === 'code_interpreter') || null;
     initialThought += 'Decided to call code_interpreter sandbox to run precise computation.';
@@ -828,6 +833,21 @@ async function executeHermesAgent(
         ? { query: userText }
         : toolToCall.name === 'create_image'
         ? { prompt: userText }
+        : toolToCall.name === 'find_device_files'
+        ? {
+            query: userText,
+            file_type: /video|mp4|mov/i.test(q)
+              ? 'video'
+              : /image|photo|pic|screenshot/i.test(q)
+              ? 'image'
+              : /doc|pdf|word|report/i.test(q)
+              ? 'document'
+              : /code|script|ts|py/i.test(q)
+              ? 'code'
+              : /audio|voice|mp3/i.test(q)
+              ? 'audio'
+              : 'all',
+          }
         : { code: userText },
     };
     updateMsg(assistantMsgId, steps, prefixNotice, true, set, get, 'agent');
