@@ -34,23 +34,21 @@ export default function ModelHub() {
   const deleteModel = useAppStore((s) => s.deleteModel);
   const checkCacheStatus = useAppStore((s) => s.checkCacheStatus);
 
-  const [selectedFamily, setSelectedFamily] = useState<'all' | 'recommended' | 'chat' | 'image' | 'audio'>('all');
+  const [selectedFamily, setSelectedFamily] = useState<'all' | 'recommended' | 'text' | 'vision' | 'image' | 'voice' | 'embedding'>('all');
   const [searchQuery, setSearchQuery] = useState('');
 
   React.useEffect(() => {
     checkCacheStatus();
   }, [checkCacheStatus]);
 
-  // Filter and sort models:
-  // 1. Strictly Chat, Image, and Audio/Voice models (or Recommended)
-  // 2. Sort by downloaded / ready 1st!
+  // Filter and sort models by category (text, vision, image, voice, embedding)
   const filteredModels = AVAILABLE_MODELS
     .filter((m) => {
       if (selectedFamily === 'recommended') {
         const isRec = m.isRecommended || hardwareProfile?.recommendedModelId === m.id;
         if (!isRec) return false;
-      } else if (selectedFamily !== 'all' && m.family !== selectedFamily) {
-        return false;
+      } else if (selectedFamily !== 'all') {
+        if (m.category !== selectedFamily) return false;
       }
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
@@ -58,7 +56,7 @@ export default function ModelHub() {
           m.name.toLowerCase().includes(q) ||
           m.description.toLowerCase().includes(q) ||
           m.tagline.toLowerCase().includes(q) ||
-          m.family.toLowerCase().includes(q)
+          m.category.toLowerCase().includes(q)
         );
       }
       return true;
@@ -76,7 +74,6 @@ export default function ModelHub() {
       const bRec = (b.isRecommended || hardwareProfile?.recommendedModelId === b.id) ? 1 : 0;
       if (aRec !== bRec) return bRec - aRec;
 
-      // Prioritize compact mobile models with lowest memory requirement
       return a.sizeMB - b.sizeMB;
     });
 
@@ -84,9 +81,11 @@ export default function ModelHub() {
   const categoryCounts = {
     all: AVAILABLE_MODELS.length,
     recommended: AVAILABLE_MODELS.filter((m) => m.isRecommended || hardwareProfile?.recommendedModelId === m.id).length,
-    chat: AVAILABLE_MODELS.filter((m) => m.family === 'chat').length,
-    image: AVAILABLE_MODELS.filter((m) => m.family === 'image').length,
-    audio: AVAILABLE_MODELS.filter((m) => m.family === 'audio').length,
+    embedding: AVAILABLE_MODELS.filter((m) => m.category === 'embedding').length,
+    vision: AVAILABLE_MODELS.filter((m) => m.category === 'vision').length,
+    text: AVAILABLE_MODELS.filter((m) => m.category === 'text').length,
+    image: AVAILABLE_MODELS.filter((m) => m.category === 'image').length,
+    voice: AVAILABLE_MODELS.filter((m) => m.category === 'voice').length,
   };
 
   return (
@@ -101,7 +100,7 @@ export default function ModelHub() {
             </div>
             <h1 className="text-xl font-black text-white tracking-tight">Local AI Hub</h1>
             <p className="text-xs text-zinc-400 max-w-md mt-1">
-              Select verified local AI models for <strong>Chat</strong>, <strong>Image Generation</strong>, and <strong>Voice & Speech</strong>.
+              Select verified local AI models for <strong>Chat</strong>, <strong>File Search (Gemma 2)</strong>, <strong>Vision</strong>, and <strong>Voice & Speech</strong>.
             </p>
           </div>
 
@@ -154,25 +153,27 @@ export default function ModelHub() {
           <Search className="absolute left-3 top-2.5 w-4 h-4 text-zinc-500" />
           <input
             type="text"
-            placeholder="Search chat, image, or voice models..."
+            placeholder="Search chat, file search, vision, or voice models..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full pl-9 pr-3 py-2 bg-zinc-900 border border-zinc-800 rounded-xl text-xs text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-cyan-500/50"
           />
         </div>
 
-        {/* Filter by Category: Chat, Image Generation, Voice */}
+        {/* Filter by Category: Text, Vision, Embedding, Image Generation, Voice */}
         <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
           <span className="text-[10px] font-extrabold uppercase tracking-wider text-zinc-400 flex items-center gap-1 shrink-0 mr-1">
             <Layers className="w-3 h-3 text-cyan-400" />
-            Category:
+            Purpose:
           </span>
           {[
             { id: 'all', label: 'All Models', count: categoryCounts.all },
             { id: 'recommended', label: '★ Recommended', count: categoryCounts.recommended },
-            { id: 'chat', label: '💬 Chat', count: categoryCounts.chat },
+            { id: 'embedding', label: '🔍 Embedding & Files', count: categoryCounts.embedding },
+            { id: 'vision', label: '👁️ Vision (MiniCPM-V)', count: categoryCounts.vision },
+            { id: 'text', label: '📝 Text & Reasoning', count: categoryCounts.text },
             { id: 'image', label: '🎨 Image Gen', count: categoryCounts.image },
-            { id: 'audio', label: '🔊 Voice', count: categoryCounts.audio },
+            { id: 'voice', label: '🔊 Voice & Speech', count: categoryCounts.voice },
           ].map((catItem) => {
             const isActive = selectedFamily === catItem.id;
             return (
@@ -232,22 +233,27 @@ export default function ModelHub() {
                 {/* Top Badges */}
                 <div className="flex items-center justify-between gap-2 mb-2">
                   <div className="flex items-center gap-1.5 flex-wrap">
-                    {model.family === 'chat' && (
-                      <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-cyan-500/20 border border-cyan-500/40 text-cyan-300 text-[9px] font-bold">
-                        <MessageSquare className="w-2.5 h-2.5" />
-                        Chat Model
+                    {model.category === 'vision' && (
+                      <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-[9px] font-bold">
+                        👁️ Vision Multimodal
                       </span>
                     )}
-                    {model.family === 'image' && (
+                    {model.category === 'text' && (
+                      <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-cyan-500/20 border border-cyan-500/40 text-cyan-300 text-[9px] font-bold">
+                        <MessageSquare className="w-2.5 h-2.5" />
+                        Text & Reasoning
+                      </span>
+                    )}
+                    {model.category === 'image' && (
                       <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-fuchsia-500/20 border border-fuchsia-500/40 text-fuchsia-300 text-[9px] font-bold">
                         <ImageIcon className="w-2.5 h-2.5" />
                         Image Generation
                       </span>
                     )}
-                    {model.family === 'audio' && (
+                    {model.category === 'voice' && (
                       <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300 text-[9px] font-bold">
                         <Volume2 className="w-2.5 h-2.5" />
-                        Voice & Audio
+                        Voice & Speech
                       </span>
                     )}
                     {model.engine === 'cpu-wasm' && (
@@ -266,9 +272,34 @@ export default function ModelHub() {
                   )}
                 </div>
 
+                <div className="text-[11px] font-bold text-emerald-400 mb-1 flex items-center gap-1">
+                  <span>{model.purposeTitle}</span>
+                </div>
                 <h3 className="text-sm font-black text-white mb-0.5">{model.name}</h3>
                 <p className="text-[11px] text-cyan-400 font-medium mb-1.5">{model.tagline}</p>
                 <p className="text-[10px] text-zinc-400 leading-relaxed mb-2.5">{model.description}</p>
+
+                {/* Capabilities Badges */}
+                <div className="flex flex-wrap items-center gap-1 mb-2">
+                  {model.capabilities.map((cap) => (
+                    <span
+                      key={cap}
+                      className="px-1.5 py-0.5 rounded bg-zinc-800/80 border border-zinc-700/60 text-[9px] font-bold text-zinc-300 uppercase tracking-wider"
+                    >
+                      {cap === 'vision' ? '👁️ Vision' : cap === 'image-gen' ? '🎨 Art Gen' : cap === 'code' ? '💻 Code' : cap === 'agent' ? '🤖 Agent' : cap === 'tools' ? '🛠️ Tools' : '📝 Text'}
+                    </span>
+                  ))}
+                  {model.inputTypes.includes('file') && (
+                    <span className="px-1.5 py-0.5 rounded bg-blue-950/60 border border-blue-700/50 text-[9px] font-bold text-blue-300 uppercase tracking-wider">
+                      📄 Docs
+                    </span>
+                  )}
+                  {model.inputTypes.includes('audio') || model.outputTypes.includes('audio') ? (
+                    <span className="px-1.5 py-0.5 rounded bg-amber-950/60 border border-amber-700/50 text-[9px] font-bold text-amber-300 uppercase tracking-wider">
+                      🎙️ Voice
+                    </span>
+                  ) : null}
+                </div>
 
                 {/* Specs Pill List */}
                 <div className="flex flex-wrap items-center gap-1.5 mb-3 text-[10px] font-mono text-zinc-400">

@@ -40,6 +40,9 @@ import {
   Disc,
   Waves,
   Octagon,
+  Menu,
+  Eye,
+  Search,
 } from 'lucide-react';
 import { useAppStore, Attachment } from '@/appStore';
 import { AVAILABLE_MODELS, ModelSpec } from '@/models';
@@ -84,6 +87,7 @@ export default function ChatView() {
 
   const [inputVal, setInputVal] = useState('');
   const [isCameraOpen, setIsCameraOpen] = useState(false);
+  const [showModeMenu, setShowModeMenu] = useState(false);
   const [showModelPicker, setShowModelPicker] = useState(false);
   const [showSessionPicker, setShowSessionPicker] = useState(false);
   const [modelPromptDownload, setModelPromptDownload] = useState<ModelSpec | null>(null);
@@ -102,16 +106,35 @@ export default function ChatView() {
   const messages = currentSession?.messages || [];
   const currentModel = AVAILABLE_MODELS.find((m) => m.id === selectedModelId);
 
-  // Ready models list
+  // Filter models based on the currently selected operatingMode
+  // e.g. In image-gen mode, only display image models. In vision mode, vision models. In voice mode, voice models. In agent or chat mode, text/reasoning models.
+  const modeCategory = operatingMode === 'image-gen'
+    ? 'image'
+    : operatingMode === 'vision'
+    ? 'vision'
+    : operatingMode === 'voice'
+    ? 'voice'
+    : operatingMode === 'embedding'
+    ? 'embedding'
+    : 'text';
+
+  // Ready models list filtered by active purpose mode
   const readyModels = AVAILABLE_MODELS.filter((m) => downloads[m.id]?.isReady);
-  // Only surface downloadable models that actually fit this device: RAM, and (for webgpu-engine
-  // models) a working WebGPU adapter — cpu-wasm models never need WebGPU so they stay listed
-  // regardless. Already-downloaded models stay listed above regardless — they're already installed.
   const unreadyModels = AVAILABLE_MODELS.filter((m) => {
     if (downloads[m.id]?.isReady) return false;
     const fitsRam = !hardwareProfile || hardwareProfile.estimatedRamGB >= m.minRamGB;
     const fitsGpu = m.engine === 'cpu-wasm' || !hardwareProfile || hardwareProfile.hasWebGpu;
     return fitsRam && fitsGpu;
+  });
+
+  const filteredReadyModels = readyModels.filter((m) => {
+    if (operatingMode === 'agent') return m.capabilities.includes('tools') || m.capabilities.includes('agent') || m.category === 'text';
+    return m.category === modeCategory;
+  });
+
+  const filteredUnreadyModels = unreadyModels.filter((m) => {
+    if (operatingMode === 'agent') return m.capabilities.includes('tools') || m.capabilities.includes('agent') || m.category === 'text';
+    return m.category === modeCategory;
   });
 
   const [realtimeCpuLoad, setRealtimeCpuLoad] = useState<number>(14);
@@ -145,235 +168,7 @@ export default function ChatView() {
   const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
   const currentTranscriptRef = useRef<string>('');
 
-  // Real-Time Live Conversational Voice State (Like Doubao / ChatGPT Voice / Gemini Live)
-  const [isRealtimeListening, setIsRealtimeListening] = useState(false);
-  const [realtimeVoiceStatus, setRealtimeVoiceStatus] = useState<'idle' | 'listening' | 'thinking' | 'speaking'>('idle');
-  const [realtimeLiveTranscript, setRealtimeLiveTranscript] = useState<string>('');
-  const [liveLanguage, setLiveLanguage] = useState<'zh-CN' | 'en-US' | 'yue-Hant-HK' | 'auto'>('zh-CN');
-  const [liveTurnCount, setLiveTurnCount] = useState<number>(0);
-  const realtimeRecRef = useRef<any>(null);
-  const realtimeSilenceTimerRef = useRef<any>(null);
-  // Ref to track live transcript so Pause & Send can capture it synchronously
-  const realtimeLiveTranscriptRef = useRef<string>('');
-  // Flag to prevent onend from auto-restarting after manual Pause
-  const manuallyPausedRef = useRef<boolean>(false);
 
-  // Stop real-time voice session
-  const stopRealtimeVoiceMode = () => {
-    setIsRealtimeListening(false);
-    setRealtimeVoiceStatus('idle');
-    setRealtimeLiveTranscript('');
-    if (realtimeSilenceTimerRef.current) clearTimeout(realtimeSilenceTimerRef.current);
-    if (realtimeRecRef.current) {
-      try {
-        realtimeRecRef.current.onend = null;
-        realtimeRecRef.current.stop();
-      } catch (_) {}
-      realtimeRecRef.current = null;
-    }
-    stopSpeaking();
-  };
-
-  // Start continuous hands-free real-time listening (Doubao style back-and-forth)
-  const startRealtimeListening = (overrideLang?: string) => {
-    if (typeof window === 'undefined') return;
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRec) {
-      alert('Speech Recognition is not supported by your browser/webview. You can use text mode or your keyboard mic.');
-      return;
-    }
-
-    try {
-      if (realtimeRecRef.current) {
-        try { realtimeRecRef.current.stop(); } catch (_) {}
-      }
-
-      const rec = new SpeechRec();
-      const chosenLang = overrideLang || (liveLanguage === 'auto' ? 'zh-CN' : liveLanguage);
-      rec.lang = chosenLang;
-      rec.continuous = true;
-      rec.interimResults = true;
-
-      rec.onstart = () => {
-        setIsRealtimeListening(true);
-        setRealtimeVoiceStatus('listening');
-      };
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      rec.onresult = (event: any) => {
-        const transcript = Array.from(event.results)
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          .map((res: any) => res[0].transcript)
-          .join(' ');
-
-        if (transcript.trim()) {
-          realtimeLiveTranscriptRef.current = transcript; // keep ref in sync for Pause & Send
-          setRealtimeLiveTranscript(transcript);
-          setRealtimeVoiceStatus('listening');
-
-          // Reset silence timer on new speech tokens
-          if (realtimeSilenceTimerRef.current) clearTimeout(realtimeSilenceTimerRef.current);
-
-          // Auto-VAD: After 1.2s of silence following user speech, dispatch to LLM!
-          realtimeSilenceTimerRef.current = setTimeout(async () => {
-            const promptToSend = transcript.trim();
-            if (!promptToSend) return;
-
-            // Pause listening while LLM thinks & speaks
-            try { rec.stop(); } catch (_) {}
-            setIsRealtimeListening(false);
-            setRealtimeVoiceStatus('thinking');
-            setRealtimeLiveTranscript('');
-
-            // Increment turns count for Live session
-            setLiveTurnCount((prev) => prev + 1);
-
-            // Dispatch message to active session with { isLive: true }
-            // This triggers Doubao-style auto-clear / sliding context window so context never overflows!
-            await sendMessage(promptToSend, { isLive: true });
-
-            // After AI finishes generating, speak reply immediately
-            setRealtimeVoiceStatus('speaking');
-
-            // Wait a tiny beat for store state to settle, then grab latest assistant message
-            await new Promise((r) => setTimeout(r, 100));
-            try {
-              const state = useAppStore.getState();
-              const activeId = state.operatingMode === 'agent' ? state.activeAgentSessionId : state.activeChatSessionId;
-              const currentSess = state.operatingMode === 'agent'
-                ? state.agentSessions[activeId]
-                : state.chatSessions[activeId];
-              const msgs = currentSess?.messages || [];
-              const lastAssistantMsg = [...msgs].reverse().find((m) => m.role === 'assistant');
-              const rawText = lastAssistantMsg?.content || '';
-
-              if (rawText && typeof window !== 'undefined' && 'speechSynthesis' in window) {
-                // Clean text of markdown, code, image links, and tags
-                let clean = rawText
-                  .replace(/<think>[\s\S]*?<\/think>/gi, '')
-                  .replace(/<think>[\s\S]*/gi, '')
-                  .replace(/!\[.*?\]\(.*?\)/g, '')
-                  .replace(/\[.*?\]\(.*?\)/g, '')
-                  .replace(/```[\s\S]*?```/g, '已生成代码。')
-                  .replace(/[`*#_~>]/g, '')
-                  .slice(0, 350)
-                  .trim();
-
-                if (clean) {
-                  window.speechSynthesis.cancel();
-                  const utt = new SpeechSynthesisUtterance(clean);
-                  utt.rate = 1.08;
-                  utt.pitch = 1.0;
-
-                  // Multilingual Voice matching: Chinese, Cantonese, English, etc.
-                  const isChineseText = /[\u4e00-\u9fa5]/.test(clean);
-                  const voices = window.speechSynthesis.getVoices();
-                  if (voices && voices.length > 0) {
-                    let matchedVoice: SpeechSynthesisVoice | undefined;
-                    if (isChineseText || chosenLang.startsWith('zh')) {
-                      matchedVoice = voices.find((v) => v.lang.startsWith('zh') && (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('Xiaoxiao') || v.name.includes('Yunxi')))
-                        || voices.find((v) => v.lang.startsWith('zh'))
-                        || voices[0];
-                    } else {
-                      matchedVoice = voices.find((v) => (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('Neural')) && v.lang.startsWith('en'))
-                        || voices.find((v) => v.lang.startsWith('en'))
-                        || voices[0];
-                    }
-                    if (matchedVoice) {
-                      utt.voice = matchedVoice;
-                      utt.lang = matchedVoice.lang;
-                    }
-                  }
-
-                  let hasResumed = false;
-                  const resumeListening = () => {
-                    if (hasResumed) return;
-                    hasResumed = true;
-                    // Doubao-style continuous conversation: immediately listen for user reply!
-                    if (chatTabMode === 'voice') {
-                      setRealtimeVoiceStatus('listening');
-                      startRealtimeListening();
-                    } else {
-                      setRealtimeVoiceStatus('idle');
-                    }
-                  };
-
-                  utt.onend = resumeListening;
-                  utt.onerror = resumeListening;
-
-                  // Safety timeout in case onend never fires on some mobile WebViews
-                  setTimeout(resumeListening, Math.max(2500, clean.length * 100));
-
-                  window.speechSynthesis.speak(utt);
-                  return; // onend will resume listening automatically
-                }
-              }
-            } catch (err) {
-              console.warn('Live voice speech dispatch error:', err);
-            }
-
-            // Fallback if no speech available — resume listening immediately
-            if (chatTabMode === 'voice') {
-              setRealtimeVoiceStatus('listening');
-              startRealtimeListening();
-            } else {
-              setRealtimeVoiceStatus('idle');
-            }
-          }, 1200);
-        }
-      };
-
-      rec.onerror = (e: any) => {
-        console.warn('Real-time Speech Recognition notice:', e?.error);
-        if (e?.error === 'no-speech' || e?.error === 'network') {
-          setTimeout(() => {
-            if (chatTabMode === 'voice' && !isGenerating) {
-              try { rec.start(); } catch (_) {}
-            }
-          }, 500);
-        }
-      };
-
-      rec.onend = () => {
-        // Continuous back-and-forth listening — but NOT after a manual pause
-        if (manuallyPausedRef.current) return;
-        if (chatTabMode === 'voice' && !isGenerating && realtimeVoiceStatus !== 'thinking' && realtimeVoiceStatus !== 'speaking') {
-          try { rec.start(); } catch (_) {}
-        }
-      };
-
-      rec.start();
-      realtimeRecRef.current = rec;
-      setIsRealtimeListening(true);
-      setRealtimeVoiceStatus('listening');
-    } catch (err) {
-      console.warn('Could not start continuous speech engine:', err);
-      setIsRealtimeListening(false);
-      setRealtimeVoiceStatus('idle');
-    }
-  };
-
-  // Sync real-time voice mode status with AI speaking / generating lifecycle
-  React.useEffect(() => {
-    if (chatTabMode === 'voice') {
-      if (isSpeaking) {
-        setRealtimeVoiceStatus('speaking');
-      } else if (isGenerating) {
-        setRealtimeVoiceStatus('thinking');
-      } else if (isRealtimeListening) {
-        setRealtimeVoiceStatus('listening');
-      }
-    }
-  }, [isSpeaking, isGenerating, isRealtimeListening, chatTabMode]);
-
-  // Clean up real-time voice if leaving voice tab
-  React.useEffect(() => {
-    if (chatTabMode !== 'voice') {
-      stopRealtimeVoiceMode();
-    }
-  }, [chatTabMode]);
 
   // Start WhatsApp-Style Voice Recording
   const startWhatsAppVoiceRecording = async () => {
@@ -612,19 +407,41 @@ export default function ChatView() {
     const files = e.target.files;
     if (!files || files.length === 0) return;
     Array.from(files).forEach((file) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const att: Attachment = {
-          id: `file-${Date.now()}-${Math.random()}`,
-          type: 'file',
-          name: file.name,
-          dataUrl: reader.result as string,
-          mimeType: file.type || 'text/plain',
-          sizeBytes: file.size,
+      const isTextFile =
+        file.type.startsWith('text/') ||
+        /\.(txt|md|json|js|ts|tsx|jsx|py|java|c|cpp|rs|go|html|css|csv|xml|yaml|yml|log|sh|bat)$/i.test(file.name);
+
+      if (isTextFile) {
+        const textReader = new FileReader();
+        textReader.onload = () => {
+          const content = (textReader.result as string) || '';
+          const att: Attachment = {
+            id: `file-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+            type: 'file',
+            name: file.name,
+            dataUrl: '',
+            mimeType: file.type || 'text/plain',
+            sizeBytes: file.size,
+            textContent: content,
+          };
+          addAttachment(att);
         };
-        addAttachment(att);
-      };
-      reader.readAsDataURL(file);
+        textReader.readAsText(file);
+      } else {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const att: Attachment = {
+            id: `file-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+            type: 'file',
+            name: file.name,
+            dataUrl: reader.result as string,
+            mimeType: file.type || 'application/octet-stream',
+            sizeBytes: file.size,
+          };
+          addAttachment(att);
+        };
+        reader.readAsDataURL(file);
+      }
     });
     e.target.value = '';
   };
@@ -645,10 +462,23 @@ export default function ChatView() {
               type="button"
               onClick={() => setShowModelPicker((prev) => !prev)}
               aria-label="Select AI Model"
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-700/80 active:border-cyan-500 text-[11px] font-bold text-white transition-all cursor-pointer max-w-[150px] shadow-sm select-none"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-700/80 active:border-cyan-500 text-[11px] font-bold text-white transition-all cursor-pointer max-w-[190px] shadow-sm select-none"
             >
               <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse shrink-0" />
               <span className="truncate">{currentModel?.name || 'Select Model'}</span>
+              {currentModel && (
+                <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold uppercase shrink-0 ${
+                  currentModel.category === 'vision'
+                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                    : currentModel.category === 'image'
+                    ? 'bg-fuchsia-500/20 text-fuchsia-300 border border-fuchsia-500/30'
+                    : currentModel.category === 'voice'
+                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                    : 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
+                }`}>
+                  {currentModel.category === 'vision' ? 'Vision' : currentModel.category === 'image' ? 'Image' : currentModel.category === 'voice' ? 'Voice' : 'Text'}
+                </span>
+              )}
               <ChevronDown className={`w-3 h-3 text-zinc-400 shrink-0 transition-transform ${showModelPicker ? 'rotate-180' : ''}`} />
             </button>
 
@@ -662,22 +492,36 @@ export default function ChatView() {
                 />
 
                 {/* Dropdown Menu */}
-                <div className="absolute left-0 top-full mt-1.5 w-80 max-w-[90vw] bg-zinc-900 border border-zinc-700/80 rounded-2xl shadow-2xl p-2 z-50 space-y-1.5 max-h-96 overflow-y-auto">
+                <div className="absolute left-0 top-full mt-1.5 w-84 max-w-[92vw] bg-zinc-900 border border-zinc-700/80 rounded-2xl shadow-2xl p-2.5 z-50 space-y-2 max-h-[28rem] overflow-y-auto">
+                  {/* Purpose Category Mode Header */}
+                  <div className="flex items-center justify-between pb-1.5 border-b border-zinc-800 text-xs font-bold text-zinc-300">
+                    <span className="capitalize text-cyan-400">
+                      {operatingMode === 'image-gen'
+                        ? '🎨 Image Generation Models'
+                        : operatingMode === 'vision'
+                        ? '👁️ Multimodal & Vision Models'
+                        : operatingMode === 'voice'
+                        ? '🔊 Neural Voice Models'
+                        : operatingMode === 'embedding'
+                        ? '🔍 Semantic File Search Models'
+                        : operatingMode === 'agent'
+                        ? '🤖 Agent Compatible Models'
+                        : '💬 Chat & Reasoning Models'}
+                    </span>
+                    <span className="text-[10px] text-zinc-500 font-mono">
+                      Filtered for Mode
+                    </span>
+                  </div>
+
                   {/* Ready Models Section */}
-                  <div className="px-2 py-1 text-[10px] uppercase font-bold text-emerald-400 flex items-center justify-between">
-                    <span>Ready Local Models ({(chatTabMode === 'voice' ? readyModels.filter(m => m.family === 'chat') : readyModels).length})</span>
+                  <div className="px-1 py-0.5 text-[10px] uppercase font-bold text-emerald-400 flex items-center justify-between">
+                    <span>Ready Local Models ({filteredReadyModels.length})</span>
                     <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
                   </div>
-                  {chatTabMode === 'voice' && (
-                    <div className="px-2 pb-1 text-[9px] text-cyan-400/70 flex items-center gap-1">
-                      <span>🎙️ Live mode — showing chat models only</span>
-                    </div>
-                  )}
 
-                  {(chatTabMode === 'voice' ? readyModels.filter(m => m.family === 'chat') : readyModels).length > 0 ? (
-                    (chatTabMode === 'voice' ? readyModels.filter(m => m.family === 'chat') : readyModels).map((m) => {
+                  {filteredReadyModels.length > 0 ? (
+                    filteredReadyModels.map((m) => {
                       const isCur = m.id === selectedModelId;
-                      const supportsVoice = m.outputTypes?.includes('audio') || m.outputTypes?.includes('text');
                       return (
                         <button
                           key={m.id}
@@ -695,15 +539,19 @@ export default function ChatView() {
                           <div className="truncate pr-2">
                             <div className="truncate font-semibold text-white flex items-center gap-1.5">
                               <span>{m.name}</span>
-                              {m.engine === 'cpu-wasm' && (
-                                <span className="text-[8px] px-1 py-0.2 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">CPU</span>
-                              )}
+                              <span className={`text-[8px] px-1.5 py-0.2 rounded font-bold uppercase ${
+                                m.category === 'vision'
+                                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                                  : m.category === 'image'
+                                  ? 'bg-fuchsia-500/20 text-fuchsia-300 border border-fuchsia-500/30'
+                                  : m.category === 'voice'
+                                  ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                                  : 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
+                              }`}>
+                                {m.category === 'vision' ? '👁️ Vision' : m.category === 'image' ? '🎨 Art' : m.category === 'voice' ? '🔊 Voice' : '📝 Text'}
+                              </span>
                             </div>
-                            <div className="text-[10px] text-zinc-400 mt-0.5">{m.parameters} • {m.quantization}
-                              {chatTabMode === 'voice' && !supportsVoice && (
-                                <span className="ml-1 text-amber-500/80">· no voice</span>
-                              )}
-                            </div>
+                            <div className="text-[10px] text-zinc-400 mt-0.5">{m.parameters} • {m.quantization} • {m.tagline}</div>
                           </div>
                           <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full shrink-0 ${
                             isCur ? 'bg-cyan-500 text-black' : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
@@ -714,100 +562,232 @@ export default function ChatView() {
                       );
                     })
                   ) : (
-                    <div className="px-3 py-2 text-zinc-400 text-xs italic bg-zinc-950/80 border border-zinc-800 rounded-xl">
-                      No models downloaded yet. Tap a model below to install its weights.
+                    <div className="px-3 py-2 text-zinc-400 text-[11px] italic bg-zinc-950/80 border border-zinc-800 rounded-xl">
+                      No ready models in this category. Tap below to install.
                     </div>
                   )}
 
-                  {/* Unready / Need Download Section */}
-                  <div className="pt-2 border-t border-zinc-800 px-2 py-1 text-[10px] uppercase font-bold text-zinc-400 flex items-center justify-between">
-                    <span>Available Models ({(chatTabMode === 'voice' ? unreadyModels.filter(m => m.family === 'chat') : unreadyModels).length})</span>
-                    <Download className="w-3.5 h-3.5 text-cyan-400" />
-                  </div>
-
-                  {(chatTabMode === 'voice' ? unreadyModels.filter(m => m.family === 'chat') : unreadyModels).map((m) => (
-                    <button
-                      key={m.id}
-                      type="button"
-                      onClick={() => {
-                        setShowModelPicker(false);
-                        setModelPromptDownload(m);
-                      }}
-                      className="w-full text-left px-3 py-2 rounded-xl text-xs flex items-center justify-between bg-zinc-950/40 hover:bg-zinc-800/80 active:bg-zinc-800 border border-zinc-800/60 text-zinc-400 transition-all cursor-pointer select-none"
-                    >
-                      <div className="truncate pr-2">
-                        <div className="truncate text-zinc-200 font-medium flex items-center gap-1.5">
-                          <span>{m.name}</span>
-                          {m.engine === 'cpu-wasm' && (
-                            <span className="text-[8px] px-1 py-0.2 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">CPU</span>
-                          )}
-                        </div>
-                        <div className="text-[10px] text-zinc-500 mt-0.5">{(m.sizeMB / 1024).toFixed(1)} GB • {m.family}</div>
+                  {/* Available Models (To Download) */}
+                  {filteredUnreadyModels.length > 0 && (
+                    <>
+                      <div className="pt-2 border-t border-zinc-800 px-1 py-0.5 text-[10px] uppercase font-bold text-zinc-400 flex items-center justify-between">
+                        <span>Available To Download ({filteredUnreadyModels.length})</span>
+                        <Download className="w-3.5 h-3.5 text-cyan-400" />
                       </div>
-                      <span className="text-[10px] text-cyan-400 font-bold px-2 py-1 rounded-lg bg-cyan-500/10 border border-cyan-500/30 shrink-0 flex items-center gap-1 hover:bg-cyan-500/20">
-                        <Download className="w-3 h-3" />
-                        <span>Get</span>
-                      </span>
-                    </button>
-                  ))}
+
+                      {filteredUnreadyModels.map((m) => (
+                        <button
+                          key={m.id}
+                          type="button"
+                          onClick={() => {
+                            setShowModelPicker(false);
+                            setModelPromptDownload(m);
+                          }}
+                          className="w-full text-left px-3 py-2 rounded-xl text-xs flex items-center justify-between bg-zinc-950/40 hover:bg-zinc-800/80 active:bg-zinc-800 border border-zinc-800/60 text-zinc-400 transition-all cursor-pointer select-none"
+                        >
+                          <div className="truncate pr-2">
+                            <div className="truncate text-zinc-200 font-medium flex items-center gap-1.5">
+                              <span>{m.name}</span>
+                              <span className={`text-[8px] px-1.5 py-0.2 rounded font-bold uppercase ${
+                                m.category === 'vision'
+                                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                                  : m.category === 'image'
+                                  ? 'bg-fuchsia-500/20 text-fuchsia-300 border border-fuchsia-500/30'
+                                  : m.category === 'voice'
+                                  ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                                  : 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
+                              }`}>
+                                {m.category === 'vision' ? '👁️ Vision' : m.category === 'image' ? '🎨 Art' : m.category === 'voice' ? '🔊 Voice' : '📝 Text'}
+                              </span>
+                            </div>
+                            <div className="text-[10px] text-zinc-500 mt-0.5">{(m.sizeMB / 1024).toFixed(1)} GB • {m.tagline}</div>
+                          </div>
+                          <span className="text-[10px] text-cyan-400 font-bold px-2 py-1 rounded-lg bg-cyan-500/10 border border-cyan-500/30 shrink-0 flex items-center gap-1 hover:bg-cyan-500/20">
+                            <Download className="w-3 h-3" />
+                            <span>Get</span>
+                          </span>
+                        </button>
+                      ))}
+                    </>
+                  )}
                 </div>
               </>
             )}
           </div>
 
-          {/* Text vs Voice Tab Switcher */}
-          <div className="flex items-center gap-0.5 bg-zinc-900 border border-zinc-800 p-0.5 rounded-xl shrink-0">
+          {/* Burger Menu Button & Purpose Selector */}
+          <div className="relative shrink-0 ml-auto">
             <button
-              onClick={() => setChatTabMode('text')}
-              className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${
-                chatTabMode === 'text'
-                  ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-md shadow-cyan-500/20'
-                  : 'text-zinc-400 hover:text-white'
+              onClick={() => setShowModeMenu((prev) => !prev)}
+              aria-label="Select Mode Purpose"
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-[11px] font-bold transition-all cursor-pointer shadow-sm ${
+                operatingMode === 'image-gen'
+                  ? 'bg-fuchsia-950/80 border-fuchsia-500/50 text-fuchsia-300'
+                  : operatingMode === 'vision'
+                  ? 'bg-emerald-950/80 border-emerald-500/50 text-emerald-300'
+                  : operatingMode === 'voice'
+                  ? 'bg-amber-950/80 border-amber-500/50 text-amber-300'
+                  : operatingMode === 'embedding'
+                  ? 'bg-blue-950/80 border-blue-500/50 text-blue-300'
+                  : operatingMode === 'agent'
+                  ? 'bg-indigo-950/80 border-indigo-500/50 text-indigo-300'
+                  : 'bg-zinc-900 border-zinc-700/80 text-zinc-200 hover:text-white'
               }`}
             >
-              <MessageSquare className="w-3 h-3" />
-              <span>Text</span>
+              <Menu className="w-3.5 h-3.5" />
+              <span className="capitalize font-extrabold">
+                {operatingMode === 'image-gen'
+                  ? '🎨 Image Studio'
+                  : operatingMode === 'vision'
+                  ? '👁️ Vision AI'
+                  : operatingMode === 'voice'
+                  ? '🔊 Voice Synthesis'
+                  : operatingMode === 'embedding'
+                  ? '🔍 File Search'
+                  : operatingMode === 'agent'
+                  ? '🤖 Hermes Agent'
+                  : '💬 Chat Mode'}
+              </span>
+              <ChevronDown className={`w-3 h-3 transition-transform ${showModeMenu ? 'rotate-180' : ''}`} />
             </button>
-            <button
-              onClick={() => {
-                setChatTabMode('voice');
-                setIsVoiceOutputEnabled(true); // Always enable voice output when entering live voice mode
-                startRealtimeListening();
-              }}
-              className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${
-                chatTabMode === 'voice'
-                  ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-black font-extrabold shadow-md shadow-emerald-500/20'
-                  : 'text-zinc-400 hover:text-emerald-400'
-              }`}
-            >
-              <Headphones className="w-3 h-3" />
-              <span>Live</span>
-            </button>
-          </div>
 
-          {/* Operating Mode Switcher (Chat vs Hermes Agent) */}
-          <div className="flex items-center gap-0.5 bg-zinc-900 border border-zinc-800 p-0.5 rounded-xl shrink-0">
-            <button
-              onClick={() => setOperatingMode('chat')}
-              className={`px-2 py-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${
-                operatingMode === 'chat'
-                  ? 'bg-zinc-800 text-white'
-                  : 'text-zinc-400 hover:text-white'
-              }`}
-            >
-              Chat
-            </button>
-            <button
-              onClick={() => setOperatingMode('agent')}
-              className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${
-                operatingMode === 'agent'
-                  ? 'bg-indigo-600 text-white shadow-md'
-                  : 'text-zinc-400 hover:text-white'
-              }`}
-            >
-              <Bot className="w-3 h-3" />
-              <span>Agent</span>
-            </button>
+            {/* Burger Dropdown Modal / Popover */}
+            {showModeMenu && (
+              <>
+                <div
+                  className="fixed inset-0 z-40 bg-black/40 backdrop-blur-[1px]"
+                  onClick={() => setShowModeMenu(false)}
+                />
+                <div className="absolute right-0 top-full mt-1.5 w-64 bg-zinc-900 border border-zinc-700/90 rounded-2xl shadow-2xl p-2 z-50 space-y-1 animate-in fade-in zoom-in-95 duration-150">
+                  <div className="px-2 py-1 text-[10px] uppercase font-bold text-zinc-400 tracking-wider border-b border-zinc-800">
+                    Select Mode Purpose
+                  </div>
+
+                  {/* 1. Chat */}
+                  <button
+                    onClick={() => {
+                      setOperatingMode('chat');
+                      setShowModeMenu(false);
+                    }}
+                    className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-left transition-all cursor-pointer ${
+                      operatingMode === 'chat'
+                        ? 'bg-cyan-500/20 text-cyan-300 font-bold border border-cyan-500/40'
+                        : 'hover:bg-zinc-800 text-zinc-300'
+                    }`}
+                  >
+                    <MessageSquare className="w-4 h-4 text-cyan-400 shrink-0" />
+                    <div className="truncate">
+                      <div className="text-xs font-bold">💬 General Chat</div>
+                      <div className="text-[10px] text-zinc-400">Conversational Q&A & Writing</div>
+                    </div>
+                  </button>
+
+                  {/* 2. Image Generate */}
+                  <button
+                    onClick={() => {
+                      setOperatingMode('image-gen');
+                      const imgModel = AVAILABLE_MODELS.find((m) => m.category === 'image');
+                      if (imgModel) setSelectedModelId(imgModel.id);
+                      setShowModeMenu(false);
+                    }}
+                    className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-left transition-all cursor-pointer ${
+                      operatingMode === 'image-gen'
+                        ? 'bg-fuchsia-500/20 text-fuchsia-300 font-bold border border-fuchsia-500/40'
+                        : 'hover:bg-zinc-800 text-zinc-300'
+                    }`}
+                  >
+                    <ImageIcon className="w-4 h-4 text-fuchsia-400 shrink-0" />
+                    <div className="truncate">
+                      <div className="text-xs font-bold">🎨 Image Generate</div>
+                      <div className="text-[10px] text-zinc-400">Diffusion Art & Concept Drawing</div>
+                    </div>
+                  </button>
+
+                  {/* 3. Vision */}
+                  <button
+                    onClick={() => {
+                      setOperatingMode('vision');
+                      const visModel = AVAILABLE_MODELS.find((m) => m.category === 'vision');
+                      if (visModel) setSelectedModelId(visModel.id);
+                      setShowModeMenu(false);
+                    }}
+                    className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-left transition-all cursor-pointer ${
+                      operatingMode === 'vision'
+                        ? 'bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/40'
+                        : 'hover:bg-zinc-800 text-zinc-300'
+                    }`}
+                  >
+                    <Eye className="w-4 h-4 text-emerald-400 shrink-0" />
+                    <div className="truncate">
+                      <div className="text-xs font-bold">👁️ Vision & Photo QA</div>
+                      <div className="text-[10px] text-zinc-400">Camera OCR & Visual Reasoning</div>
+                    </div>
+                  </button>
+
+                  {/* 4. Voice */}
+                  <button
+                    onClick={() => {
+                      setOperatingMode('voice');
+                      setIsVoiceOutputEnabled(true);
+                      const voiceModel = AVAILABLE_MODELS.find((m) => m.category === 'voice');
+                      if (voiceModel) setSelectedModelId(voiceModel.id);
+                      setShowModeMenu(false);
+                    }}
+                    className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-left transition-all cursor-pointer ${
+                      operatingMode === 'voice'
+                        ? 'bg-amber-500/20 text-amber-300 font-bold border border-amber-500/40'
+                        : 'hover:bg-zinc-800 text-zinc-300'
+                    }`}
+                  >
+                    <Volume2 className="w-4 h-4 text-amber-400 shrink-0" />
+                    <div className="truncate">
+                      <div className="text-xs font-bold">🔊 Voice Synthesis</div>
+                      <div className="text-[10px] text-zinc-400">Spoken Readout & Neural TTS</div>
+                    </div>
+                  </button>
+
+                  {/* 5. Autonomous Agent */}
+                  <button
+                    onClick={() => {
+                      setOperatingMode('agent');
+                      setShowModeMenu(false);
+                    }}
+                    className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-left transition-all cursor-pointer ${
+                      operatingMode === 'agent'
+                        ? 'bg-indigo-500/20 text-indigo-300 font-bold border border-indigo-500/40'
+                        : 'hover:bg-zinc-800 text-zinc-300'
+                    }`}
+                  >
+                    <Bot className="w-4 h-4 text-indigo-400 shrink-0" />
+                    <div className="truncate">
+                      <div className="text-xs font-bold">🤖 Hermes Agent</div>
+                      <div className="text-[10px] text-zinc-400">Autonomous Tools & Multi-Step Logic</div>
+                    </div>
+                  </button>
+
+                  {/* 6. Embedding & Device Files */}
+                  <button
+                    onClick={() => {
+                      setOperatingMode('embedding');
+                      const embModel = AVAILABLE_MODELS.find((m) => m.category === 'embedding');
+                      if (embModel) setSelectedModelId(embModel.id);
+                      setShowModeMenu(false);
+                    }}
+                    className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-left transition-all cursor-pointer ${
+                      operatingMode === 'embedding'
+                        ? 'bg-blue-500/20 text-blue-300 font-bold border border-blue-500/40'
+                        : 'hover:bg-zinc-800 text-zinc-300'
+                    }`}
+                  >
+                    <Search className="w-4 h-4 text-blue-400 shrink-0" />
+                    <div className="truncate">
+                      <div className="text-xs font-bold">🔍 Embedding & File Search</div>
+                      <div className="text-[10px] text-zinc-400">Find Videos, Photos, Code & Docs</div>
+                    </div>
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
 
@@ -844,11 +824,10 @@ export default function ChatView() {
           <button
             onClick={() => {
               stopAllRunningTasks();
-              stopRealtimeVoiceMode();
             }}
             title="Stop all running tasks, speech, downloads and generations"
             className={`flex items-center gap-1 px-2.5 py-1 rounded-xl border text-[10px] font-bold transition-all cursor-pointer ${
-              isGenerating || isSpeaking || Object.values(downloads).some((d) => d.isDownloading) || isRealtimeListening
+              isGenerating || isSpeaking || Object.values(downloads).some((d) => d.isDownloading)
                 ? 'bg-rose-500/20 border-rose-500/50 text-rose-300 hover:bg-rose-500/30 animate-pulse shadow-md shadow-rose-500/20'
                 : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-rose-400 hover:border-rose-500/30'
             }`}
@@ -912,234 +891,8 @@ export default function ChatView() {
 
 
 
-      {/* MAIN VIEW: TEXT MODE VS REAL-TIME HANDS-FREE VOICE MODE */}
-      {chatTabMode === 'voice' ? (
-        /* Real-Time Hands-Free Conversational Voice Screen (ChatGPT Voice / Gemini Live Style) */
-        <div className="flex-1 flex flex-col items-center justify-between p-6 bg-gradient-to-b from-zinc-950 via-zinc-900 to-zinc-950 relative overflow-hidden select-none">
-          {/* Ambient Glows */}
-          <div className="absolute top-1/4 w-72 h-72 rounded-full bg-cyan-500/10 blur-3xl pointer-events-none" />
-          <div className="absolute bottom-1/4 w-72 h-72 rounded-full bg-indigo-500/10 blur-3xl pointer-events-none" />
-
-          {/* Top Voice Header Status & Doubao-Style Language Bar */}
-          <div className="flex flex-col items-center gap-2 text-center z-10 pt-4 w-full max-w-sm">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-zinc-900/90 border border-zinc-800 text-xs font-bold shadow-lg">
-              <span className={`w-2.5 h-2.5 rounded-full ${
-                realtimeVoiceStatus === 'listening'
-                  ? 'bg-emerald-400 animate-ping'
-                  : realtimeVoiceStatus === 'thinking'
-                  ? 'bg-amber-400 animate-pulse'
-                  : realtimeVoiceStatus === 'speaking'
-                  ? 'bg-cyan-400 animate-bounce'
-                  : 'bg-zinc-500'
-              }`} />
-              <span className="capitalize text-zinc-200">
-                {realtimeVoiceStatus === 'listening'
-                  ? '正在聆听 (Listening)...'
-                  : realtimeVoiceStatus === 'thinking'
-                  ? '思考生成中 (Thinking)...'
-                  : realtimeVoiceStatus === 'speaking'
-                  ? '语音回答中 (Speaking)...'
-                  : '点击麦克风开始对话'}
-              </span>
-            </div>
-
-            {/* Language Selector & Auto-Clear Context Badge */}
-            <div className="flex items-center justify-between w-full px-2 pt-1">
-              {/* Language Switcher */}
-              <div className="flex items-center gap-1 bg-zinc-900/80 border border-zinc-800 p-1 rounded-xl">
-                {[
-                  { id: 'zh-CN', label: '中文' },
-                  { id: 'en-US', label: 'English' },
-                  { id: 'yue-Hant-HK', label: '粤语' },
-                ].map((langItem) => (
-                  <button
-                    key={langItem.id}
-                    onClick={() => {
-                      setLiveLanguage(langItem.id as any);
-                      if (isRealtimeListening) {
-                        stopRealtimeVoiceMode();
-                        setTimeout(() => startRealtimeListening(langItem.id), 200);
-                      }
-                    }}
-                    className={`px-2 py-0.5 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${
-                      liveLanguage === langItem.id
-                        ? 'bg-emerald-500 text-black font-extrabold shadow'
-                        : 'text-zinc-400 hover:text-zinc-200'
-                    }`}
-                  >
-                    {langItem.label}
-                  </button>
-                ))}
-              </div>
-
-              {/* Doubao-style Auto-Clear Context Indicator */}
-              <div
-                className="flex items-center gap-1 px-2 py-1 rounded-xl bg-zinc-900/80 border border-emerald-500/30 text-[10px] text-emerald-400 font-mono font-medium"
-                title="Live模式自动滑动清理超长Context，保证手机连续对话永不溢出"
-              >
-                <Sparkles className="w-2.5 h-2.5 text-emerald-400 animate-pulse" />
-                <span>Context自清理 • 轮次: {liveTurnCount}</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Central Live Neural Audio Orb (Siri / Gemini Live Style) */}
-          <div className="relative flex items-center justify-center my-auto z-10">
-            {/* Outer Ripple Rings */}
-            <div className={`absolute w-64 h-64 rounded-full border border-cyan-500/20 transition-all duration-700 ${
-              realtimeVoiceStatus === 'listening' || realtimeVoiceStatus === 'speaking'
-                ? 'scale-125 opacity-70 animate-ping'
-                : 'scale-90 opacity-20'
-            }`} />
-            <div className={`absolute w-52 h-52 rounded-full border border-indigo-500/30 transition-all duration-500 ${
-              realtimeVoiceStatus === 'listening' || realtimeVoiceStatus === 'speaking'
-                ? 'scale-110 opacity-80'
-                : 'scale-95 opacity-30'
-            }`} />
-
-            {/* Glowing Core Sphere */}
-            <button
-              onClick={() => {
-                if (isRealtimeListening) {
-                  stopRealtimeVoiceMode();
-                } else {
-                  startRealtimeListening();
-                }
-              }}
-              className={`relative w-36 h-36 rounded-full flex flex-col items-center justify-center shadow-2xl transition-all duration-300 cursor-pointer ${
-                realtimeVoiceStatus === 'listening'
-                  ? 'bg-gradient-to-tr from-emerald-600 via-teal-500 to-cyan-400 shadow-emerald-500/40 scale-105'
-                  : realtimeVoiceStatus === 'thinking'
-                  ? 'bg-gradient-to-tr from-amber-600 via-orange-500 to-yellow-400 shadow-amber-500/40 animate-spin-slow'
-                  : realtimeVoiceStatus === 'speaking'
-                  ? 'bg-gradient-to-tr from-cyan-500 via-indigo-600 to-fuchsia-500 shadow-cyan-500/50 scale-110'
-                  : 'bg-zinc-800 border-2 border-zinc-700 hover:border-zinc-500 text-zinc-400'
-              }`}
-            >
-              {realtimeVoiceStatus === 'listening' ? (
-                <div className="flex flex-col items-center text-black">
-                  <Waves className="w-10 h-10 animate-pulse" />
-                  <span className="text-[10px] font-black uppercase mt-1">Listening</span>
-                </div>
-              ) : realtimeVoiceStatus === 'thinking' ? (
-                <div className="flex flex-col items-center text-white">
-                  <Sparkles className="w-10 h-10 animate-bounce" />
-                  <span className="text-[10px] font-black uppercase mt-1">Thinking</span>
-                </div>
-              ) : realtimeVoiceStatus === 'speaking' ? (
-                <div className="flex flex-col items-center text-white">
-                  <Volume2 className="w-10 h-10 animate-pulse" />
-                  <span className="text-[10px] font-black uppercase mt-1">Speaking</span>
-                </div>
-              ) : (
-                <div className="flex flex-col items-center text-zinc-300">
-                  <Mic className="w-10 h-10" />
-                  <span className="text-[10px] font-black uppercase mt-1">Tap to Start</span>
-                </div>
-              )}
-            </button>
-          </div>
-
-          {/* Subtitle / Live Transcript Card */}
-          <div className="w-full max-w-md z-10 space-y-3">
-            {realtimeLiveTranscript ? (
-              <div className="bg-zinc-900/90 border border-emerald-500/30 rounded-2xl p-3 shadow-xl text-center animate-in fade-in">
-                <span className="text-[10px] uppercase font-bold text-emerald-400 block mb-1">You Are Saying:</span>
-                <p className="text-sm text-white font-medium italic">"{realtimeLiveTranscript}"</p>
-              </div>
-            ) : messages.length > 0 && messages[messages.length - 1].role === 'assistant' ? (
-              <div className="bg-zinc-900/90 border border-zinc-800 rounded-2xl p-3 shadow-xl max-h-32 overflow-y-auto">
-                <span className="text-[10px] uppercase font-bold text-cyan-400 block mb-1">Hermes AI Replied:</span>
-                <p className="text-xs text-zinc-200 line-clamp-3 leading-relaxed">
-                  {(() => {
-                    const raw = messages[messages.length - 1].content;
-                    // Strip image data URLs from voice subtitle card
-                    const idx = raw.indexOf('](data:image');
-                    if (idx > 0) {
-                      const start = raw.lastIndexOf('![', idx);
-                      const end = raw.indexOf(')', idx);
-                      if (start >= 0 && end >= 0) return raw.slice(0, start) + raw.slice(end + 1);
-                    }
-                    return raw;
-                  })()}
-                </p>
-              </div>
-            ) : null}
-
-            {/* Bottom Real-Time Voice Controls */}
-            <div className="flex items-center justify-center gap-4 pt-2">
-              <button
-                onClick={() => setChatTabMode('text')}
-                className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-zinc-300 text-xs font-bold transition-all cursor-pointer shadow-lg"
-              >
-                <MessageSquare className="w-4 h-4 text-cyan-400" />
-                <span>Switch to Text</span>
-              </button>
-
-              <button
-                onClick={async () => {
-                  if (isRealtimeListening) {
-                    // Capture transcript from ref BEFORE stopRealtimeVoiceMode clears state
-                    const pendingText = realtimeLiveTranscriptRef.current.trim();
-                    manuallyPausedRef.current = true; // prevent onend auto-restart
-                    stopRealtimeVoiceMode();
-                    realtimeLiveTranscriptRef.current = '';
-                    if (pendingText) {
-                      // User spoke and then hit pause — dispatch their spoken prompt!
-                      setRealtimeVoiceStatus('thinking');
-                      await sendMessage(pendingText, { isLive: true });
-                      setRealtimeVoiceStatus('speaking');
-                      // Small delay for store to settle, then read & speak reply
-                      await new Promise((r) => setTimeout(r, 80));
-                      try {
-                        const state = useAppStore.getState();
-                        const activeId = state.operatingMode === 'agent' ? state.activeAgentSessionId : state.activeChatSessionId;
-                        const currentSess = state.operatingMode === 'agent'
-                          ? state.agentSessions[activeId]
-                          : state.chatSessions[activeId];
-                        const msgs = currentSess?.messages || [];
-                        const lastAssistantMsg = [...msgs].reverse().find((m) => m.role === 'assistant');
-                        const rawText = lastAssistantMsg?.content || '';
-                        if (rawText) {
-                          state.speakText(rawText);
-                        }
-                      } catch (_) {}
-                      setRealtimeVoiceStatus('idle');
-                    } else {
-                      setRealtimeVoiceStatus('idle');
-                    }
-                    manuallyPausedRef.current = false;
-                  } else {
-                    manuallyPausedRef.current = false;
-                    startRealtimeListening();
-                  }
-                }}
-                className={`flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-lg ${
-                  isRealtimeListening
-                    ? 'bg-rose-950/80 border border-rose-500/50 text-rose-300 hover:bg-rose-900'
-                    : 'bg-emerald-500 text-black font-extrabold hover:bg-emerald-400'
-                }`}
-              >
-                {isRealtimeListening ? (
-                  <>
-                    <Square className="w-4 h-4 fill-current" />
-                    <span>Pause & Send</span>
-                  </>
-                ) : (
-                  <>
-                    <Play className="w-4 h-4 fill-current" />
-                    <span>Resume Live Voice</span>
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : (
-        /* STANDARD TEXT & MULTIMODAL CHAT TIMELINE */
-        <>
-          {/* Messages Thread */}
-          <div className="flex-1 overflow-y-auto p-3 space-y-3">
+      {/* MAIN VIEW: MESSAGES TIMELINE */}
+      <div className="flex-1 overflow-y-auto p-3 space-y-3">
             {messages.length === 0 && (
               <div className="h-full flex flex-col items-center justify-center text-center p-6 space-y-4 max-w-md mx-auto">
                 <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-cyan-500/20 via-indigo-500/20 to-purple-500/20 border border-cyan-500/30 flex items-center justify-center text-cyan-400 shadow-xl shadow-cyan-500/10">
@@ -1512,29 +1265,40 @@ export default function ChatView() {
           </div>
         ) : (
           <div className="relative flex items-end gap-1.5 bg-zinc-900 border border-zinc-800 rounded-2xl p-1.5 focus-within:border-cyan-500/50 transition-all shadow-xl">
-            {/* Action Buttons: Camera, Gallery, Files */}
+            {/* Action Buttons: Camera, Gallery, Files (Filtered based on current operating purpose mode) */}
             <div className="flex items-center gap-0.5 pb-0.5 pl-1">
-              <button
-                onClick={() => setIsCameraOpen(true)}
-                title="Camera snapshot"
-                className="p-2 rounded-xl text-zinc-400 hover:text-cyan-400 hover:bg-zinc-800 transition-all cursor-pointer"
-              >
-                <Camera className="w-4 h-4" />
-              </button>
-              <button
-                onClick={() => galleryInputRef.current?.click()}
-                title="Image upload"
-                className="p-2 rounded-xl text-zinc-400 hover:text-cyan-400 hover:bg-zinc-800 transition-all cursor-pointer"
-              >
-                <ImageIcon className="w-4 h-4" />
-              </button>
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                title="File attachment"
-                className="p-2 rounded-xl text-zinc-400 hover:text-cyan-400 hover:bg-zinc-800 transition-all cursor-pointer"
-              >
-                <Paperclip className="w-4 h-4" />
-              </button>
+              {/* Camera: Visible in vision and agent modes */}
+              {(operatingMode === 'vision' || operatingMode === 'agent') && (
+                <button
+                  onClick={() => setIsCameraOpen(true)}
+                  title="Camera snapshot"
+                  className="p-2 rounded-xl text-zinc-400 hover:text-emerald-400 hover:bg-zinc-800 transition-all cursor-pointer"
+                >
+                  <Camera className="w-4 h-4 text-emerald-400" />
+                </button>
+              )}
+
+              {/* Gallery Image: Visible in vision, agent, chat, and embedding search modes */}
+              {(operatingMode === 'vision' || operatingMode === 'agent' || operatingMode === 'chat' || operatingMode === 'embedding') && (
+                <button
+                  onClick={() => galleryInputRef.current?.click()}
+                  title="Image or Video upload to index/search"
+                  className="p-2 rounded-xl text-zinc-400 hover:text-cyan-400 hover:bg-zinc-800 transition-all cursor-pointer"
+                >
+                  <ImageIcon className="w-4 h-4 text-cyan-400" />
+                </button>
+              )}
+
+              {/* File / Document: Visible in chat, agent, vision, and embedding search modes */}
+              {(operatingMode === 'chat' || operatingMode === 'agent' || operatingMode === 'vision' || operatingMode === 'embedding') && (
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  title="Document, video, or file attachment to search/index"
+                  className="p-2 rounded-xl text-zinc-400 hover:text-cyan-400 hover:bg-zinc-800 transition-all cursor-pointer"
+                >
+                  <Paperclip className="w-4 h-4 text-cyan-400" />
+                </button>
+              )}
             </div>
 
             {/* Hidden File Inputs */}
@@ -1549,25 +1313,77 @@ export default function ChatView() {
             <input
               ref={fileInputRef}
               type="file"
-              accept=".txt,.md,.json,.js,.ts,.py,.csv"
+              accept=".txt,.md,.json,.js,.ts,.tsx,.jsx,.py,.java,.cpp,.c,.rs,.go,.html,.css,.csv,.xml,.yaml,.yml,.log,.pdf"
               multiple
               className="hidden"
               onChange={handleFileUpload}
             />
 
-            {/* Prompt Textarea */}
-            <textarea
-              value={inputVal}
-              onChange={(e) => setInputVal(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder={
-                operatingMode === 'agent'
-                  ? 'Ask Hermes to solve, search, code, analyze...'
-                  : 'Chat with local model...'
-              }
-              rows={1}
-              className="flex-1 bg-transparent text-xs text-white placeholder-zinc-500 resize-none py-2 px-1 focus:outline-none max-h-28"
-            />
+            {/* Mode & Category Context Pill inside Chatbox */}
+            <div className="flex flex-col flex-1 min-w-0">
+              <div className="flex items-center gap-1.5 px-1 pt-0.5 pb-0.5 text-[9px] font-mono text-zinc-400">
+                <span className={`px-1.5 py-0.2 rounded font-bold uppercase tracking-wider ${
+                  operatingMode === 'vision' || currentModel?.category === 'vision'
+                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                    : operatingMode === 'image-gen' || currentModel?.category === 'image'
+                    ? 'bg-fuchsia-500/20 text-fuchsia-300 border border-fuchsia-500/30'
+                    : operatingMode === 'voice' || currentModel?.category === 'voice'
+                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                    : operatingMode === 'embedding' || currentModel?.category === 'embedding'
+                    ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
+                    : operatingMode === 'agent'
+                    ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30'
+                    : 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'
+                }`}>
+                  {operatingMode === 'vision' || currentModel?.category === 'vision'
+                    ? '👁️ Vision Mode'
+                    : operatingMode === 'image-gen' || currentModel?.category === 'image'
+                    ? '🎨 Image Studio'
+                    : operatingMode === 'voice' || currentModel?.category === 'voice'
+                    ? '🔊 Neural Voice'
+                    : operatingMode === 'embedding' || currentModel?.category === 'embedding'
+                    ? '🔍 Embedding Search'
+                    : operatingMode === 'agent'
+                    ? '🤖 Hermes Agent'
+                    : '💬 Chat & Text'}
+                </span>
+                <span className="truncate text-zinc-500">
+                  {operatingMode === 'vision' || currentModel?.category === 'vision'
+                    ? 'Attach photos or tap Camera for scene QA'
+                    : operatingMode === 'image-gen' || currentModel?.category === 'image'
+                    ? 'Describe an image to draw locally'
+                    : operatingMode === 'voice' || currentModel?.category === 'voice'
+                    ? 'Type text to synthesize speech or record mic'
+                    : operatingMode === 'embedding' || currentModel?.category === 'embedding'
+                    ? 'Search phone videos, photos, code, documents by meaning'
+                    : operatingMode === 'agent'
+                    ? 'Autonomous multi-step tools & code execution'
+                    : 'Fast reasoning, conversation, and document review'}
+                </span>
+              </div>
+
+              {/* Prompt Textarea */}
+              <textarea
+                value={inputVal}
+                onChange={(e) => setInputVal(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder={
+                  operatingMode === 'vision' || currentModel?.category === 'vision'
+                    ? 'Ask about an image, take a camera snapshot, or analyze a photo...'
+                    : operatingMode === 'image-gen' || currentModel?.category === 'image'
+                    ? 'Describe what you want to draw (e.g. Cyberpunk city in neon rain)...'
+                    : operatingMode === 'voice' || currentModel?.category === 'voice'
+                    ? 'Enter text for neural voice reading or hold Mic button...'
+                    : operatingMode === 'embedding' || currentModel?.category === 'embedding'
+                    ? 'Find files (e.g. "beach vacation video", "receipt store image", "quarterly pdf")...'
+                    : operatingMode === 'agent'
+                    ? 'Ask Hermes to solve, search, code, analyze docs...'
+                    : 'Chat with local model...'
+                }
+                rows={1}
+                className="w-full bg-transparent text-xs text-white placeholder-zinc-500 resize-none py-1.5 px-1 focus:outline-none max-h-28"
+              />
+            </div>
 
             {/* WhatsApp-Style Push-to-Talk Microphone Button */}
             <button
@@ -1601,8 +1417,6 @@ export default function ChatView() {
           </div>
         )}
       </div>
-      </>
-      )}
 
       {/* Unready Model Download Prompt Modal */}
       {modelPromptDownload && (

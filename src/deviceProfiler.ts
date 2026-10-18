@@ -82,24 +82,24 @@ export async function profileMobileHardware(): Promise<DeviceHardwareProfile> {
 
   // Determine Mobile Tier & Best Model
   let deviceTier: DeviceHardwareProfile['deviceTier'] = 'standard';
-  let recommendedModelId = 'hermes-3-llama-3.2-3b';
+  let recommendedModelId = 'qwen2.5-0.5b-cpu';
 
   if (ram <= 3 || cores <= 4) {
     deviceTier = 'ultra-light';
-    recommendedModelId = 'smollm2-360m-cpu';
+    recommendedModelId = 'qwen2.5-0.5b-cpu';
   } else if (ram >= 8 && (hasWebGpu || cores >= 8)) {
     deviceTier = 'flagship';
-    recommendedModelId = 'hermes-3-llama-3.2-3b';
+    recommendedModelId = 'qwen2.5-1.5b-cpu';
   } else {
     deviceTier = 'standard';
-    recommendedModelId = 'smollm2-360m-cpu';
+    recommendedModelId = 'qwen2.5-0.5b-cpu';
   }
 
   if (!hasWebGpu) {
-    recommendedModelId = ram <= 3 ? 'smollm2-360m-cpu' : 'qwen2.5-0.5b-cpu';
+    recommendedModelId = ram <= 2 ? 'smollm2-360m-cpu' : 'qwen2.5-0.5b-cpu';
   } else if (ram < 6 || cores < 8) {
-    // For mid-range or budget Android phones, default to 100% reliable universal model to prevent GPU driver buffer mapping crashes
-    recommendedModelId = 'smollm2-360m-cpu';
+    // For mid-range or budget Android phones, default to 100% reliable universal CPU model to prevent GPU driver crashes
+    recommendedModelId = 'qwen2.5-0.5b-cpu';
   }
 
   return {

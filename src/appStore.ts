@@ -10,7 +10,9 @@ import {
   deleteModelFromCache,
   generateOnDeviceAIImage,
   abortAllInference,
+  releaseActiveModelEngines,
 } from './inferenceEngine';
+import { abortActiveCpuDownloads } from './wasmInferenceEngine';
 
 // Global tracking for mock/fallback download timers
 const activeDownloadIntervals = new Map<string, NodeJS.Timeout>();
@@ -23,6 +25,7 @@ export interface Attachment {
   mimeType: string;
   sizeBytes: number;
   durationSec?: number;
+  textContent?: string;
 }
 
 export interface ChatMessage {
@@ -31,7 +34,7 @@ export interface ChatMessage {
   content: string;
   timestamp: number;
   modelUsed?: string;
-  mode?: 'chat' | 'agent';
+  mode?: 'chat' | 'agent' | 'image-gen' | 'vision' | 'voice' | 'embedding';
   attachments?: Attachment[];
   agentSteps?: AgentStep[];
   isStreaming?: boolean;
@@ -60,10 +63,10 @@ interface AppStore {
   currentTab: 'chat' | 'models' | 'device' | 'settings';
   setCurrentTab: (tab: 'chat' | 'models' | 'device' | 'settings') => void;
 
-  // Active Modes
-  operatingMode: 'chat' | 'agent'; // Direct Chat vs Hermes Autonomous Agent
-  setOperatingMode: (mode: 'chat' | 'agent') => void;
-  chatTabMode: 'text' | 'voice'; // Text Chat vs Real-Time Hands-Free Voice Mode
+  // Active Modes & AI Purpose
+  operatingMode: 'chat' | 'image-gen' | 'vision' | 'voice' | 'agent' | 'embedding';
+  setOperatingMode: (mode: 'chat' | 'image-gen' | 'vision' | 'voice' | 'agent' | 'embedding') => void;
+  chatTabMode: 'text' | 'voice';
   setChatTabMode: (mode: 'text' | 'voice') => void;
 
   // Real-Time Inference Metrics
@@ -140,8 +143,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
   operatingMode: (() => {
     if (typeof window !== 'undefined') {
-      const savedMode = localStorage.getItem('androidllm_operating_mode');
-      if (savedMode === 'chat' || savedMode === 'agent') {
+      const savedMode = localStorage.getItem('androidllm_operating_mode') as any;
+      if (['chat', 'image-gen', 'vision', 'voice', 'agent'].includes(savedMode)) {
         return savedMode;
       }
     }
@@ -168,15 +171,24 @@ export const useAppStore = create<AppStore>((set, get) => ({
         return saved;
       }
     }
-    return 'smollm2-360m-cpu';
+    return 'qwen2.5-0.5b-cpu';
   })(),
   setSelectedModelId: (id) => {
+    const prevId = get().selectedModelId;
     if (typeof window !== 'undefined') {
       try {
         localStorage.setItem('androidllm_selected_model', id);
       } catch (_) {}
     }
     set({ selectedModelId: id });
+
+    // When switching models, automatically release previous GPU/CPU memory
+    if (prevId !== id) {
+      releaseActiveModelEngines().catch((err) => {
+        console.warn('Auto release previous model engine error:', err);
+      });
+    }
+
     // Auto-download: if the newly selected model has not been downloaded and isn't already
     // downloading, kick off the download automatically so users don't have to manually press
     // the Download button every time they pick a new model.
@@ -322,6 +334,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   },
 
   pauseDownloadModel: (modelId: string) => {
+    abortActiveCpuDownloads();
     if (activeDownloadIntervals.has(modelId)) {
       clearInterval(activeDownloadIntervals.get(modelId)!);
       activeDownloadIntervals.delete(modelId);
@@ -537,6 +550,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
     // 2. Abort active LLM inference, API fetch, or image generation
     abortAllInference();
+    abortActiveCpuDownloads();
 
     // 3. Stop all background model download interval loops
     activeDownloadIntervals.forEach((timer) => {
@@ -637,6 +651,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
     // Strict manual model choice — no automatic model switching!
     const activeModelId = selectedModelId;
+    const currentModel = AVAILABLE_MODELS.find((m) => m.id === activeModelId);
     const switchedNotice = '';
 
     const userMessage: ChatMessage = {
@@ -698,9 +713,16 @@ export const useAppStore = create<AppStore>((set, get) => ({
       }));
     }
 
-    // Run execution (Agent Mode vs Direct Chat Mode)
+    // Run execution based on purposeful operatingMode
     try {
-      if (operatingMode === 'agent') {
+      if (operatingMode === 'image-gen' || (currentModel?.category === 'image' && operatingMode !== 'agent')) {
+        // Dedicated on-device image generation studio
+        updateMsg(assistantMsgId, [], '*[🎨 Generating AI Image via Diffusion Studio...]*', true, set, get, 'chat');
+        const cleanPrompt = userText.trim();
+        const imgDataUrl = await generateOnDeviceAIImage(cleanPrompt, currentModel?.name || 'Diffusion Studio');
+        const finalContent = `![Generated Image](${imgDataUrl})\n\n**Prompt:** "${cleanPrompt}"\n*Generated locally with ${currentModel?.name || 'On-Device Diffusion Engine'}*`;
+        updateMsg(assistantMsgId, [], finalContent, false, set, get, 'chat');
+      } else if (operatingMode === 'agent') {
         await executeHermesAgent(userText, pendingAttachments, assistantMsgId, switchedNotice, activeModelId, set, get, options?.isLive);
       } else {
         await executeDirectChat(userText, pendingAttachments, assistantMsgId, switchedNotice, activeModelId, set, get, options?.isLive);
@@ -831,8 +853,26 @@ async function executeHermesAgent(
 
   // Step 3: Synthesis & Final Answer with Real Inference Engine
   let contextPrompt = userText;
+
+  // Maximum model usage: inject attached document text, code, and image descriptions directly into context
+  if (attachments.length > 0) {
+    const docAttachments = attachments.filter((a) => a.textContent || a.type === 'file');
+    const imageAttachments = attachments.filter((a) => a.type === 'image' || a.type === 'camera');
+    
+    let attachmentDetails = '';
+    if (docAttachments.length > 0) {
+      attachmentDetails += `\n\n--- [ATTACHED DOCUMENTS & FILES] ---\n` +
+        docAttachments.map((d) => `### File: ${d.name} (${d.mimeType || 'document'})\n\`\`\`\n${(d.textContent || '').slice(0, 4000)}\n\`\`\``).join('\n\n');
+    }
+    if (imageAttachments.length > 0) {
+      attachmentDetails += `\n\n--- [ATTACHED IMAGES & VISUAL CONTEXT] ---\n` +
+        imageAttachments.map((img, idx) => `[Image ${idx + 1}: ${img.name || 'Captured Photo'} (${img.mimeType || 'image'}) - Resolution/Visual features ready for inspection]`).join('\n');
+    }
+    contextPrompt += attachmentDetails;
+  }
+
   if (toolToCall && step1.toolResult) {
-    contextPrompt += `\n\n[Tool Observation from ${toolToCall.name}]:\n${step1.toolResult}\n\nPlease synthesize the final answer taking into account the tool observation.`;
+    contextPrompt += `\n\n[Tool Observation from ${toolToCall.name}]:\n${step1.toolResult}\n\nPlease synthesize the final answer taking into account the tool observation and any attached documents/images.`;
   }
 
   const { apiEndpoint, apiKey, systemPrompt, temperature, maxTokens, performanceMode } = get();
@@ -898,7 +938,7 @@ async function executeHermesAgent(
   updateMsg(assistantMsgId, steps, finalText, false, set, get, 'agent');
 
   // Trigger optional speech readout
-  if (get().isVoiceOutputEnabled && finalText) {
+  if ((get().isVoiceOutputEnabled || get().operatingMode === 'voice') && finalText) {
     get().speakText(finalText);
   }
 }
@@ -938,14 +978,32 @@ async function executeDirectChat(
       content: m.content,
     }));
 
+  // Maximum model usage: inject attached document text, code, and image descriptions directly into prompt
+  let fullPrompt = userText;
+  if (attachments.length > 0) {
+    const docAttachments = attachments.filter((a) => a.textContent || a.type === 'file');
+    const imageAttachments = attachments.filter((a) => a.type === 'image' || a.type === 'camera');
+    
+    let attachmentDetails = '';
+    if (docAttachments.length > 0) {
+      attachmentDetails += `\n\n--- [ATTACHED DOCUMENTS & CODE] ---\n` +
+        docAttachments.map((d) => `### File: ${d.name} (${d.mimeType || 'document'})\n\`\`\`\n${(d.textContent || '').slice(0, 4000)}\n\`\`\``).join('\n\n');
+    }
+    if (imageAttachments.length > 0) {
+      attachmentDetails += `\n\n--- [ATTACHED IMAGES & VISUAL CONTEXT] ---\n` +
+        imageAttachments.map((img, idx) => `[Image ${idx + 1}: ${img.name || 'Captured Photo'} (${img.mimeType || 'image'}) - Visual features loaded]`).join('\n');
+    }
+    fullPrompt += attachmentDetails;
+  }
+
   const messagesToSend = priorMessages.length > 0 && priorMessages[priorMessages.length - 1]?.role === 'user'
     ? [
         ...priorMessages.slice(0, -1),
-        { role: 'user', content: userText },
+        { role: 'user', content: fullPrompt },
       ]
     : [
         ...priorMessages,
-        { role: 'user', content: userText },
+        { role: 'user', content: fullPrompt },
       ];
 
   let tokenCount = 0;
@@ -986,8 +1044,9 @@ async function executeDirectChat(
   const finalText = finalMsg?.content || attachPrefix;
   updateMsg(assistantMsgId, [], finalText, false, set, get, 'chat');
 
-  // Trigger optional speech readout
-  if (get().isVoiceOutputEnabled && finalText) {
+  // Trigger spoken readout if in voice synthesis mode or voice output is enabled
+  const opMode = get().operatingMode;
+  if ((get().isVoiceOutputEnabled || opMode === 'voice' || model?.category === 'voice') && finalText) {
     get().speakText(finalText);
   }
 }

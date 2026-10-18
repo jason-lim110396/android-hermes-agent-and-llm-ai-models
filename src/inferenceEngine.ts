@@ -6,6 +6,7 @@ import {
   deleteCpuModelFromCache,
   callCpuLLMInference,
   abortActiveCpuInference,
+  unloadWllamaEngine,
 } from './wasmInferenceEngine';
 
 function isCpuWasmModel(spec: ModelSpec | undefined): boolean {
@@ -248,6 +249,18 @@ export async function unloadWebLLMEngine(): Promise<void> {
     } catch (_) {}
     activeMLCEngine = null;
     currentLoadedModelId = null;
+  }
+}
+
+// Automatically release all active on-device engines (WebGPU buffers and CPU WASM memory)
+export async function releaseActiveModelEngines(): Promise<void> {
+  try {
+    await Promise.allSettled([
+      unloadWebLLMEngine(),
+      unloadWllamaEngine(),
+    ]);
+  } catch (err) {
+    console.warn('Error during engine memory auto-release:', err);
   }
 }
 
