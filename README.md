@@ -29,34 +29,45 @@ A sovereign, **100% private, on-device mobile AI assistant and autonomous agent 
 - **Direct LLM Chat Mode**: Fast, low-latency streaming chat with full markdown and code syntax rendering.
 - **Isolated Multi-Session Memory**: Switching between Chat and Agent retains completely separated conversation logs, with a `+ New Session` button for creating fresh contexts anytime.
 
-### 2. ⚡ Real On-Device WebGPU Inference & Model Downloader
-- Runs pre-quantized (`q4f16_1`) weights directly inside the smartphone's CacheStorage / IndexedDB via `@mlc-ai/web-llm`.
-- In-app **Model Hub** downloads real model shards directly from HuggingFace MLC with live percentage and speed meters.
-- Includes one-tap local weight deletion to free device storage.
-- Top-bar model picker filters to **Ready Models**, with automatic download confirmation prompts for unready models.
+### 2. 🔍 On-Device Gemma Embedding 2 Mobile File Search & Filtering
+- **EmbeddingGemma 2 (300M, 768-dim)** runs on pure CPU WebAssembly via Wllama with 0 GPU driver dependencies.
+- **Find and Filter Mobile Files**:
+  - 🎬 **Videos**: Filter by `.mp4`, `.mkv`, `.mov`, `.avi`, `.webm` (screen recordings, camera videos).
+  - 📷 **Images & Photos**: Search photos, screenshots, and visual media with semantic matching.
+  - 📄 **Documents & PDFs**: Search and audit `.pdf`, `.docx`, `.xlsx`, `.pptx`, `.txt`, `.md`.
+  - 💻 **Code**: Search project files (`.ts`, `.py`, `.json`, `.java`, etc.).
+  - 🎙️ **Voice Notes**: Locate audio recordings and voice notes.
+- **Dedicated Operating Mode**: Switch to `🔍 Embedding & File Search` from the burger menu (`☰`) to instantly query your phone's storage using natural language queries and cosine similarity scoring.
 
-### 3. 📊 Two-Row Top Bar with Real-Time Hardware Usage
-- **Row 1**: Model selector, Mode Switcher (Chat vs. Agent), `+ New Session`, Speech TTS toggle, and Clear history.
-- **Row 2**:
-  - 🧠 **RAM Usage**: Real-time active memory usage vs. total device physical RAM (e.g., `1.84 GB / 8 GB`).
-  - ⚡ **CPU Load**: Live concurrency load and core count (e.g., `68% (8C)` during inference).
-  - 🚀 **GPU & Token Speed**: Active acceleration backend (`WebGPU` / `WebGL2`) and live inference speed in **tokens per second (`t/s`)**.
+### 3. 👁️ SOTA Mobile Vision with MiniCPM-V 4.7 & Phi-3.5 Vision
+- Integrated **OpenBMB MiniCPM-V 4.7 (Int4, 2.3 GB)** with Omni/Any-Resolution image understanding, camera snapshots, OCR, and document reading.
+- Auto-switches to vision models when photos or camera frames are attached.
 
-### 4. 🎙️ Voice Input (Speech-to-Text) & Spoken Output (Text-to-Speech)
+### 4. ⚡ Real On-Device WebGPU & CPU WebAssembly Inference
+- Runs pre-quantized weights directly inside smartphone storage via `@mlc-ai/web-llm` (WebGPU) and `@wllama/wllama` (Universal CPU WebAssembly).
+- In-app **Model Hub** with categorized filters: `All`, `★ Recommended`, `🔍 Embedding & Files`, `👁️ Vision`, `📝 Text`, `🎨 Image Gen`, and `🔊 Voice`.
+- Automatic memory management releases previous model weights upon switching to prevent out-of-memory (OOM) errors.
+- Top-bar model picker filters to **Ready Models**, with download confirmation prompts for unready models.
+
+### 5. 📊 Real-Time Hardware Usage Bar
+- 🧠 **RAM Usage**: Real-time active memory usage vs. total device physical RAM (e.g., `1.84 GB / 8 GB`).
+- ⚡ **CPU Load**: Live concurrency load and core count (e.g., `68% (8C)` during inference).
+- 🚀 **GPU & Token Speed**: Active backend (`WebGPU` / `CPU Universal`) and live speed in **tokens per second (`t/s`)**.
+
+### 6. 🎙️ Voice Input (Speech-to-Text) & Spoken Output (Text-to-Speech)
 - Tap the **Microphone** icon in the chatbox for hands-free voice dictation with a pulsing recording indicator.
 - Tap the header **Audio Toggle** (`Volume2` / `VolumeX`) to listen to synthesized vocal responses upon reply completion.
 
-### 5. 📸 Multimodal Input & Smart Auto-Switching
+### 7. 📸 Multimodal Input & Smart Auto-Switching
 - 📷 **In-App Camera**: Capture instant camera snapshots through live viewfinder.
 - 🖼️ **Gallery Photos**: Attach photos, charts, whiteboards, or screenshots.
 - 📁 **Files & Documents**: Ingest code files (`.py`, `.ts`, `.json`, `.csv`, `.md`).
-- **Auto-Switching**: When you attach an image, the app automatically switches to the multimodal vision model (`Phi-3.5 Vision`).
 
-### 6. 🎨 On-Device Image AI Synthesis
-- Built-in mobile diffusion canvas generator (`SD-Turbo Diffusion` & `FLUX.1 Schnell Nano`).
+### 8. 🎨 On-Device Image AI Synthesis
+- Built-in mobile diffusion synthesizer (`SD-Turbo Diffusion` & `FLUX.1 Schnell Nano`).
 - Hermes Agent can autonomously generate digital art and render image previews directly into chat bubbles.
 
-### 7. 📱 Portrait Locked & Clean Window Mode
+### 9. 📱 Portrait Locked & Clean Window Mode
 - No aggressive auto-fullscreen; standard Android system navigation and status bar remain visible.
 - Rigid portrait orientation (`sensorPortrait`) with non-overlapping bottom navigation.
 
@@ -64,18 +75,20 @@ A sovereign, **100% private, on-device mobile AI assistant and autonomous agent 
 
 ## 📦 Supported On-Device Models
 
-| Model Name | Parameters | Quantization | Size | Capabilities | Inputs | Outputs |
-| :--- | :---: | :---: | :---: | :--- | :--- | :--- |
-| **Hermes 3 (Llama 3.2 3B)** | 3.21B | `q4f16_1` | 2.26 GB | Agent, Tools, Code, Reasoning | Text, File, Voice | Text, Code |
-| **Hermes 2 Pro (Mistral 7B)** | 7.24B | `q4f16_1` | 4.03 GB | Frontier Agent, XML CoT | Text, File, Voice | Text, Code |
-| **Phi-3.5 Vision (Microsoft)** | 4.2B | `q4f16_1` | 3.95 GB | Vision VLM, Photo OCR | Text, Camera, Image, File | Text, Code |
-| **Qwen 2.5 (0.5B Instant)** | 0.5B | `q4f16_1` | 944 MB | Ultra-Fast, Low RAM | Text, File, Voice | Text, Code |
-| **SmolLM2 (360M Micro)** | 360M | `q4f16_1` | 376 MB | Featherweight Mobile | Text, Voice | Text |
-| **Qwen 2.5 (1.5B Instruct)** | 1.54B | `q4f16_1` | 1.62 GB | Multilingual Coding | Text, File, Voice | Text, Code |
-| **DeepSeek-R1 Distill (7B)** | 7.6B | `q4f16_1` | 5.10 GB | Chain-of-Thought `<think>` | Text, File, Voice | Text, Code |
-| **Google Gemma 2 (2B IT)** | 2.61B | `q4f16_1` | 1.89 GB | High Factual Accuracy | Text, File, Voice | Text, Code |
-| **SD-Turbo Diffusion** | 1.2B | `fp16` | 1.98 GB | Single-Step Image Gen | Text, Voice | Image Render |
-| **FLUX.1 Schnell Nano** | 2.4B | `q4` | 3.10 GB | Photorealistic Art | Text, Voice | Image Render |
+| Model Name | Parameters | Quantization | Size | Backend | Capabilities |
+| :--- | :---: | :---: | :---: | :---: | :--- |
+| **EmbeddingGemma 2 (Google)** | 300M | `Q8_0` | 309 MB | CPU Wllama | 🔍 768-dim Semantic File & Media Search |
+| **MiniCPM-V 4.7 (OpenBMB)** | 2.8B | `int4` | 2.30 GB | WebGPU | 👁️ Omni-Resolution Vision & OCR |
+| **Hermes 3 (Llama 3.2 3B)** | 3.21B | `q4f16_1` | 2.26 GB | WebGPU | 🤖 Autonomous Agent, Tools, Code, CoT |
+| **Hermes 2 Pro (Mistral 7B)** | 7.24B | `q4f16_1` | 4.03 GB | WebGPU | 🧠 Frontier Agent, Function Calling |
+| **Phi-3.5 Vision (Microsoft)** | 4.2B | `q4f16_1` | 3.95 GB | WebGPU | 👁️ Multimodal Vision VLM |
+| **Qwen 2.5 (0.5B Instant)** | 0.5B | `q4f16_1` | 944 MB | WebGPU | ⚡ Ultra-Fast, Low RAM Chat |
+| **SmolLM2 (360M Micro)** | 360M | `q4f16_1` | 376 MB | WebGPU | 🪶 Featherweight Mobile Text |
+| **Google Gemma 2 (2B IT)** | 2.61B | `q4f16_1` | 1.89 GB | WebGPU | 📖 Factual Reasoning & Summary |
+| **DeepSeek-R1 Distill (7B)** | 7.6B | `q4f16_1` | 5.10 GB | WebGPU | 🧩 Deep `<think>` Chain-of-Thought |
+| **SD-Turbo Diffusion** | 1.2B | `fp16` | 1.98 GB | WebGPU | 🎨 Real-time Single-Step Image Gen |
+| **FLUX.1 Schnell Nano** | 2.4B | `q4` | 3.10 GB | WebGPU | 🎨 Photorealistic Image Synthesis |
+| **Kokoro-82M TTS** | 82M | `fp32` | 320 MB | CPU Wasm | 🔊 Local Neural Voice & Speech |
 
 ---
 
