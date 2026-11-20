@@ -501,6 +501,19 @@ export default function ChatView() {
   const messages = currentSession?.messages || EMPTY_MESSAGES;
   const currentModel = AVAILABLE_MODELS.find((m) => m.id === selectedModelId);
 
+  // The starred-ids list is global across all chat and agent sessions, but the
+  // bookmarks drawer used to filter only the CURRENT session's messages: stars
+  // saved in another session (or in a since-cleared one) produced a non-zero
+  // badge over an empty list, and could never be viewed or removed again.
+  // Resolve every starred id across both session trees instead.
+  const allStarredMessages = React.useMemo(
+    () =>
+      [...Object.values(chatSessions), ...Object.values(agentSessions)]
+        .flatMap((s) => s.messages)
+        .filter((m) => starredMessageIds.includes(m.id)),
+    [chatSessions, agentSessions, starredMessageIds]
+  );
+
   // Hoisted last-assistant lookup: previously an O(n) messages.filter ran inside
   // the per-message render map, making every streaming re-render O(n^2).
   const lastAssistantId = React.useMemo(
@@ -915,6 +928,19 @@ export default function ChatView() {
         durationSec: Math.max(1, duration),
       };
       addAttachment(voiceAttachment);
+    }
+
+    // While a reply is still generating, sendMessage silently no-ops. The
+    // recording bar replaces the composer, so the normal Send/Stop swap
+    // never blocks this path: dispatching anyway wiped the transcript and
+    // left the voice note silently attached to whatever gets sent next.
+    // Stage the note and transcript in the composer instead - nothing is
+    // lost, and the user sends it once generation finishes.
+    if (useAppStore.getState().isGenerating) {
+      setIsRecordingVoice(false);
+      setRecordDurationSec(0);
+      setInputVal(transcribedPrompt === 'Voice message' ? '' : transcribedPrompt);
+      return;
     }
 
     setIsRecordingVoice(false);
@@ -2667,15 +2693,19 @@ export default function ChatView() {
 
             {/* Bookmarks List */}
             <div className="flex-1 overflow-y-auto py-3 space-y-2.5">
-              {starredMessageIds.length === 0 ? (
+              {allStarredMessages.length === 0 ? (
                 <div className="h-full flex flex-col items-center justify-center text-center p-6 text-zinc-500 space-y-2">
                   <Star className="w-8 h-8 opacity-40 text-amber-400" />
                   <p className="text-xs">No saved messages yet.</p>
                   <p className="text-[10px] text-zinc-600">Tap the &quot;Save&quot; star icon on any response to bookmark key insights.</p>
+                  {starredMessageIds.length > 0 && (
+                    <p className="text-[10px] text-zinc-600">
+                      {starredMessageIds.length} starred message{starredMessageIds.length === 1 ? '' : 's'} no longer exist{starredMessageIds.length === 1 ? 's' : ''} (the session was cleared or deleted).
+                    </p>
+                  )}
                 </div>
               ) : (
-                messages
-                  .filter((m) => starredMessageIds.includes(m.id))
+                allStarredMessages
                   .map((msg) => (
                     <div key={msg.id} className="p-3 rounded-xl bg-zinc-950 border border-zinc-800/80 space-y-2">
                       <div className="flex items-center justify-between text-[10px] text-zinc-400">
