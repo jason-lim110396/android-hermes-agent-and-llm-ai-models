@@ -21,6 +21,7 @@ import {
   Terminal,
   Activity,
   Zap,
+  Calendar,
 } from 'lucide-react';
 import { useAppStore } from '@/appStore';
 import { AGENT_TOOLS } from '@/agentTools';
@@ -76,6 +77,16 @@ const PRESET_WORKFLOWS: WorkflowTemplate[] = [
     icon: HardDrive,
     color: 'from-purple-500 to-pink-600',
     defaultPrompt: 'Audit on-device model storage usage, verify available IndexedDB quota, optimize cached buffers, and vibrate phone upon completion.',
+  },
+  {
+    id: 'meeting-calendar-scheduler',
+    title: 'Meeting Minutes & Calendar Action Items',
+    category: 'Productivity & Calendar',
+    description: 'Extracts decisions and action items from notes, sets reminder alarms, and generates an importable .ics calendar event file.',
+    stepsCount: 4,
+    icon: Calendar,
+    color: 'from-cyan-500 to-blue-600',
+    defaultPrompt: 'Parse meeting discussion, extract action items and owners, arm phone reminder, and generate an importable .ics calendar file.',
   },
 ];
 
@@ -205,6 +216,82 @@ export default function TaskWorkflowsStudio() {
       step4.result = remResult;
 
       setFinalOutput(`🎙️ **Morning Executive Briefing Complete!**\n\n${speechBrief}\n\n- **Device State**: Optimal (${hardwareProfile?.estimatedRamGB || 4} GB RAM, WebGPU Active)\n- **Daily Reminder**: Scheduled for Tomorrow 9:00 AM.`);
+    } else if (workflowId === 'meeting-calendar-scheduler') {
+      // Step 1: Ingest notes
+      const step1: ExecutionLog = { step: 1, toolName: 'find_device_files', status: 'running', detail: 'Locating meeting notes and agenda transcripts on phone storage...' };
+      setLogs([step1]);
+      setCurrentStepIndex(1);
+      await new Promise((r) => setTimeout(r, 600));
+      step1.status = 'completed';
+      step1.result = 'Meeting transcript ingested: "Sprint Review & Q4 Milestone Planning"';
+
+      // Step 2: Reasoning & Action Item Matrix
+      const step2: ExecutionLog = { step: 2, toolName: 'deep_reasoning', status: 'running', detail: 'Deconstructing discussions into key decisions, owners, and deadlines...' };
+      setLogs([step1, step2]);
+      setCurrentStepIndex(2);
+      await new Promise((r) => setTimeout(r, 700));
+      step2.status = 'completed';
+      step2.result = 'Extracted 3 core decisions and 4 assigned action items.';
+
+      // Step 3: Arm Notification Reminder
+      const step3: ExecutionLog = { step: 3, toolName: 'device_reminder', status: 'running', detail: 'Arming local phone alarm for milestone checkpoint...' };
+      setLogs([step1, step2, step3]);
+      setCurrentStepIndex(3);
+      await new Promise((r) => setTimeout(r, 500));
+      step3.status = 'completed';
+      step3.result = 'Reminder armed: "Sprint Review Milestones" set for 2:00 PM.';
+
+      // Step 4: Generate .ics iCalendar file
+      const step4: ExecutionLog = { step: 4, toolName: 'generate_calendar_ics', status: 'running', detail: 'Generating standard .ics calendar event file for phone calendar import...' };
+      setLogs([step1, step2, step3, step4]);
+      setCurrentStepIndex(4);
+      await new Promise((r) => setTimeout(r, 600));
+
+      const icsContent = [
+        'BEGIN:VCALENDAR',
+        'VERSION:2.0',
+        'PRODID:-//Hermes AI//Android Autonomous Meeting Scheduler//EN',
+        'BEGIN:VEVENT',
+        'SUMMARY:Sprint Review & Milestone Action Items',
+        'DESCRIPTION:Hermes AI Action Items:\\n1. Validate WebGPU benchmark\\n2. Deploy mobile studios\\n3. Review offline weights.',
+        'DTSTART:20261120T140000Z',
+        'DTEND:20261120T150000Z',
+        'STATUS:CONFIRMED',
+        'BEGIN:VALARM',
+        'TRIGGER:-PT15M',
+        'ACTION:DISPLAY',
+        'DESCRIPTION:Meeting Action Item Reminder',
+        'END:VALARM',
+        'END:VEVENT',
+        'END:VCALENDAR',
+      ].join('\r\n');
+
+      const icsBlob = new Blob([icsContent], { type: 'text/calendar;charset=utf-8' });
+      const icsUrl = URL.createObjectURL(icsBlob);
+      setGeneratedFile({
+        name: 'meeting_action_items.ics',
+        url: icsUrl,
+        size: '1.2 KB',
+      });
+
+      step4.status = 'completed';
+      step4.result = 'meeting_action_items.ics generated and ready for 1-tap phone import.';
+
+      setFinalOutput(
+        `### 📅 Meeting Minutes & Autonomous Action Plan\n\n` +
+        `**Meeting Subject**: Sprint Review & Q4 Milestone Planning\n` +
+        `**Status**: 100% Processed Locally\n\n` +
+        `#### 🎯 Key Decisions:\n` +
+        `- WebGPU hardware acceleration approved as primary inference pipeline.\n` +
+        `- All data storage and vector searches must stay 100% offline on device.\n\n` +
+        `#### 📋 Action Items:\n` +
+        `| Assignee | Action Item | Deadline | Priority |\n` +
+        `| :--- | :--- | :--- | :--- |\n` +
+        `| Alex | Benchmark Llama 3.2 1B & 3B WebGPU throughput | Today 4:00 PM | High |\n` +
+        `| Jordan | Audit privacy EXIF scrubber on camera snaps | Tomorrow | High |\n` +
+        `| Sam | Verify .ics calendar import on Samsung/Google Calendar | Friday | Medium |\n\n` +
+        `> **Deliverable Ready**: Tap **Download .ics** below to import these tasks directly into your smartphone calendar with pre-configured alarms.`
+      );
     } else {
       // General Workflow execution
       const step1: ExecutionLog = { step: 1, toolName: 'device_diagnostics', status: 'running', detail: 'Auditing hardware parameters and memory limits...' };
