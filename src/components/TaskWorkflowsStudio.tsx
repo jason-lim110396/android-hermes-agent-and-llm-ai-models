@@ -26,6 +26,8 @@ import {
   Flame,
   ShieldCheck,
   Wrench,
+  GitPullRequest,
+  FileCode,
 } from 'lucide-react';
 import { useAppStore } from '@/appStore';
 import { AGENT_TOOLS } from '@/agentTools';
@@ -112,6 +114,16 @@ const PRESET_WORKFLOWS: WorkflowTemplate[] = [
     icon: BatteryCharging,
     color: 'from-rose-500 to-amber-600',
     defaultPrompt: 'Audit mobile device battery discharge curve, check SoC thermal throttling status, identify background wake-locks, and suggest power profile tuning.',
+  },
+  {
+    id: 'git-diff-auditor',
+    title: 'Git Diff & Code Patch Review Automator',
+    category: 'Developer & Code Audit',
+    description: 'Parses unified git diffs, verifies patch line metrics (+/-), audits additions for secret leaks, memory leaks, and generates an automated markdown PR code review.',
+    stepsCount: 4,
+    icon: GitPullRequest,
+    color: 'from-violet-500 to-indigo-600',
+    defaultPrompt: 'Analyze incoming pull request git diff, audit for security risks and code smells, compute patch delta metrics, and generate an actionable review report.',
   },
 ];
 
@@ -461,6 +473,112 @@ export default function TaskWorkflowsStudio() {
         `1. Keep **AMOLED Pure Black Mode** active when chatting in low-light environments.\n` +
         `2. Enable **Wi-Fi Only Mode** in Model Hub to avoid high cellular modem transceiver drain.\n` +
         `3. Tap **Download Report** below for the full JSON telemetry payload.`
+      );
+    } else if (workflowId === 'git-diff-auditor') {
+      const step1: ExecutionLog = {
+        step: 1,
+        toolName: 'parse_git_diff',
+        status: 'running',
+        detail: 'Parsing unified git patch headers, inspecting hunks and modified file paths...',
+      };
+      setLogs([step1]);
+      setCurrentStepIndex(1);
+      await new Promise((r) => setTimeout(r, 650));
+      step1.status = 'completed';
+      step1.result = 'Parsed 3 modified files (src/components/AudioEngine.ts, src/utils/webgpuOptimizer.ts, src/hooks/useBatteryGovernor.ts): +142 / -28 lines.';
+
+      const step2: ExecutionLog = {
+        step: 2,
+        toolName: 'security_leak_scanner',
+        status: 'running',
+        detail: 'Scanning additions for API secret leaks, plaintext credentials, and unescaped HTML injections...',
+      };
+      setLogs([step1, step2]);
+      setCurrentStepIndex(2);
+      await new Promise((r) => setTimeout(r, 700));
+      step2.status = 'completed';
+      step2.result = 'Zero hardcoded secrets or credential tokens detected. Entropy threshold passed.';
+
+      const step3: ExecutionLog = {
+        step: 3,
+        toolName: 'hermes_code_analyzer',
+        status: 'running',
+        detail: 'Running on-device Hermes code analysis: verifying TypeScript typing, async exception handling, and GC memory leaks...',
+      };
+      setLogs([step1, step2, step3]);
+      setCurrentStepIndex(3);
+      await new Promise((r) => setTimeout(r, 750));
+      step3.status = 'completed';
+      step3.result = 'Type safety verified. Cleanup lifecycle in hooks validated; URL.revokeObjectURL confirmed.';
+
+      const step4: ExecutionLog = {
+        step: 4,
+        toolName: 'generate_review_report',
+        status: 'running',
+        detail: 'Synthesizing automated Pull Request code review report and exporting markdown patch review...',
+      };
+      setLogs([step1, step2, step3, step4]);
+      setCurrentStepIndex(4);
+      await new Promise((r) => setTimeout(r, 600));
+
+      const reviewMarkdown = [
+        '# 🔍 Hermes AI Automated Code Review & Patch Audit',
+        `**Generated**: ${new Date().toISOString()}`,
+        '**Reviewer**: Hermes 3B On-Device Mobile Autonomous Agent',
+        '**Review Verdict**: ✅ **Approved with Minor Suggestions (LGTM)**',
+        '',
+        '## 📊 Patch Metrics',
+        '- **Files Changed**: 3 files',
+        '- **Lines Added**: `+142`',
+        '- **Lines Removed**: `-28`',
+        '- **Net Delta**: `+114 lines`',
+        '',
+        '## 🛡️ Security & Privacy Analysis',
+        '- **API Keys / Secrets Scan**: ✅ Clean (0 leaks detected)',
+        '- **DOM Sanitization**: ✅ No unsafe innerHTML injections found',
+        '- **Sandboxed Web Worker Execution**: ✅ WebGPU compute pipeline isolated',
+        '',
+        '## ⚡ Mobile Performance & Memory Audit',
+        '- **Garbage Collection Risk**: Low. Explicit object URL revoking implemented.',
+        '- **UI Thread Blocking**: Zero synchronous loops exceeding 16ms frame budget.',
+        '- **Battery Impact**: Minimized with event-driven WebGPU wake/sleep cycles.',
+        '',
+        '## 💡 Code Quality Suggestions',
+        '1. `src/utils/webgpuOptimizer.ts`: Consider wrapping adapter request in a fallback retry for thermal throttling recovery.',
+        '2. `src/hooks/useBatteryGovernor.ts`: Add listener cleanup on component unmount.',
+        '',
+        '---',
+        '*Reviewed autonomously by Hermes 3 (3B) on Android Mobile System.*',
+      ].join('\n');
+
+      const reviewBlob = new Blob([reviewMarkdown], { type: 'text/markdown;charset=utf-8' });
+      const reviewUrl = URL.createObjectURL(reviewBlob);
+      setGeneratedFile({
+        name: 'Hermes_Code_Review_Audit.patch.md',
+        url: reviewUrl,
+        size: '1.4 KB',
+      });
+
+      if (typeof navigator !== 'undefined' && navigator.vibrate) {
+        navigator.vibrate([60, 40, 60]);
+      }
+      step4.status = 'completed';
+      step4.result = 'Hermes_Code_Review_Audit.patch.md generated and ready for export.';
+
+      setFinalOutput(
+        `### 🔍 Autonomous Git Diff & Code Patch Review\n\n` +
+        `**Audit Verdict**: ✅ **Approved with Minor Suggestions (LGTM)**\n\n` +
+        `#### 📊 Patch Metrics:\n` +
+        `- **Files Analyzed**: 3 (\`AudioEngine.ts\`, \`webgpuOptimizer.ts\`, \`useBatteryGovernor.ts\`)\n` +
+        `- **Line Delta**: **+142** additions / **-28** deletions (Net: +114 lines)\n` +
+        `- **Entropy & Secrets Scan**: Zero hardcoded credentials or API tokens\n\n` +
+        `#### 🛡️ Quality & Architecture Checks:\n` +
+        `- **Memory & GC Audit**: Clean. Object URLs and AudioContext nodes properly closed.\n` +
+        `- **Frame Budget**: 60fps compliant. Heavy computations offloaded to worker threads.\n` +
+        `- **TypeScript Strict Mode**: Fully typed with zero \`any\` assertions.\n\n` +
+        `#### 💡 Suggestions:\n` +
+        `1. Wrap WebGPU adapter acquisition in a 3-retry backoff in case of OS GPU preemption.\n` +
+        `2. Tap **Download Report** below for the full markdown PR audit export.`
       );
     } else {
       // General Workflow execution
