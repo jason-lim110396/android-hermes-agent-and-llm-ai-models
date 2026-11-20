@@ -26,12 +26,34 @@ import { useAppStore } from '@/appStore';
 export default function ModelHub() {
   const selectedModelId = useAppStore((s) => s.selectedModelId);
   const setSelectedModelId = useAppStore((s) => s.setSelectedModelId);
+  const setCurrentTab = useAppStore((s) => s.setCurrentTab);
+  const setOperatingMode = useAppStore((s) => s.setOperatingMode);
   const hardwareProfile = useAppStore((s) => s.hardwareProfile);
   const downloads = useAppStore((s) => s.downloads);
   const startDownloadModel = useAppStore((s) => s.startDownloadModel);
   const pauseDownloadModel = useAppStore((s) => s.pauseDownloadModel);
   const stopAllRunningTasks = useAppStore((s) => s.stopAllRunningTasks);
   const deleteModel = useAppStore((s) => s.deleteModel);
+
+  const handleLaunchStudio = (model: ModelSpec) => {
+    setSelectedModelId(model.id);
+    if (model.category === 'image') {
+      setCurrentTab('image-studio');
+      setOperatingMode('image-gen');
+    } else if (model.category === 'vision') {
+      setCurrentTab('vision-studio');
+      setOperatingMode('vision');
+    } else if (model.category === 'voice') {
+      setCurrentTab('voice-studio');
+      setOperatingMode('voice');
+    } else if (model.category === 'embedding') {
+      setCurrentTab('file-search');
+      setOperatingMode('embedding');
+    } else {
+      setCurrentTab('chat');
+      setOperatingMode('agent');
+    }
+  };
   const checkCacheStatus = useAppStore((s) => s.checkCacheStatus);
 
   const [selectedFamily, setSelectedFamily] = useState<'all' | 'recommended' | 'text' | 'vision' | 'image' | 'voice' | 'embedding'>('all');
@@ -351,20 +373,27 @@ export default function ModelHub() {
                     <div className="flex items-center gap-2">
                       <button
                         onClick={() => deleteModel(model.id)}
-                        className="p-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-rose-400 transition-all"
+                        className="p-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-rose-400 transition-all cursor-pointer"
                         title="Remove weights from storage"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
                       <button
                         onClick={() => setSelectedModelId(model.id)}
-                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                        className={`px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                           isSelected
                             ? 'bg-cyan-500 text-black shadow-md shadow-cyan-500/20'
                             : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-200'
                         }`}
                       >
-                        {isSelected ? 'Active Model' : 'Switch Model'}
+                        {isSelected ? 'Selected' : 'Select'}
+                      </button>
+                      <button
+                        onClick={() => handleLaunchStudio(model)}
+                        className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white text-xs font-bold shadow-md shadow-cyan-500/20 transition-all cursor-pointer"
+                      >
+                        <Sparkles className="w-3 h-3" />
+                        <span>Launch</span>
                       </button>
                     </div>
                   </div>
