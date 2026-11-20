@@ -554,6 +554,44 @@ export async function callRealLLMInference({
             );
             break;
           }
+          // A failed fetch with no HTTP status is a transport fault: offline,
+          // DNS failure, TLS error, or a dead local endpoint. Replaying the
+          // same prompt down every remaining endpoint cannot help here and on
+          // a phone it adds seconds of lag while the user waits for an answer
+          // that will never arrive. Stop the chain and let the caller fall
+          // through to on-device inference instead.
+          // Only a genuine fetch/transport failure is terminal here. A stream
+          // parsing error (non-RemoteEndpointError thrown while reading the
+          // body) is NOT a network fault: another provider may still serve the
+          // prompt, so keep the chain moving for those.
+          const errMessage = (lastFailure?.message || '').toLowerCase();
+          const isFetchFailure =
+            !(lastFailure instanceof RemoteEndpointError) &&
+            (lastFailure instanceof TypeError ||
+              errMessage.includes('fetch failed') ||
+              errMessage.includes('network request failed') ||
+              errMessage.includes('failed to fetch'));
+          const offline =
+            typeof navigator !== 'undefined' && typeof navigator.onLine === 'boolean'
+              ? !navigator.onLine
+              : false;
+          if (isFetchFailure || offline) {
+            console.warn(
+              offline
+                ? `Inference endpoint "${candidate.label}" unreachable while offline; not forwarding the prompt to other providers.`
+                : `Inference endpoint "${candidate.label}" failed at the network layer; not replaying the prompt down the chain.`,
+              err
+            );
+            // Give the exhausted-chain notice a meaningful reason instead of
+            // a generic "failed to fetch" so the UI can explain the switch.
+            // Preserve the original error as `cause` so diagnostics keep the
+            // stack and detail that produced the switch.
+            lastFailure = new Error(
+              offline ? 'device is offline' : 'network unreachable',
+              { cause: err }
+            );
+            break;
+          }
           const reason =
             lastFailure instanceof RemoteEndpointError
               ? describeLimitFailure(lastFailure.status, lastFailure.detail)
