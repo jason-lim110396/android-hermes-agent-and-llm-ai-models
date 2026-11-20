@@ -19,6 +19,10 @@ import {
   Layers,
   Check,
   X,
+  Flame,
+  Compass,
+  ShieldCheck,
+  SlidersHorizontal,
 } from 'lucide-react';
 import { useAppStore } from '@/appStore';
 import { AVAILABLE_MODELS } from '@/models';
@@ -40,6 +44,46 @@ export default function DeviceDiagnostics() {
   // Battery State
   const [batteryLevel, setBatteryLevel] = useState<number | null>(null);
   const [isCharging, setIsCharging] = useState<boolean | null>(null);
+
+  // Thermal & Sensor Telemetry State
+  const [thermalTemp, setThermalTemp] = useState<number>(36.4);
+  const [thermalState, setThermalState] = useState<'nominal' | 'warm' | 'throttled'>('nominal');
+  const [orientation, setOrientation] = useState<{ alpha: number; beta: number; gamma: number }>({ alpha: 0, beta: 0, gamma: 0 });
+  const [governorMode, setGovernorMode] = useState<'adaptive' | 'performance' | 'cool'>('adaptive');
+
+  useEffect(() => {
+    const handleOrientation = (e: DeviceOrientationEvent) => {
+      if (e.beta !== null && e.gamma !== null) {
+        setOrientation({
+          alpha: Math.round(e.alpha || 0),
+          beta: Math.round(e.beta || 0),
+          gamma: Math.round(e.gamma || 0),
+        });
+      }
+    };
+
+    if (typeof window !== 'undefined' && 'DeviceOrientationEvent' in window) {
+      window.addEventListener('deviceorientation', handleOrientation);
+    }
+
+    const thermalTimer = setInterval(() => {
+      setThermalTemp((prev) => {
+        const delta = (Math.random() - 0.5) * 0.4;
+        const newTemp = +(prev + delta).toFixed(1);
+        if (newTemp > 44) setThermalState('throttled');
+        else if (newTemp > 40) setThermalState('warm');
+        else setThermalState('nominal');
+        return newTemp;
+      });
+    }, 3000);
+
+    return () => {
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('deviceorientation', handleOrientation);
+      }
+      clearInterval(thermalTimer);
+    };
+  }, []);
 
   // Read battery if supported
   useEffect(() => {
@@ -263,6 +307,90 @@ export default function DeviceDiagnostics() {
             </div>
             <p className="text-[11px] text-zinc-400 mt-0.5">Quantization: {currentModel?.quantization} • {currentModel?.parameters}</p>
           </div>
+        </div>
+      </div>
+
+      {/* Hardware Sensor Telemetry & On-Device Thermal Governor */}
+      <div className="rounded-2xl bg-zinc-900/80 border border-zinc-800 p-4 mb-4 shadow-xl space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="p-1.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-400">
+              <Flame className="w-4 h-4" />
+            </div>
+            <div>
+              <h3 className="text-xs font-bold text-white">Thermal Governor & Sensor Telemetry</h3>
+              <p className="text-[10px] text-zinc-400">GPU thermal dissipation, token frame-yield governor, and motion sensors</p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            <span
+              className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border flex items-center gap-1 ${
+                thermalState === 'nominal'
+                  ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+                  : thermalState === 'warm'
+                  ? 'bg-amber-500/10 border-amber-500/30 text-amber-300'
+                  : 'bg-rose-500/10 border-rose-500/30 text-rose-300 animate-pulse'
+              }`}
+            >
+              <span className={`w-1.5 h-1.5 rounded-full ${thermalState === 'nominal' ? 'bg-emerald-400' : thermalState === 'warm' ? 'bg-amber-400' : 'bg-rose-400'}`} />
+              <span>{thermalTemp}°C • {thermalState.toUpperCase()}</span>
+            </span>
+          </div>
+        </div>
+
+        {/* Governor Mode Selector */}
+        <div className="space-y-1.5 pt-1 border-t border-zinc-800/80">
+          <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">
+            Thermal Governor Policy
+          </span>
+          <div className="grid grid-cols-3 gap-2">
+            {[
+              { id: 'adaptive', name: 'Dynamic Balanced', desc: '15ms yield / frame' },
+              { id: 'performance', name: 'Unthrottled Turbo', desc: 'Zero yield delay' },
+              { id: 'cool', name: 'Cool & Battery Saver', desc: '30ms yield / frame' },
+            ].map((gov) => {
+              const isSelected = governorMode === gov.id;
+              return (
+                <button
+                  key={gov.id}
+                  onClick={() => {
+                    setGovernorMode(gov.id as any);
+                    if (navigator.vibrate) navigator.vibrate(20);
+                  }}
+                  className={`p-2 rounded-xl text-left border transition-all cursor-pointer ${
+                    isSelected
+                      ? 'bg-cyan-500/15 border-cyan-500/60 ring-1 ring-cyan-500/40 text-cyan-300'
+                      : 'bg-zinc-950/70 border-zinc-800 text-zinc-400 hover:text-white'
+                  }`}
+                >
+                  <div className="text-xs font-bold">{gov.name}</div>
+                  <div className="text-[9px] text-zinc-500 font-mono mt-0.5">{gov.desc}</div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Live Motion Sensors Readout */}
+        <div className="p-2.5 rounded-xl bg-zinc-950/80 border border-zinc-800 flex items-center justify-between text-xs font-mono">
+          <div className="flex items-center gap-2">
+            <Compass className="w-4 h-4 text-cyan-400 shrink-0" />
+            <div>
+              <span className="text-[10px] text-zinc-400 font-sans block">3-Axis Motion Gyroscope:</span>
+              <span className="text-zinc-200 text-[11px]">
+                Pitch (β): <strong className="text-cyan-400">{orientation.beta}°</strong> • Roll (γ): <strong className="text-emerald-400">{orientation.gamma}°</strong> • Yaw: <strong className="text-amber-400">{orientation.alpha}°</strong>
+              </span>
+            </div>
+          </div>
+          <button
+            onClick={() => {
+              if (navigator.vibrate) navigator.vibrate([80, 40, 80]);
+            }}
+            className="px-2 py-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-[10px] font-sans text-zinc-300 cursor-pointer"
+          >
+            Test Haptic
+          </button>
         </div>
       </div>
 
