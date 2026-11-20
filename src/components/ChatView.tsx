@@ -155,6 +155,10 @@ const HardwareTickerBar = React.memo(function HardwareTickerBar({
   );
 });
 
+// Stable empty-array identity: `currentSession?.messages || []` would create a
+// fresh [] each render when no session exists and invalidate the memo below.
+const EMPTY_MESSAGES: never[] = [];
+
 export default function ChatView() {
   const hardwareProfile = useAppStore((s) => s.hardwareProfile);
   const operatingMode = useAppStore((s) => s.operatingMode);
@@ -435,7 +439,7 @@ export default function ChatView() {
     ? agentSessions[activeAgentSessionId] || Object.values(agentSessions)[0]
     : chatSessions[activeChatSessionId] || Object.values(chatSessions)[0];
 
-  const messages = currentSession?.messages || [];
+  const messages = currentSession?.messages || EMPTY_MESSAGES;
   const currentModel = AVAILABLE_MODELS.find((m) => m.id === selectedModelId);
 
   // Hoisted last-assistant lookup: previously an O(n) messages.filter ran inside
