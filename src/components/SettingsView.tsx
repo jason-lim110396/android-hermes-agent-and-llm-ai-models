@@ -38,6 +38,15 @@ import {
 } from 'lucide-react';
 import { useAppStore } from '@/appStore';
 import { FREE_FALLBACK_PRESETS, FallbackModelEntry } from '@/utils/modelFallback';
+import {
+  cancelAlarm as cancelScheduledAlarm,
+  hapticAlertsEnabled,
+  listActiveAlarms,
+  scheduleAlarm as scheduleDeviceAlarm,
+  ScheduledAlarm,
+  setHapticAlertsPref,
+  subscribeAlarms,
+} from '@/utils/alarmClock';
 import { sanitizeImportedBackup } from '@/utils/sessionPersistence';
 
 const PROMPT_PRESETS = [
@@ -284,6 +293,11 @@ export default function SettingsView() {
           'hermes_app_theme',
           'hermes_prompt_firewall_enabled',
           'hermes_wifi_only',
+          // Pending alarms are user-scheduled reminders, not cache; wiping
+          // them here would resurrect from the in-memory engine on its next
+          // persist anyway (same stale-rewrite trap as the session tree).
+          'hermes_active_alarms',
+          'hermes_haptic_alerts',
         ]);
         // Most app data lives under 'hermes_...' (underscore) - including the
         // conversation vault hermes_sessions_v1 and every per-session
@@ -313,46 +327,41 @@ export default function SettingsView() {
   });
   const [notifyOnInference, setNotifyOnInference] = useState(true);
   const [notifyOnDownload, setNotifyOnDownload] = useState(true);
-  const [hapticAlerts, setHapticAlerts] = useState(true);
+  // Haptic preference is persisted (read by the module-level alarm dispatcher,
+  // which keeps running while this view is unmounted on another tab).
+  const [hapticAlerts, setHapticAlerts] = useState<boolean>(() => hapticAlertsEnabled());
+  useEffect(() => {
+    setHapticAlertsPref(hapticAlerts);
+  }, [hapticAlerts]);
   const [alarmTitle, setAlarmTitle] = useState('');
   const [alarmMinutes, setAlarmMinutes] = useState(5);
-  const [activeAlarms, setActiveAlarms] = useState<{ id: string; title: string; fireAt: number; formattedTime: string }[]>([]);
+  // Pending alarms live in the module-level engine (survive tab switches and
+  // app reloads); this state is just a subscribed mirror for rendering.
+  const [activeAlarms, setActiveAlarms] = useState<ScheduledAlarm[]>(() => listActiveAlarms());
   const [notifHistory, setNotifHistory] = useState<{ id: string; title: string; time: string }[]>([]);
   const [testNotifSuccess, setTestNotifSuccess] = useState<string | null>(null);
 
   React.useEffect(() => {
-    // Deliberately a plain setInterval (NOT startVisibleInterval): alarms are a
-    // notification feature and WebView timers keep running while the app is
-    // backgrounded, so this checker must keep firing when hidden to deliver
-    // its vibrate/Notification side effects on time.
-    const timer = setInterval(() => {
-      const now = Date.now();
-      setActiveAlarms((prev) => {
-        const remaining: typeof prev = [];
-        prev.forEach((a) => {
-          if (a.fireAt <= now) {
-            if (hapticAlerts && navigator.vibrate) {
-              navigator.vibrate([150, 100, 150, 100, 250]);
-            }
-            if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
-              new Notification('⏰ Hermes AI Wake Reminder', {
-                body: a.title,
-                icon: '/icon.png',
-              });
-            }
-            setNotifHistory((hist) => [
-              { id: a.id, title: a.title, time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) },
-              ...hist,
-            ]);
-          } else {
-            remaining.push(a);
-          }
-        });
-        return remaining;
-      });
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [hapticAlerts]);
+    // Mirror the engine registry into render state, and record fired alarms
+    // into the history. The engine (not this component) owns the dispatcher,
+    // so alarms fire even while the Settings tab is closed.
+    const unsubscribe = subscribeAlarms((alarms, fired) => {
+      setActiveAlarms(alarms);
+      if (fired.length > 0) {
+        setNotifHistory((hist) => [
+          ...fired.map((a) => ({
+            id: a.id,
+            title: a.title,
+            time: new Date(a.fireAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          })),
+          ...hist,
+        ]);
+      }
+    });
+    // Catch up in case an alarm fired before this mount subscribed.
+    setActiveAlarms(listActiveAlarms());
+    return unsubscribe;
+  }, []);
 
   const handleRequestPermission = async () => {
     if (typeof window !== 'undefined' && 'Notification' in window) {
@@ -390,23 +399,15 @@ export default function SettingsView() {
 
   const handleScheduleAlarm = () => {
     if (!alarmTitle.trim()) return;
-    const fireTime = Date.now() + alarmMinutes * 60 * 1000;
-    const formatted = new Date(fireTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    const newAlarm = {
-      id: `alarm-${Date.now()}`,
-      title: alarmTitle.trim(),
-      fireAt: fireTime,
-      formattedTime: formatted,
-    };
-    setActiveAlarms((prev) => [...prev, newAlarm]);
+    const scheduled = scheduleDeviceAlarm(alarmTitle.trim(), alarmMinutes);
     setAlarmTitle('');
-    setTestNotifSuccess(`Alarm set for ${formatted} (+${alarmMinutes}m)`);
+    setTestNotifSuccess(`Alarm set for ${scheduled.formattedTime} (+${alarmMinutes}m) - keeps running after you leave Settings.`);
     if (navigator.vibrate) navigator.vibrate(30);
     setTimeout(() => setTestNotifSuccess(null), 3000);
   };
 
   const handleCancelAlarm = (id: string) => {
-    setActiveAlarms((prev) => prev.filter((a) => a.id !== id));
+    cancelScheduledAlarm(id);
   };
 
   // Prompt Injection & Jailbreak Defense Firewall State
