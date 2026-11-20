@@ -45,6 +45,9 @@ import {
   Menu,
   Eye,
   Search,
+  Share2,
+  Vibrate,
+  Bell,
 } from 'lucide-react';
 import { useAppStore, Attachment } from '@/appStore';
 import { AVAILABLE_MODELS, ModelSpec } from '@/models';
@@ -1440,6 +1443,65 @@ export default function ChatView() {
 
       {/* Bottom Input Area */}
       <div className="p-2 bg-zinc-950 border-t border-zinc-800 z-20 shrink-0">
+        {/* Mobile Quick Hardware & Intent Bar */}
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1.5 pt-0.5 mb-1 no-scrollbar">
+          <button
+            onClick={() => {
+              const lastAssistantMsg = messages.filter((m) => m.role === 'assistant').at(-1);
+              const textToShare = lastAssistantMsg?.content || 'Hermes Autonomous AI on Android: 100% on-device neural inference with zero cloud dependency.';
+              if (typeof navigator !== 'undefined' && navigator.share) {
+                navigator.share({ title: 'Hermes AI Share', text: textToShare }).catch(() => {});
+              } else if (typeof navigator !== 'undefined' && navigator.clipboard) {
+                navigator.clipboard.writeText(textToShare);
+              }
+            }}
+            title="Share last response to WhatsApp / Telegram / Android apps"
+            className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-zinc-900 hover:bg-zinc-850 border border-zinc-800 hover:border-cyan-500/40 text-zinc-300 hover:text-white text-[10px] font-bold shrink-0 transition-all cursor-pointer shadow-sm"
+          >
+            <Share2 className="w-3 h-3 text-cyan-400" />
+            <span>Share to Apps</span>
+          </button>
+
+          <button
+            onClick={() => {
+              if (typeof navigator !== 'undefined' && navigator.vibrate) {
+                navigator.vibrate([100, 50, 100]);
+              }
+            }}
+            title="Test phone tactile vibration motor"
+            className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-zinc-900 hover:bg-zinc-850 border border-zinc-800 hover:border-amber-500/40 text-zinc-300 hover:text-white text-[10px] font-bold shrink-0 transition-all cursor-pointer shadow-sm"
+          >
+            <Vibrate className="w-3 h-3 text-amber-400" />
+            <span>Haptic Buzz</span>
+          </button>
+
+          <button
+            onClick={() => {
+              const prompt = 'Remind me in 30 minutes to review on-device AI logs and battery status';
+              setInputVal(prompt);
+              sendMessage(prompt);
+            }}
+            title="Create phone task reminder"
+            className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-zinc-900 hover:bg-zinc-850 border border-zinc-800 hover:border-emerald-500/40 text-zinc-300 hover:text-white text-[10px] font-bold shrink-0 transition-all cursor-pointer shadow-sm"
+          >
+            <Bell className="w-3 h-3 text-emerald-400" />
+            <span>Set Reminder</span>
+          </button>
+
+          <button
+            onClick={() => {
+              const prompt = 'Audit phone battery, thermal load, and WebGPU tensor speeds';
+              setInputVal(prompt);
+              sendMessage(prompt);
+            }}
+            title="Audit phone system diagnostics"
+            className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-zinc-900 hover:bg-zinc-850 border border-zinc-800 hover:border-indigo-500/40 text-zinc-300 hover:text-white text-[10px] font-bold shrink-0 transition-all cursor-pointer shadow-sm"
+          >
+            <Activity className="w-3 h-3 text-indigo-400" />
+            <span>Device Audit</span>
+          </button>
+        </div>
+
         {isRecordingVoice ? (
           /* WhatsApp-Style Voice Recording Bar */
           <div className="relative flex items-center justify-between gap-2 bg-gradient-to-r from-zinc-950 via-zinc-900 to-zinc-950 border border-emerald-500/40 rounded-2xl px-3 py-2 shadow-2xl animate-in fade-in duration-200">

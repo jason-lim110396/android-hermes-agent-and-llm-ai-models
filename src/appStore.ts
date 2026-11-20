@@ -806,6 +806,10 @@ async function executeHermesAgent(
   const isMathQuery = /^(\d+\s*[\+\-\*\/\^%]|calculate\b|compute\b|solve\b|evaluate\b)/i.test(q) || /\b(calculate|compute|solve)\b/i.test(q);
   const isDiagQuery = /\b(battery level|battery percentage|device diagnostics|device stats|hardware spec|system info|memory usage|ram available)\b/i.test(q);
   const isImageGenQuery = /^(generate|draw|create|render|paint)\s+(an?\s+)?(image|picture|photo|artwork|illustration|logo|drawing)\b/i.test(q);
+  const isShareQuery = /\b(share\s+(this|to|with)|send\s+(this\s+)?to\s+(whatsapp|telegram|friends|email)|native\s+share)\b/i.test(q);
+  const isVibrateQuery = /\b(vibrate|haptic|buzz|vibration)\b/i.test(q);
+  const isReminderQuery = /\b(remind\s+me|set\s+(a\s+)?reminder|schedule\s+(a\s+)?task|set\s+(an?\s+)?alarm)\b/i.test(q);
+  const isPhoneIntentQuery = /\b(call|dial|phone|send\s+sms|text\s+\d+)\b/i.test(q);
 
   const toolsToCall: (typeof AGENT_TOOLS)[0][] = [];
   if (isFileSearchQuery) {
@@ -830,6 +834,22 @@ async function executeHermesAgent(
   }
   if (isImageGenQuery) {
     const t = AGENT_TOOLS.find((tool) => tool.name === 'create_image');
+    if (t && !toolsToCall.includes(t)) toolsToCall.push(t);
+  }
+  if (isShareQuery) {
+    const t = AGENT_TOOLS.find((tool) => tool.name === 'native_share');
+    if (t && !toolsToCall.includes(t)) toolsToCall.push(t);
+  }
+  if (isVibrateQuery) {
+    const t = AGENT_TOOLS.find((tool) => tool.name === 'haptic_vibration');
+    if (t && !toolsToCall.includes(t)) toolsToCall.push(t);
+  }
+  if (isReminderQuery) {
+    const t = AGENT_TOOLS.find((tool) => tool.name === 'device_reminder');
+    if (t && !toolsToCall.includes(t)) toolsToCall.push(t);
+  }
+  if (isPhoneIntentQuery) {
+    const t = AGENT_TOOLS.find((tool) => tool.name === 'phone_intent');
     if (t && !toolsToCall.includes(t)) toolsToCall.push(t);
   }
 
@@ -878,6 +898,19 @@ async function executeHermesAgent(
       };
     } else if (tool.name === 'device_diagnostics') {
       args = { metric: 'all' };
+    } else if (tool.name === 'native_share') {
+      args = { text: userText.replace(/^(share|send)(\s+(this|to|with))?\s*/i, '').trim() || userText, title: 'Hermes Android AI' };
+    } else if (tool.name === 'haptic_vibration') {
+      args = { pattern: /sos/i.test(q) ? 'sos' : /double/i.test(q) ? 'double' : /alert/i.test(q) ? 'alert' : 'short' };
+    } else if (tool.name === 'device_reminder') {
+      args = { title: userText.replace(/^(remind\s+me(\s+to)?|set\s+(a\s+)?reminder(\s+for)?|schedule\s+(a\s+)?task(\s+to)?)\s*/i, '').trim() || 'Mobile Task Reminder', due_time: 'Scheduled' };
+    } else if (tool.name === 'phone_intent') {
+      const numMatch = q.match(/\+?[0-9]{3,15}/);
+      args = {
+        action: /call|dial/i.test(q) ? 'call' : 'sms',
+        target: numMatch ? numMatch[0] : '911',
+        message: userText.replace(/^(call|dial|send\s+sms|text)(\s+\d+)?\s*/i, '').trim()
+      };
     } else {
       args = { code: userText };
     }

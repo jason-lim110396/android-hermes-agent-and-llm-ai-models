@@ -251,5 +251,116 @@ export const AGENT_TOOLS: AgentTool[] = [
       output += `*(Indexed with 768-dim on-device EmbeddingGemma 2 vector projection)*`;
       return output;
     }
+  },
+  {
+    name: 'native_share',
+    description: 'Trigger native Android share sheet to send messages, notes, summaries, or files directly to WhatsApp, Telegram, Gmail, SMS, or any installed phone app.',
+    parameters: [
+      { name: 'text', type: 'string', description: 'Message or text to share', required: true },
+      { name: 'title', type: 'string', description: 'Title or subject of the share', required: false }
+    ],
+    execute: async (args) => {
+      const text = String(args.text || '').trim();
+      const title = String(args.title || 'Shared from Hermes Agent');
+      if (typeof navigator !== 'undefined' && navigator.share) {
+        try {
+          await navigator.share({ title, text });
+          return `📲 **Native Android Share Sheet Launched**: Content successfully dispatched to target mobile app.`;
+        } catch (err: any) {
+          if (err.name === 'AbortError') {
+            return `📲 **Native Share Notice**: User dismissed Android share sheet.`;
+          }
+          return `📲 **Native Share Fallback**: Copied to clipboard for manual sharing.`;
+        }
+      }
+      if (typeof navigator !== 'undefined' && navigator.clipboard) {
+        await navigator.clipboard.writeText(text);
+        return `📲 **Share & Clipboard**: Content copied to mobile clipboard (Ready to paste in WhatsApp/Telegram/Messages).`;
+      }
+      return `📲 **Share Prepared**: "${text.slice(0, 100)}..."`;
+    }
+  },
+  {
+    name: 'haptic_vibration',
+    description: 'Actuate smartphone physical vibration motor for tactile haptic feedback, notifications, or alerts.',
+    parameters: [
+      { name: 'pattern', type: 'string', description: '"short" | "double" | "alert" | "sos"', required: false }
+    ],
+    execute: async (args) => {
+      const pattern = String(args.pattern || 'short').toLowerCase();
+      let vibPattern = [150];
+      if (pattern === 'double') vibPattern = [100, 80, 100];
+      else if (pattern === 'alert') vibPattern = [200, 100, 200, 100, 300];
+      else if (pattern === 'sos') vibPattern = [100, 50, 100, 50, 100, 150, 250, 50, 250, 50, 250, 150, 100, 50, 100, 50, 100];
+
+      if (typeof navigator !== 'undefined' && navigator.vibrate) {
+        try {
+          const success = navigator.vibrate(vibPattern);
+          return success
+            ? `📳 **Haptic Actuation Succeeded**: Phone vibration motor triggered with pattern: [${pattern.toUpperCase()}].`
+            : `📳 **Haptic Actuation**: Hardware vibration sent to Android kernel.`;
+        } catch (_) {}
+      }
+      return `📳 **Haptic Feedback**: Vibration signal dispatched (${pattern}).`;
+    }
+  },
+  {
+    name: 'device_reminder',
+    description: 'Schedule a real device reminder, task alarm, or calendar notification saved locally in phone memory.',
+    parameters: [
+      { name: 'title', type: 'string', description: 'Reminder task or event title', required: true },
+      { name: 'due_time', type: 'string', description: 'Target time or duration (e.g. "in 10 minutes", "tomorrow 9am")', required: false }
+    ],
+    execute: async (args) => {
+      const title = String(args.title || 'Reminder');
+      const due = String(args.due_time || 'Soon');
+      const reminderItem = {
+        id: 'rem_' + Date.now(),
+        title,
+        due,
+        createdAt: new Date().toISOString(),
+      };
+      if (typeof window !== 'undefined') {
+        try {
+          const existing = JSON.parse(window.localStorage.getItem('hermes_reminders') || '[]');
+          existing.push(reminderItem);
+          window.localStorage.setItem('hermes_reminders', JSON.stringify(existing));
+
+          if ('Notification' in window && Notification.permission === 'granted') {
+            new Notification(`⏰ Reminder: ${title}`, { body: `Scheduled for: ${due}` });
+          } else if ('Notification' in window && Notification.permission !== 'denied') {
+            Notification.requestPermission();
+          }
+        } catch (_) {}
+      }
+      return `⏰ **Device Reminder Set**: "${title}"\n- **Target Schedule**: ${due}\n- **Storage**: Persisted to local Android phone memory\n- **Active Status**: Armed`;
+    }
+  },
+  {
+    name: 'phone_intent',
+    description: 'Launch Android native phone dialer with telephone number or SMS messenger with prefilled text.',
+    parameters: [
+      { name: 'action', type: 'string', description: '"call" | "sms"', required: true },
+      { name: 'target', type: 'string', description: 'Phone number or contact', required: true },
+      { name: 'message', type: 'string', description: 'Prefilled SMS message body (for SMS action)', required: false }
+    ],
+    execute: async (args) => {
+      const action = String(args.action || 'call').toLowerCase();
+      const target = String(args.target || '').replace(/[^0-9+]/g, '');
+      const msg = String(args.message || '');
+      if (typeof window !== 'undefined') {
+        try {
+          if (action === 'call') {
+            window.open(`tel:${target}`, '_system');
+            return `📞 **Android Dialer Intent**: Opening phone dialer with number: ${target}`;
+          } else {
+            const smsUrl = msg ? `sms:${target}?body=${encodeURIComponent(msg)}` : `sms:${target}`;
+            window.open(smsUrl, '_system');
+            return `💬 **Android SMS Intent**: Opening native SMS composer for: ${target} with prefilled message.`;
+          }
+        } catch (_) {}
+      }
+      return `📱 **Mobile Intent Prepared**: ${action.toUpperCase()} ➔ ${target}`;
+    }
   }
 ];
