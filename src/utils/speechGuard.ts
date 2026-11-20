@@ -33,6 +33,13 @@ let active = false;
 let startTimer: ReturnType<typeof setTimeout> | null = null;
 let maxTimer: ReturnType<typeof setTimeout> | null = null;
 const listeners = new Set<SpeakingListener>();
+// Session generation token: speechSynthesis.cancel() makes the superseded
+// utterance fire its own onend/onerror ASYNCHRONOUSLY, usually after the next
+// speak() was issued. Without the token that late event ran finish() and
+// cleared the NEW session's watchdog timers, flipping the speaking flag
+// false while the new utterance was audibly playing - and leaving the
+// dropped-onend case the watchdogs exist for completely unprotected.
+let sessionId = 0;
 
 function clearTimers() {
   if (startTimer) {
@@ -87,13 +94,18 @@ export function speakGuarded(utterance: SpeechSynthesisUtterance): boolean {
     window.speechSynthesis.cancel();
   } catch (_) {}
 
+  const my = ++sessionId;
+  const finishIfCurrent = () => {
+    if (my === sessionId) finish();
+  };
+
   setActive(true);
   let started = false;
 
   const prevStart = utterance.onstart;
   utterance.onstart = (event) => {
     started = true;
-    if (startTimer) {
+    if (my === sessionId && startTimer) {
       clearTimeout(startTimer);
       startTimer = null;
     }
@@ -103,14 +115,16 @@ export function speakGuarded(utterance: SpeechSynthesisUtterance): boolean {
   };
   const prevEnd = utterance.onend;
   utterance.onend = (event) => {
-    finish();
+    // Only the CURRENT session may clear the flag: a superseded utterance
+    // whose end event lands late must not finish the new session.
+    finishIfCurrent();
     try {
       prevEnd?.call(utterance, event);
     } catch (_) {}
   };
   const prevError = utterance.onerror;
   utterance.onerror = (event) => {
-    finish();
+    finishIfCurrent();
     try {
       prevError?.call(utterance, event);
     } catch (_) {}
@@ -119,11 +133,12 @@ export function speakGuarded(utterance: SpeechSynthesisUtterance): boolean {
   try {
     window.speechSynthesis.speak(utterance);
   } catch (_) {
-    finish();
+    if (my === sessionId) finish();
     return false;
   }
 
   startTimer = setTimeout(() => {
+    if (my !== sessionId) return;
     startTimer = null;
     // A slow engine may not have fired onstart yet but is already speaking;
     // do not clear the flag in that case. Only clear when nothing is active.
@@ -131,17 +146,21 @@ export function speakGuarded(utterance: SpeechSynthesisUtterance): boolean {
     try {
       engineSpeaking = window.speechSynthesis.speaking || window.speechSynthesis.pending;
     } catch (_) {}
-    if (!started && !engineSpeaking) finish();
+    if (!started && !engineSpeaking) finishIfCurrent();
   }, START_WATCHDOG_MS);
   maxTimer = setTimeout(() => {
+    if (my !== sessionId) return;
     maxTimer = null;
-    finish();
+    finishIfCurrent();
   }, MAX_SPEECH_MS);
   return true;
 }
 
 /** Cancel any active utterance and clear all watchdogs/flags. */
 export function cancelSpeech(): void {
+  // Invalidate the in-flight session FIRST so the cancelled utterance's
+  // late end/error events cannot touch the cleared state afterwards.
+  sessionId++;
   try {
     if (hasSpeechSynthesis()) window.speechSynthesis.cancel();
   } catch (_) {}
