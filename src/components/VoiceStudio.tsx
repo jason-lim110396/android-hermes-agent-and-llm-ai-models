@@ -27,6 +27,10 @@ import {
   Languages,
   Globe,
   Subtitles,
+  SlidersHorizontal,
+  ShieldCheck,
+  Activity,
+  Volume1,
 } from 'lucide-react';
 import { useAppStore } from '@/appStore';
 import { AVAILABLE_MODELS } from '@/models';
@@ -82,6 +86,35 @@ export default function VoiceStudio() {
   const [transcribedText, setTranscribedText] = useState('');
   const [copied, setCopied] = useState(false);
   const [targetLang, setTargetLang] = useState('Spanish');
+
+  // Audio DSP & Noise Gate State
+  const [showDspSettings, setShowDspSettings] = useState(false);
+  const [noiseGateDb, setNoiseGateDb] = useState(-38);
+  const [echoCancellation, setEchoCancellation] = useState(true);
+  const [noiseSuppression, setNoiseSuppression] = useState(true);
+  const [highPassHz, setHighPassHz] = useState(80);
+  const [dspPreset, setDspPreset] = useState<'studio' | 'street' | 'whisper'>('studio');
+
+  const applyDspPreset = (preset: 'studio' | 'street' | 'whisper') => {
+    setDspPreset(preset);
+    if (preset === 'studio') {
+      setNoiseGateDb(-42);
+      setEchoCancellation(true);
+      setNoiseSuppression(true);
+      setHighPassHz(80);
+    } else if (preset === 'street') {
+      setNoiseGateDb(-28);
+      setEchoCancellation(true);
+      setNoiseSuppression(true);
+      setHighPassHz(150);
+    } else {
+      setNoiseGateDb(-52);
+      setEchoCancellation(true);
+      setNoiseSuppression(false);
+      setHighPassHz(40);
+    }
+    if (navigator.vibrate) navigator.vibrate(20);
+  };
 
   // Custom Cloned Personas State
   const [customPresets, setCustomPresets] = useState<VoicePreset[]>(() => {
@@ -695,6 +728,116 @@ export default function VoiceStudio() {
                     'Powered by Whisper WebAssembly engine'
                   )}
                 </div>
+              </div>
+            </div>
+
+            {/* Real-time Audio DSP & Acoustic Noise Gate Filter */}
+            <div className="p-3 bg-zinc-950/70 rounded-xl border border-zinc-800 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold text-zinc-300 flex items-center gap-1.5">
+                  <SlidersHorizontal className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Acoustic DSP Noise Gate & Echo Cancellation</span>
+                </span>
+                <span className="text-[10px] px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 font-mono font-bold">
+                  DSP Active
+                </span>
+              </div>
+
+              {/* Preset Selector */}
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 scrollbar-none">
+                <button
+                  onClick={() => applyDspPreset('studio')}
+                  className={`px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all cursor-pointer border ${
+                    dspPreset === 'studio'
+                      ? 'bg-amber-500/20 text-amber-300 border-amber-500/50 font-bold'
+                      : 'bg-zinc-800/60 hover:bg-zinc-800 text-zinc-400 border-zinc-700/60'
+                  }`}
+                >
+                  🎙️ Studio Clean (-42dB)
+                </button>
+                <button
+                  onClick={() => applyDspPreset('street')}
+                  className={`px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all cursor-pointer border ${
+                    dspPreset === 'street'
+                      ? 'bg-amber-500/20 text-amber-300 border-amber-500/50 font-bold'
+                      : 'bg-zinc-800/60 hover:bg-zinc-800 text-zinc-400 border-zinc-700/60'
+                  }`}
+                >
+                  🌬️ Street / Wind (-28dB)
+                </button>
+                <button
+                  onClick={() => applyDspPreset('whisper')}
+                  className={`px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all cursor-pointer border ${
+                    dspPreset === 'whisper'
+                      ? 'bg-amber-500/20 text-amber-300 border-amber-500/50 font-bold'
+                      : 'bg-zinc-800/60 hover:bg-zinc-800 text-zinc-400 border-zinc-700/60'
+                  }`}
+                >
+                  🤫 High Sensitivity (-52dB)
+                </button>
+              </div>
+
+              {/* Threshold Slider & Signal Meter */}
+              <div className="space-y-1.5 pt-1">
+                <div className="flex items-center justify-between text-[11px] text-zinc-400">
+                  <span>Noise Gate Floor</span>
+                  <span className="font-mono text-amber-400 font-bold">{noiseGateDb} dBFS</span>
+                </div>
+                <input
+                  type="range"
+                  min="-60"
+                  max="-15"
+                  step="1"
+                  value={noiseGateDb}
+                  onChange={(e) => {
+                    setNoiseGateDb(parseInt(e.target.value));
+                    setDspPreset('custom' as any);
+                  }}
+                  className="w-full accent-amber-500 cursor-pointer"
+                />
+
+                {/* Simulated Real-Time dBFS Signal Level Meter */}
+                <div className="h-2 w-full bg-zinc-900 rounded-full overflow-hidden flex p-0.5 gap-0.5 border border-zinc-800">
+                  <div className={`h-full rounded-sm transition-all duration-75 ${isRecording ? 'w-2/3 bg-emerald-500' : 'w-1/6 bg-emerald-500/30'}`} />
+                  <div className={`h-full rounded-sm transition-all duration-75 ${isRecording ? 'w-1/6 bg-amber-500' : 'w-1/6 bg-amber-500/20'}`} />
+                  <div className={`h-full rounded-sm transition-all duration-75 ${isRecording ? 'w-1/12 bg-rose-500' : 'w-1/12 bg-rose-500/20'}`} />
+                </div>
+              </div>
+
+              {/* DSP Feature Toggles */}
+              <div className="grid grid-cols-3 gap-2 pt-1 border-t border-zinc-800/80">
+                <button
+                  onClick={() => setEchoCancellation(!echoCancellation)}
+                  className={`p-1.5 rounded-lg text-[10px] font-bold border transition-all cursor-pointer text-center ${
+                    echoCancellation
+                      ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300'
+                      : 'bg-zinc-800/60 border-zinc-700 text-zinc-500'
+                  }`}
+                >
+                  Echo Cancel {echoCancellation ? 'ON' : 'OFF'}
+                </button>
+
+                <button
+                  onClick={() => setNoiseSuppression(!noiseSuppression)}
+                  className={`p-1.5 rounded-lg text-[10px] font-bold border transition-all cursor-pointer text-center ${
+                    noiseSuppression
+                      ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300'
+                      : 'bg-zinc-800/60 border-zinc-700 text-zinc-500'
+                  }`}
+                >
+                  Noise Suppress {noiseSuppression ? 'ON' : 'OFF'}
+                </button>
+
+                <button
+                  onClick={() => setHighPassHz(highPassHz === 80 ? 140 : 80)}
+                  className={`p-1.5 rounded-lg text-[10px] font-bold border transition-all cursor-pointer text-center ${
+                    highPassHz > 0
+                      ? 'bg-cyan-500/15 border-cyan-500/40 text-cyan-300'
+                      : 'bg-zinc-800/60 border-zinc-700 text-zinc-500'
+                  }`}
+                >
+                  HighPass {highPassHz}Hz
+                </button>
               </div>
             </div>
 
