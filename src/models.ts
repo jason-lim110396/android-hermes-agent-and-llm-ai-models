@@ -260,4 +260,30 @@ export const AVAILABLE_MODELS: ModelSpec[] = [
     author: 'Google DeepMind',
     systemPromptPreset: 'You are EmbeddingGemma 2, an advanced on-device multimodal semantic embedding engine specialized in finding and indexing local phone files, videos, documents, and media.'
   }
+  ,
+  {
+    id: 'tinyllama-1.1b-cpu',
+    ggufUrl: 'https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF/resolve/main/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf',
+    name: 'TinyLlama 1.1B (Chat)',
+    category: 'text',
+    family: 'chat',
+    purposeTitle: 'Fast Chat and Summaries',
+    purposeIcon: 'chat',
+    tagline: 'Tiny fast low-RAM chat model 668MB',
+    sizeMB: 668,
+    parameters: '1.1B',
+    quantization: 'Q4_K_M (GGUF)',
+    contextWindow: 2048,
+    minRamGB: 2,
+    recommendedRamGB: 3,
+    engine: 'cpu-wasm',
+    requiresWebGpu: false,
+    isRecommended: true,
+    capabilities: ['text','code','tools'],
+    inputTypes: ['text','file'],
+    outputTypes: ['text','code'],
+    description: 'TinyLlama chat-tuned 1.1B model optimized for very low RAM and quick on-device responses on Android.',
+    author: 'TinyLlama',
+    systemPromptPreset: 'You are TinyLlama, a concise helpful on-device assistant.'
+  }
 ];
