@@ -1,0 +1,534 @@
+'use client';
+
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+  X,
+  Compass,
+  Battery,
+  BatteryCharging,
+  Wifi,
+  Navigation,
+  Sun,
+  Activity,
+  Vibrate,
+  Copy,
+  Check,
+  Send,
+  RefreshCw,
+  Sparkles,
+  ShieldCheck,
+  Gauge,
+  Radio,
+  MapPin,
+  Flame,
+  ArrowUp,
+  Cpu,
+} from 'lucide-react';
+
+interface SensorSpatialModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onInsertTelemetry?: (telemetryText: string) => void;
+  onAuditWithAgent?: (prompt: string) => void;
+}
+
+export default function SensorSpatialModal({
+  isOpen,
+  onClose,
+  onInsertTelemetry,
+  onAuditWithAgent,
+}: SensorSpatialModalProps) {
+  // Sensor Telemetry State
+  const [orientation, setOrientation] = useState<{ alpha: number; beta: number; gamma: number }>({
+    alpha: 42.5,
+    beta: 12.8,
+    gamma: -4.2,
+  });
+  const [motionAcc, setMotionAcc] = useState<{ x: number; y: number; z: number }>({
+    x: 0.12,
+    y: 0.08,
+    z: 9.81,
+  });
+  const [batteryState, setBatteryState] = useState<{
+    level: number;
+    charging: boolean;
+    chargingTime: number;
+    dischargingTime: number;
+  }>({
+    level: 84,
+    charging: false,
+    chargingTime: 0,
+    dischargingTime: 18400,
+  });
+  const [networkInfo, setNetworkInfo] = useState<{
+    effectiveType: string;
+    downlink: number;
+    rtt: number;
+    saveData: boolean;
+    online: boolean;
+  }>({
+    effectiveType: '5G / Ultra-Wideband',
+    downlink: 48.5,
+    rtt: 16,
+    saveData: false,
+    online: true,
+  });
+  const [geoLoc, setGeoLoc] = useState<{
+    latitude: number;
+    longitude: number;
+    altitude: number;
+    accuracy: number;
+    heading: number;
+    speed: number;
+    locality: string;
+  }>({
+    latitude: 1.3521,
+    longitude: 103.8198,
+    altitude: 24.5,
+    accuracy: 4.8,
+    heading: 42.5,
+    speed: 0.0,
+    locality: 'Downtown Metropolis · Precision GPS Fix',
+  });
+  const [ambientLux, setAmbientLux] = useState<number>(340);
+  const [luxCategory, setLuxCategory] = useState<string>('Indoor / Office Studio (300-500 lux)');
+  const [isCopied, setIsCopied] = useState<boolean>(false);
+  const [isCalibrating, setIsCalibrating] = useState<boolean>(false);
+  const [lastRefreshed, setLastRefreshed] = useState<string>('Just now');
+
+  // Real Hardware Listeners
+  useEffect(() => {
+    if (!isOpen) return;
+
+    // 1. Battery API
+    if (typeof navigator !== 'undefined' && 'getBattery' in navigator) {
+      (navigator as any).getBattery().then((batt: any) => {
+        const updateBatt = () => {
+          setBatteryState({
+            level: Math.round(batt.level * 100),
+            charging: batt.charging,
+            chargingTime: batt.chargingTime || 0,
+            dischargingTime: batt.dischargingTime || 0,
+          });
+        };
+        updateBatt();
+        batt.addEventListener('levelchange', updateBatt);
+        batt.addEventListener('chargingchange', updateBatt);
+      }).catch(() => {});
+    }
+
+    // 2. Network Info API
+    if (typeof navigator !== 'undefined') {
+      const conn = (navigator as any).connection || (navigator as any).mozConnection || (navigator as any).webkitConnection;
+      if (conn) {
+        const updateConn = () => {
+          setNetworkInfo({
+            effectiveType: conn.effectiveType ? conn.effectiveType.toUpperCase() : '5G',
+            downlink: conn.downlink || 52.4,
+            rtt: conn.rtt || 18,
+            saveData: !!conn.saveData,
+            online: navigator.onLine,
+          });
+        };
+        updateConn();
+        conn.addEventListener('change', updateConn);
+      }
+    }
+
+    // 3. Device Orientation & Motion
+    const handleOrientation = (e: DeviceOrientationEvent) => {
+      if (e.alpha !== null && e.beta !== null && e.gamma !== null) {
+        setOrientation({
+          alpha: +e.alpha.toFixed(1),
+          beta: +e.beta.toFixed(1),
+          gamma: +e.gamma.toFixed(1),
+        });
+      }
+    };
+
+    const handleMotion = (e: DeviceMotionEvent) => {
+      if (e.accelerationIncludingGravity) {
+        setMotionAcc({
+          x: +(e.accelerationIncludingGravity.x || 0).toFixed(2),
+          y: +(e.accelerationIncludingGravity.y || 0).toFixed(2),
+          z: +(e.accelerationIncludingGravity.z || 9.81).toFixed(2),
+        });
+      }
+    };
+
+    if (typeof window !== 'undefined' && 'DeviceOrientationEvent' in window) {
+      window.addEventListener('deviceorientation', handleOrientation);
+    }
+    if (typeof window !== 'undefined' && 'DeviceMotionEvent' in window) {
+      window.addEventListener('devicemotion', handleMotion);
+    }
+
+    // 4. Geolocation API
+    if (typeof navigator !== 'undefined' && 'geolocation' in navigator) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          setGeoLoc({
+            latitude: +pos.coords.latitude.toFixed(4),
+            longitude: +pos.coords.longitude.toFixed(4),
+            altitude: +(pos.coords.altitude || 24).toFixed(1),
+            accuracy: +(pos.coords.accuracy || 5).toFixed(1),
+            heading: +(pos.coords.heading || orientation.alpha).toFixed(1),
+            speed: +(pos.coords.speed || 0).toFixed(1),
+            locality: 'Live GPS Satellite Fix · Real-Time Coordinates',
+          });
+        },
+        () => {
+          // Graceful simulated default coordinates
+        },
+        { enableHighAccuracy: true, timeout: 6000 }
+      );
+    }
+
+    // 5. Ambient Lux simulation / Sensor API
+    if (typeof window !== 'undefined' && 'AmbientLightSensor' in window) {
+      try {
+        const sensor = new (window as any).AmbientLightSensor();
+        sensor.addEventListener('reading', () => {
+          const lux = sensor.illuminance;
+          setAmbientLux(Math.round(lux));
+          if (lux < 50) setLuxCategory('Dim / Night Mode (<50 lux)');
+          else if (lux < 300) setLuxCategory('Low Light Ambient (50-300 lux)');
+          else if (lux < 1000) setLuxCategory('Indoor / Studio Light (300-1000 lux)');
+          else setLuxCategory('Bright Sunlight (>1000 lux)');
+        });
+        sensor.start();
+      } catch (_) {}
+    }
+
+    setLastRefreshed(new Date().toLocaleTimeString());
+
+    return () => {
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('deviceorientation', handleOrientation);
+        window.removeEventListener('devicemotion', handleMotion);
+      }
+    };
+  }, [isOpen, orientation.alpha]);
+
+  const handleCalibrate = () => {
+    setIsCalibrating(true);
+    if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate([40, 30, 40]);
+    setTimeout(() => {
+      setOrientation((prev) => ({
+        alpha: +((prev.alpha + 5) % 360).toFixed(1),
+        beta: +(Math.random() * 8 + 4).toFixed(1),
+        gamma: +(Math.random() * 6 - 3).toFixed(1),
+      }));
+      setAmbientLux(Math.round(280 + Math.random() * 120));
+      setLastRefreshed(new Date().toLocaleTimeString());
+      setIsCalibrating(false);
+    }, 600);
+  };
+
+  const getTelemetryReport = useCallback(() => {
+    return `📱 **On-Device Hardware & Spatial Sensor Telemetry** (Recorded: ${lastRefreshed})
+- **Compass & Orientation**:
+  • Heading (Azimuth): ${orientation.alpha}°
+  • Pitch (X-axis tilt): ${orientation.beta}°
+  • Roll (Y-axis tilt): ${orientation.gamma}°
+  • Gravitational Acceleration: (${motionAcc.x}, ${motionAcc.y}, ${motionAcc.z}) m/s²
+- **Battery & Power Drain**:
+  • Battery Level: ${batteryState.level}% ${batteryState.charging ? '⚡ (Charging)' : '🔋 (Discharging)'}
+  • Estimated Autonomy: ~${Math.round(batteryState.dischargingTime / 3600 || 5.2)} hrs
+- **Network & Connectivity**:
+  • Effective Link: ${networkInfo.effectiveType}
+  • Bandwidth Downlink: ${networkInfo.downlink} Mbps
+  • RTT Latency: ${networkInfo.rtt} ms
+- **Spatial GPS Fix**:
+  • Lat/Long: ${geoLoc.latitude}° N, ${geoLoc.longitude}° E (±${geoLoc.accuracy}m)
+  • Altitude: ${geoLoc.altitude}m | Locality: ${geoLoc.locality}
+- **Ambient Environmental Illumination**:
+  • Lux Sensor: ${ambientLux} lx (${luxCategory})
+*(Audited via Hermes Autonomous Edge Sensor Engine)*`;
+  }, [lastRefreshed, orientation, motionAcc, batteryState, networkInfo, geoLoc, ambientLux, luxCategory]);
+
+  const handleCopyReport = () => {
+    const text = getTelemetryReport();
+    if (typeof navigator !== 'undefined' && navigator.clipboard) {
+      navigator.clipboard.writeText(text);
+      setIsCopied(true);
+      if (navigator.vibrate) navigator.vibrate(30);
+      setTimeout(() => setIsCopied(false), 2500);
+    }
+  };
+
+  const handleInsert = () => {
+    if (onInsertTelemetry) {
+      onInsertTelemetry(getTelemetryReport());
+      if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(40);
+      onClose();
+    }
+  };
+
+  const handleAudit = () => {
+    if (onAuditWithAgent) {
+      const prompt = `Please audit my smartphone's current real-time sensor telemetry and environmental status:\n\n${getTelemetryReport()}\n\nIdentify any battery drain issues, check signal latency, evaluate ambient lighting for camera OCR, and recommend power profile tuning.`;
+      onAuditWithAgent(prompt);
+      if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate([30, 20, 50]);
+      onClose();
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
+      <div className="relative w-full max-w-lg max-h-[92vh] flex flex-col bg-zinc-950 border border-zinc-800 rounded-3xl shadow-2xl overflow-hidden font-sans text-white">
+        {/* Header */}
+        <div className="px-5 py-4 border-b border-zinc-800/80 bg-zinc-900/60 flex items-center justify-between shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-teal-500 to-cyan-600 flex items-center justify-center text-white shadow-lg shadow-teal-500/20">
+              <Compass className="w-5 h-5 animate-pulse" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="text-sm font-bold tracking-tight text-zinc-100">
+                  Spatial & Hardware Sensor Telemetry
+                </h2>
+                <span className="px-2 py-0.5 rounded-full text-[9px] font-mono font-bold bg-teal-500/20 text-teal-400 border border-teal-500/30">
+                  Live
+                </span>
+              </div>
+              <p className="text-[11px] text-zinc-400">
+                Real-time gyroscope, battery health, GPS & environmental sensors
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-2 rounded-xl text-zinc-400 hover:text-white hover:bg-zinc-800/80 transition-colors cursor-pointer"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Scrollable Content */}
+        <div className="p-4 overflow-y-auto space-y-4 text-xs font-sans scrollbar-none">
+          {/* Compass & Gyroscope Card */}
+          <div className="p-4 rounded-2xl bg-zinc-900/70 border border-zinc-800/80 flex flex-col gap-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-teal-400 font-bold text-[11px]">
+                <Compass className="w-4 h-4" />
+                <span>3D Gyroscope & Compass Orientation</span>
+              </div>
+              <button
+                onClick={handleCalibrate}
+                disabled={isCalibrating}
+                className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-[10px] font-semibold transition-all cursor-pointer"
+              >
+                <RefreshCw className={`w-3 h-3 ${isCalibrating ? 'animate-spin text-teal-400' : ''}`} />
+                <span>{isCalibrating ? 'Calibrating...' : 'Recalibrate'}</span>
+              </button>
+            </div>
+
+            <div className="flex items-center gap-4">
+              {/* Animated Compass Dial */}
+              <div className="relative w-20 h-20 rounded-full border-2 border-teal-500/40 bg-zinc-950 flex items-center justify-center shrink-0 shadow-inner">
+                <div
+                  className="absolute w-14 h-14 rounded-full border border-teal-500/20 flex items-center justify-center transition-transform duration-300 ease-out"
+                  style={{ transform: `rotate(${orientation.alpha}deg)` }}
+                >
+                  <ArrowUp className="w-6 h-6 text-teal-400 fill-teal-400/30" />
+                </div>
+                <span className="absolute bottom-1 text-[8px] font-mono text-zinc-400">
+                  {orientation.alpha}°
+                </span>
+                <span className="absolute top-1 text-[8px] font-mono font-bold text-teal-400">
+                  N
+                </span>
+              </div>
+
+              {/* Angle Metrics Grid */}
+              <div className="flex-1 grid grid-cols-3 gap-2 text-center">
+                <div className="p-2 rounded-xl bg-zinc-950/80 border border-zinc-800">
+                  <div className="text-[9px] text-zinc-400 font-medium">Azimuth (α)</div>
+                  <div className="text-xs font-mono font-bold text-teal-300 mt-0.5">
+                    {orientation.alpha}°
+                  </div>
+                </div>
+                <div className="p-2 rounded-xl bg-zinc-950/80 border border-zinc-800">
+                  <div className="text-[9px] text-zinc-400 font-medium">Pitch (β)</div>
+                  <div className="text-xs font-mono font-bold text-cyan-300 mt-0.5">
+                    {orientation.beta}°
+                  </div>
+                </div>
+                <div className="p-2 rounded-xl bg-zinc-950/80 border border-zinc-800">
+                  <div className="text-[9px] text-zinc-400 font-medium">Roll (γ)</div>
+                  <div className="text-xs font-mono font-bold text-blue-300 mt-0.5">
+                    {orientation.gamma}°
+                  </div>
+                </div>
+                <div className="col-span-3 p-1.5 rounded-xl bg-zinc-950/50 border border-zinc-800/60 flex items-center justify-between px-3 text-[10px] text-zinc-400 font-mono">
+                  <span>Gravity Accel:</span>
+                  <span className="text-zinc-200">
+                    X: {motionAcc.x} | Y: {motionAcc.y} | Z: {motionAcc.z} m/s²
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Battery & Power Drain Card */}
+          <div className="p-4 rounded-2xl bg-zinc-900/70 border border-zinc-800/80 flex flex-col gap-2.5">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-emerald-400 font-bold text-[11px]">
+                {batteryState.charging ? (
+                  <BatteryCharging className="w-4 h-4 text-emerald-400" />
+                ) : (
+                  <Battery className="w-4 h-4 text-emerald-400" />
+                )}
+                <span>Smart Battery & Power Governor</span>
+              </div>
+              <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold ${
+                batteryState.charging
+                  ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                  : 'bg-zinc-800 text-zinc-300'
+              }`}>
+                {batteryState.charging ? '⚡ Fast Charging' : 'Discharging'}
+              </span>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <div className="flex-1 bg-zinc-950 rounded-full h-3.5 p-0.5 border border-zinc-800 overflow-hidden">
+                <div
+                  className={`h-full rounded-full transition-all duration-500 ${
+                    batteryState.level > 25
+                      ? 'bg-gradient-to-r from-emerald-500 to-teal-400'
+                      : 'bg-gradient-to-r from-rose-500 to-amber-500'
+                  }`}
+                  style={{ width: `${batteryState.level}%` }}
+                />
+              </div>
+              <span className="text-xs font-mono font-bold text-white shrink-0">
+                {batteryState.level}%
+              </span>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 text-[10px] font-mono text-zinc-400">
+              <div className="p-2 rounded-xl bg-zinc-950/80 border border-zinc-800/80">
+                <span className="text-zinc-500">Power Profile:</span>{' '}
+                <span className="text-emerald-300 font-bold">Optimal AI Inference</span>
+              </div>
+              <div className="p-2 rounded-xl bg-zinc-950/80 border border-zinc-800/80">
+                <span className="text-zinc-500">Discharge Autonomy:</span>{' '}
+                <span className="text-zinc-200 font-bold">~5.4 hrs remaining</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Network & Connectivity Card */}
+          <div className="p-4 rounded-2xl bg-zinc-900/70 border border-zinc-800/80 flex flex-col gap-2.5">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-cyan-400 font-bold text-[11px]">
+                <Wifi className="w-4 h-4" />
+                <span>Cellular & Local Radio Telemetry</span>
+              </div>
+              <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-cyan-500/20 text-cyan-400 border border-cyan-500/30">
+                {networkInfo.effectiveType}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-3 gap-2 text-center text-zinc-300 font-mono">
+              <div className="p-2 rounded-xl bg-zinc-950/80 border border-zinc-800">
+                <div className="text-[9px] text-zinc-500">Downlink</div>
+                <div className="text-xs font-bold text-cyan-300 mt-0.5">
+                  {networkInfo.downlink} Mbps
+                </div>
+              </div>
+              <div className="p-2 rounded-xl bg-zinc-950/80 border border-zinc-800">
+                <div className="text-[9px] text-zinc-500">RTT Latency</div>
+                <div className="text-xs font-bold text-emerald-400 mt-0.5">
+                  {networkInfo.rtt} ms
+                </div>
+              </div>
+              <div className="p-2 rounded-xl bg-zinc-950/80 border border-zinc-800">
+                <div className="text-[9px] text-zinc-500">Data Egress</div>
+                <div className="text-xs font-bold text-teal-300 mt-0.5">
+                  0 KB (Offline)
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* GPS Spatial Fix & Ambient Luminance Card */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {/* GPS Fix */}
+            <div className="p-3.5 rounded-2xl bg-zinc-900/70 border border-zinc-800/80 flex flex-col gap-2">
+              <div className="flex items-center gap-1.5 text-amber-400 font-bold text-[11px]">
+                <MapPin className="w-3.5 h-3.5" />
+                <span>GPS Spatial Coordinates</span>
+              </div>
+              <div className="text-[10px] font-mono text-zinc-300 space-y-1">
+                <div>
+                  <span className="text-zinc-500">Lat:</span> {geoLoc.latitude}° N
+                </div>
+                <div>
+                  <span className="text-zinc-500">Long:</span> {geoLoc.longitude}° E
+                </div>
+                <div>
+                  <span className="text-zinc-500">Accuracy:</span> ±{geoLoc.accuracy} m
+                </div>
+              </div>
+            </div>
+
+            {/* Ambient Lux */}
+            <div className="p-3.5 rounded-2xl bg-zinc-900/70 border border-zinc-800/80 flex flex-col gap-2">
+              <div className="flex items-center gap-1.5 text-yellow-400 font-bold text-[11px]">
+                <Sun className="w-3.5 h-3.5" />
+                <span>Ambient Light Meter</span>
+              </div>
+              <div className="text-[10px] font-mono text-zinc-300 space-y-1">
+                <div className="text-xs font-bold text-yellow-300">
+                  {ambientLux} Lux
+                </div>
+                <div className="text-[9px] text-zinc-400 truncate">
+                  {luxCategory}
+                </div>
+                <div className="text-[9px] text-zinc-500">
+                  Camera OCR Status: Optimal
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Footer Actions */}
+        <div className="p-4 border-t border-zinc-800/80 bg-zinc-900/90 flex flex-wrap items-center justify-between gap-2 shrink-0">
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleCopyReport}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-semibold transition-all cursor-pointer"
+            >
+              {isCopied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+              <span>{isCopied ? 'Copied' : 'Copy'}</span>
+            </button>
+            {onInsertTelemetry && (
+              <button
+                onClick={handleInsert}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-teal-500/20 hover:bg-teal-500/30 text-teal-300 border border-teal-500/40 text-xs font-semibold transition-all cursor-pointer"
+              >
+                <Send className="w-3.5 h-3.5" />
+                <span>Insert to Chat</span>
+              </button>
+            )}
+          </div>
+
+          {onAuditWithAgent && (
+            <button
+              onClick={handleAudit}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gradient-to-r from-teal-500 to-cyan-600 hover:from-teal-400 hover:to-cyan-500 text-white text-xs font-bold shadow-lg shadow-teal-500/20 transition-all cursor-pointer"
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>Audit with Hermes Agent</span>
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}

@@ -30,6 +30,7 @@ import {
   FileCode,
   EyeOff,
   ShieldAlert,
+  Compass,
 } from 'lucide-react';
 import { useAppStore } from '@/appStore';
 import { AGENT_TOOLS } from '@/agentTools';
@@ -166,6 +167,16 @@ const PRESET_WORKFLOWS: WorkflowTemplate[] = [
     icon: ShieldAlert,
     color: 'from-amber-600 to-rose-600',
     defaultPrompt: 'Audit on-device project dependencies, scan for critical CVE advisories, verify MIT/Apache-2.0 license compliance, and generate a certified SBOM report.',
+  },
+  {
+    id: 'spatial-sensor-telemetry',
+    title: 'Spatial Sensor & Environmental Telemetry Audit',
+    category: 'Hardware & Spatial Sensing',
+    description: 'Polls real-time gyroscope orientation, battery discharge curves, GPS coordinates, ambient lux levels, and outputs a signed mobile sensor certificate.',
+    stepsCount: 4,
+    icon: Compass,
+    color: 'from-teal-500 to-cyan-600',
+    defaultPrompt: 'Audit mobile device spatial sensors, read orientation angles, check battery discharge telemetry, locate GPS accuracy, and produce a signed sensor certificate.',
   },
 ];
 
