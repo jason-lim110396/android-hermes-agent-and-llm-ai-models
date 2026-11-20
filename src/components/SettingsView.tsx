@@ -656,7 +656,16 @@ export default function SettingsView() {
                 <select
                   className='w-full bg-zinc-950 border border-zinc-800 rounded-xl px-2 py-1.5 text-xs text-zinc-200'
                   value={selectedProviderModel}
-                  onChange={(e) => setSelectedProviderModel(e.target.value)}
+                  onChange={(e) => {
+                    setSelectedProviderModel(e.target.value);
+                    // Choosing "Auto (provider default)" is the explicit
+                    // un-pin control: clear the store pin right here. The
+                    // write-back effect only fires for non-empty selections
+                    // (its mount run must not wipe the saved pin), so
+                    // without this line "Auto" would leave the old model
+                    // silently pinned in every request.
+                    if (!e.target.value) setCustomModelName('');
+                  }}
                 >
                   <option value=''>Auto (provider default)</option>
                   {providerModels.map((m) => (
