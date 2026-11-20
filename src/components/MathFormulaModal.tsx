@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   X,
   Calculator,
@@ -110,6 +110,18 @@ export default function MathFormulaModal({
   const [isCopied, setIsCopied] = useState<boolean>(false);
   const [isSolving, setIsSolving] = useState<boolean>(false);
 
+  // This modal is mounted once at app start (usually with an empty
+  // initialLatex) and re-opened per message with a new formula. A one-shot
+  // state initializer would keep showing - and send to the model - the very
+  // first preset instead of the formula the user tapped. Sync on each open.
+  useEffect(() => {
+    if (!isOpen) return;
+    setLatexInput(initialLatex || PRESET_EQUATIONS[0].latex);
+    setSelectedPresetIndex(0);
+    setIsSolving(false);
+    setIsCopied(false);
+  }, [isOpen, initialLatex]);
+
   if (!isOpen) return null;
 
   const currentPreset = PRESET_EQUATIONS[selectedPresetIndex];
@@ -126,10 +138,16 @@ export default function MathFormulaModal({
   };
 
   const handleCopyLatex = () => {
-    navigator.clipboard.writeText(latexInput);
-    setIsCopied(true);
-    if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(25);
-    setTimeout(() => setIsCopied(false), 2000);
+    // Only report "Copied" when the WebView clipboard write actually
+    // resolved; Android WebViews reject async clipboard on focus races.
+    navigator.clipboard
+      .writeText(latexInput)
+      .then(() => {
+        setIsCopied(true);
+        if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(25);
+        setTimeout(() => setIsCopied(false), 2000);
+      })
+      .catch(() => setIsCopied(false));
   };
 
   const handleExportTex = () => {

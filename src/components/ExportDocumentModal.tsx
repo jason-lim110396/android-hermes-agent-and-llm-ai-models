@@ -228,10 +228,15 @@ export default function ExportDocumentModal({
   };
 
   const handleCopy = () => {
-    navigator.clipboard.writeText(content);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-    if (navigator.vibrate) navigator.vibrate(20);
+    // Only report "Copied" when the clipboard write actually resolved.
+    navigator.clipboard
+      .writeText(content)
+      .then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+        if (navigator.vibrate) navigator.vibrate(20);
+      })
+      .catch(() => setCopied(false));
   };
 
   return (

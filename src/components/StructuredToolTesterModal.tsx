@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   Wrench,
   X,
@@ -30,6 +30,11 @@ export default function StructuredToolTesterModal({ isOpen, onClose }: Structure
   const setCurrentTab = useAppStore((s) => s.setCurrentTab);
 
   const [selectedToolIndex, setSelectedToolIndex] = useState(0);
+  // Live mirror of the selection for async handlers: state captured in a
+  // closure never changes, so comparing it to the run's start index is a
+  // no-op. A ref updated during render holds the CURRENT pill instead.
+  const selectedToolIndexRef = useRef(0);
+  selectedToolIndexRef.current = selectedToolIndex;
   const [paramInputs, setParamInputs] = useState<Record<string, string>>({
     query: 'Hermes 3 on-device WebGPU benchmark',
     code: 'Math.sqrt(144) * Math.PI',
@@ -136,9 +141,14 @@ export default function StructuredToolTesterModal({ isOpen, onClose }: Structure
   const displayCode = schemaFormat === 'json' ? schemaString : schemaFormat === 'pydantic' ? currentPydantic : currentZod;
 
   const handleCopySchema = () => {
-    navigator.clipboard.writeText(displayCode);
-    setCopiedSchema(true);
-    setTimeout(() => setCopiedSchema(false), 2000);
+    // Only report "Copied" when the clipboard write actually resolved.
+    navigator.clipboard
+      .writeText(displayCode)
+      .then(() => {
+        setCopiedSchema(true);
+        setTimeout(() => setCopiedSchema(false), 2000);
+      })
+      .catch(() => setCopiedSchema(false));
   };
 
   const handleDownloadSchema = () => {
@@ -155,6 +165,10 @@ export default function StructuredToolTesterModal({ isOpen, onClose }: Structure
   };
 
   const handleRunTool = async () => {
+    // Remember which tool this run belongs to: the selector pills stay
+    // tappable during execution, and a result from tool A must not be
+    // displayed as tool B's output after a mid-run switch.
+    const runToolIndex = selectedToolIndexRef.current;
     setIsExecuting(true);
     setExecResult(null);
     setExecDuration(null);
@@ -167,11 +181,13 @@ export default function StructuredToolTesterModal({ isOpen, onClose }: Structure
       });
 
       const res = await currentTool.execute(args);
+      if (selectedToolIndexRef.current !== runToolIndex) return;
       const elapsed = Math.round(performance.now() - startTime);
       setExecResult(res);
       setExecDuration(elapsed);
       if (navigator.vibrate) navigator.vibrate(30);
     } catch (err: any) {
+      if (selectedToolIndexRef.current !== runToolIndex) return;
       setExecResult(`Error executing tool: ${err?.message || err}`);
       setExecDuration(Math.round(performance.now() - startTime));
     } finally {

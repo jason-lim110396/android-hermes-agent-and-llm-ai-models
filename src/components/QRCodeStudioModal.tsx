@@ -123,9 +123,14 @@ export default function QRCodeStudioModal({
 
   // Copy SVG or payload to clipboard
   const handleCopyPayload = () => {
-    navigator.clipboard.writeText(payloadString);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    // Only report "Copied" when the clipboard write actually resolved.
+    navigator.clipboard
+      .writeText(payloadString)
+      .then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      })
+      .catch(() => setCopied(false));
   };
 
   // Download SVG
