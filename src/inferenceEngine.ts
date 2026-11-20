@@ -60,6 +60,13 @@ export interface InferenceBackendConfig {
   fallbacks?: FallbackEndpoint[];
   /** Called once per switch, so the UI can say which model actually answered. */
   onFallback?: (info: { from: string; to: string; reason: string }) => void;
+  /**
+   * Called when every remote endpoint failed and the engine is about to fall
+   * through to on-device inference. `reason` is the last failure; `to` names
+   * the on-device destination so the UI can explain the switch before the
+   * (potentially heavy) model download starts.
+   */
+  onRemoteChainExhausted?: (info: { reason: string; to: string }) => void;
   /** Called when the remote-request privacy guard redacts high-confidence secrets. */
   onPrivacyRedaction?: (count: number) => void;
 }
@@ -541,7 +548,17 @@ export async function callRealLLMInference({
       }
 
       if (lastFailure) {
+        const reason =
+          lastFailure instanceof RemoteEndpointError
+            ? describeLimitFailure(lastFailure.status, lastFailure.detail)
+            : (lastFailure.message || 'unavailable');
         console.warn('All configured inference endpoints failed, transitioning to on-device WebGPU WebLLM:', lastFailure);
+        // On a phone the on-device fallback can download hundreds of MB and
+        // crash a low-memory WebView. Tell the user why it is happening before
+        // the load starts, so an exhausted free-tier chain never looks silent.
+        try {
+          config?.onRemoteChainExhausted?.({ reason, to: 'on-device model' });
+        } catch (_) {}
       }
     }
 
