@@ -39,6 +39,7 @@ import {
 } from 'lucide-react';
 import { useAppStore, Attachment } from '@/appStore';
 import { AVAILABLE_MODELS } from '@/models';
+import { speakGuarded } from '@/utils/speechGuard';
 import CameraModal from './CameraModal';
 
 type VisionTaskMode = 'ocr' | 'diagram' | 'audit' | 'chat';
@@ -171,14 +172,13 @@ export default function VisionStudio() {
     if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(30);
 
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
       const utterance = new SpeechSynthesisUtterance(ocrTranslatedResult);
       const targetObj = OCR_LANGUAGES.find((l) => l.name === ocrTranslateLang);
       if (targetObj) utterance.lang = targetObj.code;
       utterance.rate = 1.0;
       utterance.onend = () => setIsSpeakingOcrTranslation(false);
       utterance.onerror = () => setIsSpeakingOcrTranslation(false);
-      window.speechSynthesis.speak(utterance);
+      speakGuarded(utterance);
     } else {
       await new Promise((r) => setTimeout(r, 1500));
       setIsSpeakingOcrTranslation(false);

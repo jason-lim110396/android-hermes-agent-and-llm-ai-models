@@ -38,6 +38,7 @@ import {
 } from 'lucide-react';
 import { useAppStore } from '@/appStore';
 import { AVAILABLE_MODELS } from '@/models';
+import { speakGuarded } from '@/utils/speechGuard';
 import { startVisibleInterval } from '@/utils/visibleInterval';
 
 interface VoicePreset {
@@ -412,7 +413,6 @@ export default function VoiceStudio() {
   const playUtterance = (text: string, voicePitch: number, voiceRate: number) => {
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       try {
-        window.speechSynthesis.cancel();
         const utterance = new SpeechSynthesisUtterance(text);
         utterance.rate = voiceRate;
         utterance.pitch = voicePitch;
@@ -426,12 +426,11 @@ export default function VoiceStudio() {
         }
 
         utterance.onstart = () => {
-          useAppStore.setState({ isSpeaking: true });
           drawClonerSpectrum();
         };
-        utterance.onend = () => useAppStore.setState({ isSpeaking: false });
-        utterance.onerror = () => useAppStore.setState({ isSpeaking: false });
-        window.speechSynthesis.speak(utterance);
+        // speakGuarded owns the isSpeaking flag (with watchdogs for missed
+        // onstart/onend) and mirrors it into the store; no manual set here.
+        speakGuarded(utterance);
       } catch (_) {
         useAppStore.setState({ isSpeaking: false });
       }

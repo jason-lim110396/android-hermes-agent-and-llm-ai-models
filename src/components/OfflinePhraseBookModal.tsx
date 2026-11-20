@@ -16,6 +16,7 @@ import {
   ChevronDown,
   Sparkles,
 } from 'lucide-react';
+import { cancelSpeech, speakGuarded } from '@/utils/speechGuard';
 
 interface Phrase {
   id: string;
@@ -122,7 +123,6 @@ export default function OfflinePhraseBookModal({ isOpen, onClose }: OfflinePhras
 
   const handleSpeak = (phrase: Phrase) => {
     if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
-    window.speechSynthesis.cancel();
     const text = phrase.translations[selectedLang.code];
     if (!text) return;
     const utter = new SpeechSynthesisUtterance(text);
@@ -133,11 +133,11 @@ export default function OfflinePhraseBookModal({ isOpen, onClose }: OfflinePhras
     utter.onerror = () => setSpeakingId(null);
     synthRef.current = utter;
     if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(20);
-    window.speechSynthesis.speak(utter);
+    speakGuarded(utter);
   };
 
   const handleStop = () => {
-    if (typeof window !== 'undefined') window.speechSynthesis?.cancel();
+    cancelSpeech();
     setSpeakingId(null);
   };
 

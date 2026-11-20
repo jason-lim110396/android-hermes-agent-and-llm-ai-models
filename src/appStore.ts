@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { cancelSpeech, hasSpeechSynthesis, onSpeakingChange, speakGuarded } from './utils/speechGuard';
 import { AVAILABLE_MODELS, ModelSpec } from './models';
 import { DeviceHardwareProfile, profileMobileHardware } from './deviceProfiler';
 import { AgentStep, AGENT_TOOLS } from './agentTools';
@@ -737,9 +738,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
   isSpeaking: false,
 
   speakText: (text: string) => {
-    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+    if (!hasSpeechSynthesis()) return;
     try {
-      window.speechSynthesis.cancel();
       // Strip think tags, markdown syntax, and data URLs before speaking
       const clean = text
         .replace(/<think>[\s\S]*?<\/think>/gi, '') // remove think blocks
@@ -763,28 +763,24 @@ export const useAppStore = create<AppStore>((set, get) => ({
         if (naturalVoice) utterance.voice = naturalVoice;
       }
 
-      utterance.onstart = () => set({ isSpeaking: true });
-      utterance.onend = () => set({ isSpeaking: false });
-      utterance.onerror = () => set({ isSpeaking: false });
-      window.speechSynthesis.speak(utterance);
+      // Guarded speech keeps isSpeaking honest on Android WebViews that drop
+      // onstart or onend (a stuck flag would block the user from speaking
+      // again). The guard mirrors its state back into the store.
+      speakGuarded(utterance);
     } catch (_) {
       set({ isSpeaking: false });
     }
   },
 
   stopSpeaking: () => {
-    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
-    }
+    cancelSpeech();
     set({ isSpeaking: false });
   },
 
   // STOP ALL RUNNING TASKS (Emergency Stop)
   stopAllRunningTasks: () => {
-    // 1. Stop Speech Synthesis
-    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      try { window.speechSynthesis.cancel(); } catch (_) {}
-    }
+    // 1. Stop Speech Synthesis (through the guard so its flag and timers reset)
+    cancelSpeech();
 
     // 2. Abort active LLM inference, API fetch, or image generation
     abortAllInference();
@@ -1514,6 +1510,14 @@ useAppStore.subscribe((state, prev) => {
     activeChatSessionId: state.activeChatSessionId,
     activeAgentSessionId: state.activeAgentSessionId,
   });
+});
+
+// Mirror the guarded speech state into the store so every call site shares one
+// honest isSpeaking flag (the guard's watchdogs clear it on a missed onend).
+onSpeakingChange((active) => {
+  if (useAppStore.getState().isSpeaking !== active) {
+    useAppStore.setState({ isSpeaking: active });
+  }
 });
 
 if (typeof window !== 'undefined') {
