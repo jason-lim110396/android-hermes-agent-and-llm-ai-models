@@ -137,51 +137,6 @@ export const AVAILABLE_MODELS: ModelSpec[] = [
   // ==========================================
   // 【3】 🎨 IMAGE GENERATION (AI Art & Diffusion)
   // ==========================================
-  {
-    id: 'flux-schnell-pro',
-    mlcModelId: 'flux-schnell-nano-q4',
-    name: 'FLUX.1 Schnell (Pro Diffusion)',
-    category: 'image',
-    family: 'image',
-    purposeTitle: '🎨 AI Drawing & Concept Art',
-    purposeIcon: '🎨',
-    tagline: '★ Photorealistic Imagery · Intricate Lighting & Compositions (820MB)',
-    sizeMB: 820,
-    parameters: '2.4B',
-    quantization: 'q4',
-    contextWindow: 512,
-    minRamGB: 3,
-    recommendedRamGB: 4,
-    isRecommended: true,
-    capabilities: ['image-gen'],
-    inputTypes: ['text', 'audio'],
-    outputTypes: ['image'],
-    description: 'Black Forest Labs premier diffusion model. Produces photorealistic imagery, intricate lighting, geometric compositions, and precise prompt adherence directly on-device.',
-    author: 'BlackForestLabs',
-    systemPromptPreset: 'You are FLUX.1 Schnell, the premier on-device photo-realistic image synthesis model.'
-  },
-  {
-    id: 'sd-turbo-mobile',
-    mlcModelId: 'sd-turbo-mobile-fp16',
-    name: 'SD-Turbo (Real-Time Diffusion)',
-    category: 'image',
-    family: 'image',
-    purposeTitle: '⚡ Fast 1-Step Image Synthesis',
-    purposeIcon: '⚡',
-    tagline: '★ Instant Single-Step Rendering · 640x640 High Fidelity (650MB)',
-    sizeMB: 650,
-    parameters: '1.2B',
-    quantization: 'fp16',
-    contextWindow: 512,
-    minRamGB: 2,
-    recommendedRamGB: 4,
-    capabilities: ['image-gen'],
-    inputTypes: ['text', 'audio'],
-    outputTypes: ['image'],
-    description: 'Stability AI single-step adversarial diffusion engine. Rapidly renders digital illustrations and creative concepts with minimal latency.',
-    author: 'StabilityAI',
-    systemPromptPreset: 'You are SD-Turbo, an on-device image synthesis engine.'
-  },
 
   // ==========================================
   // 【4】 🔊 VOICE & AUDIO (Neural TTS & Speech-to-Text)
@@ -311,5 +266,31 @@ export const AVAILABLE_MODELS: ModelSpec[] = [
     description: 'Microsoft Phi-3 Mini reasoning model for complex logic and coding on capable Android devices.',
     author: 'Microsoft',
     systemPromptPreset: 'You are Phi-3, a helpful reasoning assistant.'
+  }
+  ,
+  {
+    id: 'smollm2-1.7b-cpu',
+    ggufUrl: 'https://huggingface.co/bartowski/SmolLM2-1.7B-Instruct-GGUF/resolve/main/SmolLM2-1.7B-Instruct-Q4_K_M.gguf',
+    name: 'SmolLM2 1.7B (Fast Chat)',
+    category: 'text',
+    family: 'chat',
+    purposeTitle: 'Fast Chat',
+    purposeIcon: 'chat',
+    tagline: 'Compact 1.7B chat model 1.0GB',
+    sizeMB: 1024,
+    parameters: '1.7B',
+    quantization: 'Q4_K_M (GGUF)',
+    contextWindow: 4096,
+    minRamGB: 2,
+    recommendedRamGB: 3,
+    engine: 'cpu-wasm',
+    requiresWebGpu: false,
+    isRecommended: true,
+    capabilities: ['text','code','tools'],
+    inputTypes: ['text','file'],
+    outputTypes: ['text','code'],
+    description: 'Hugging Face SmolLM2 1.7B instruct model optimized for fast stable on-device chat.',
+    author: 'Hugging Face',
+    systemPromptPreset: 'You are SmolLM2, a helpful concise on-device assistant.'
   }
 ];
