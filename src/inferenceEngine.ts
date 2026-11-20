@@ -1,5 +1,6 @@
 import type { MLCEngine, InitProgressReport } from '@mlc-ai/web-llm';
 import { AVAILABLE_MODELS, ModelSpec } from './models';
+import { describeLimitFailure } from './utils/modelFallback';
 import {
   isCpuModelCached,
   downloadCpuModelWeights,
@@ -42,11 +43,104 @@ function clearSyntheticModelReady(modelId: string): void {
   } catch (_) {}
 }
 
+export interface FallbackEndpoint {
+  label: string;
+  endpoint: string;
+  apiKey?: string;
+  model?: string;
+}
+
 export interface InferenceBackendConfig {
   backendType: 'webllm' | 'api';
   apiEndpoint?: string;
   apiKey?: string;
   customModelName?: string;
+  /** Extra endpoints tried in order when the primary one is rate-limited or unavailable. */
+  fallbacks?: FallbackEndpoint[];
+  /** Called once per switch, so the UI can say which model actually answered. */
+  onFallback?: (info: { from: string; to: string; reason: string }) => void;
+}
+
+class RemoteEndpointError extends Error {
+  status: number;
+  detail: string;
+  constructor(message: string, status: number, detail: string) {
+    super(message);
+    this.name = 'RemoteEndpointError';
+    this.status = status;
+    this.detail = detail;
+  }
+}
+
+/** One streaming chat-completions call against a single OpenAI-compatible endpoint. */
+async function streamChatCompletion(
+  candidate: FallbackEndpoint,
+  payload: { systemPrompt: string; messages: { role: string; content: string }[]; temperature: number; maxTokens: number },
+  signal: AbortSignal,
+  onStreamChunk: (chunk: string) => void
+): Promise<string> {
+  const endpoint = candidate.endpoint.replace(/\/+$/, '');
+  const url = endpoint.endsWith('/chat/completions') ? endpoint : `${endpoint}/chat/completions`;
+
+  const res = await fetch(url, {
+    method: 'POST',
+    signal,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(candidate.apiKey ? { Authorization: `Bearer ${candidate.apiKey}` } : {}),
+    },
+    body: JSON.stringify({
+      model: candidate.model,
+      messages: [{ role: 'system', content: payload.systemPrompt }, ...payload.messages],
+      temperature: payload.temperature,
+      max_tokens: payload.maxTokens,
+      stream: true,
+    }),
+  });
+
+  if (!res.ok) {
+    // Read the body so a quota message is not mistaken for a network error.
+    let detail = '';
+    try {
+      detail = (await res.text()).slice(0, 400);
+    } catch (_) {}
+    throw new RemoteEndpointError(`${candidate.label}: HTTP ${res.status} ${res.statusText}`, res.status, detail);
+  }
+
+  if (!res.body) return '';
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let fullText = '';
+  let buffer = '';
+  while (true) {
+    if (signal.aborted) {
+      try { await reader.cancel(); } catch (_) {}
+      throw new Error('Task stopped by user');
+    }
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    // Keep the last, possibly incomplete, line for the next read.
+    buffer = lines.pop() ?? '';
+    for (const line of lines) {
+      if (signal.aborted) throw new Error('Task stopped by user');
+      const trimmed = line.trim();
+      if (!trimmed.startsWith('data:')) continue;
+      const dataStr = trimmed.slice(5).trim();
+      if (!dataStr || dataStr === '[DONE]') continue;
+      try {
+        const parsed = JSON.parse(dataStr);
+        const delta = parsed.choices?.[0]?.delta?.content || '';
+        if (delta) {
+          fullText += delta;
+          onStreamChunk(fullText);
+        }
+      } catch (_) {}
+    }
+  }
+  return fullText;
 }
 
 // Global Singleton WebLLM Engine
@@ -375,65 +469,51 @@ export async function callRealLLMInference({
 
     // Option A: If User provided an external Local Server / Ollama / OpenRouter API
     if (config?.apiEndpoint) {
-      try {
-        const endpoint = config.apiEndpoint.replace(/\/+$/, '');
-        const url = endpoint.endsWith('/chat/completions') ? endpoint : `${endpoint}/chat/completions`;
-        const modelName = config.customModelName || (modelId.includes('hermes') ? 'nousresearch/hermes-3-llama-3.2-3b' : modelId);
+      const primaryModel = config.customModelName || (modelId.includes('hermes') ? 'nousresearch/hermes-3-llama-3.2-3b' : modelId);
+      const candidates: FallbackEndpoint[] = [
+        {
+          label: config.customModelName || 'primary endpoint',
+          endpoint: config.apiEndpoint,
+          apiKey: config.apiKey,
+          model: primaryModel,
+        },
+        ...(config.fallbacks || []).filter((f) => f && f.endpoint && f.endpoint.trim()),
+      ];
 
-        const res = await fetch(url, {
-          method: 'POST',
-          signal,
-          headers: {
-            'Content-Type': 'application/json',
-            ...(config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : {}),
-          },
-          body: JSON.stringify({
-            model: modelName,
-            messages: [{ role: 'system', content: systemPrompt }, ...messages],
-            temperature,
-            max_tokens: maxTokens,
-            stream: true,
-          }),
-        });
-
-        if (!res.ok) {
-          throw new Error(`API HTTP Error: ${res.status} ${res.statusText}`);
-        }
-
-        if (res.body) {
-          const reader = res.body.getReader();
-          const decoder = new TextDecoder();
-          let fullText = '';
-          while (true) {
-            if (signal.aborted) {
-              try { await reader.cancel(); } catch (_) {}
-              throw new Error('Task stopped by user');
+      let lastFailure: RemoteEndpointError | Error | null = null;
+      for (let i = 0; i < candidates.length; i++) {
+        const candidate = candidates[i];
+        if (signal.aborted) throw new Error('Task stopped by user');
+        try {
+          const text = await streamChatCompletion(
+            candidate,
+            { systemPrompt, messages, temperature, maxTokens },
+            signal,
+            onStreamChunk
+          );
+          if (text) {
+            if (i > 0) {
+              const reason = lastFailure instanceof RemoteEndpointError
+                ? describeLimitFailure(lastFailure.status, lastFailure.detail)
+                : 'unavailable';
+              try {
+                config.onFallback?.({ from: candidates[0].label, to: candidate.label, reason });
+              } catch (_) {}
             }
-            const { done, value } = await reader.read();
-            if (done) break;
-            const chunk = decoder.decode(value, { stream: true });
-            const lines = chunk.split('\n');
-            for (const line of lines) {
-              if (signal.aborted) throw new Error('Task stopped by user');
-              if (line.startsWith('data: ')) {
-                const dataStr = line.slice(6).trim();
-                if (dataStr === '[DONE]') continue;
-                try {
-                  const parsed = JSON.parse(dataStr);
-                  const delta = parsed.choices?.[0]?.delta?.content || '';
-                  if (delta) {
-                    fullText += delta;
-                    onStreamChunk(fullText);
-                  }
-                } catch (_) {}
-              }
-            }
+            return text;
           }
-          if (fullText) return fullText;
+        } catch (err: unknown) {
+          if (signal.aborted) throw err;
+          lastFailure = err as Error;
+          // A half-streamed answer from the failed endpoint must not be mixed
+          // with the next endpoint's output.
+          try { onStreamChunk(''); } catch (_) {}
+          console.warn(`Inference endpoint "${candidate.label}" failed, trying next in chain:`, err);
         }
-      } catch (err: unknown) {
-        if (signal.aborted) throw err;
-        console.warn('API endpoint unavailable, transitioning to on-device WebGPU WebLLM:', err);
+      }
+
+      if (lastFailure) {
+        console.warn('All configured inference endpoints failed, transitioning to on-device WebGPU WebLLM:', lastFailure);
       }
     }
 
