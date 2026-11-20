@@ -541,7 +541,7 @@ export default function SettingsView() {
             >
               <span
                 className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${
-                  modelFallbackEnabled ? 'left-4.5' : 'left-0.5'
+                  modelFallbackEnabled ? 'left-[18px]' : 'left-0.5'
                 }`}
               />
             </button>
