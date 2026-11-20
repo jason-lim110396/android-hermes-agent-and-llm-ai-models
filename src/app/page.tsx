@@ -17,6 +17,7 @@ import {
   Gauge,
 } from 'lucide-react';
 import { useAppStore, NavigationTab } from '@/appStore';
+import ErrorBoundary from '@/components/ErrorBoundary';
 import ChatView from '@/components/ChatView';
 import ModelHub from '@/components/ModelHub';
 import DeviceDiagnostics from '@/components/DeviceDiagnostics';
@@ -80,7 +81,8 @@ export default function Home() {
     currentTab === 'file-search';
 
   return (
-    <main className="fixed inset-0 w-full h-full bg-zinc-950 text-white flex flex-col overflow-hidden font-sans select-none">
+    <ErrorBoundary>
+      <main className="fixed inset-0 w-full h-full bg-zinc-950 text-white flex flex-col overflow-hidden font-sans select-none">
       {/* Top Workspace & Studio Switcher Bar */}
       <header className="w-full shrink-0 z-30 bg-zinc-950/95 border-b border-zinc-800/80 px-2 py-1.5 flex items-center gap-1.5 overflow-x-auto scrollbar-none">
         {studioTabs.map((item) => {
@@ -214,6 +216,7 @@ export default function Home() {
           <span className="text-[10px]">Settings</span>
         </button>
       </nav>
-    </main>
+      </main>
+    </ErrorBoundary>
   );
 }
