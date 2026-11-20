@@ -626,6 +626,9 @@ export default function ChatView() {
   // Start WhatsApp-Style Voice Recording
   const startWhatsAppVoiceRecording = async () => {
     if (typeof window === 'undefined') return;
+    // Re-entry guard: once the recording bar is up a second tap must not
+    // start a second request while the first is live.
+    if (isRecordingVoice) return;
 
     const requestId = ++voiceRequestIdRef.current;
     const isCurrent = () => isVoiceMountedRef.current && voiceRequestIdRef.current === requestId;
@@ -649,12 +652,17 @@ export default function ChatView() {
       }
     } catch (_) {}
 
-    // 1. Initialize Real Speech-to-Text in parallel with safe error handlers
+    // 1. Initialize Real Speech-to-Text in parallel with safe error handlers.
+    // The instance is captured per-request: if a newer request supersedes this
+    // one, only this request's own recognition is stopped below, never the
+    // live session of the newer request.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let rec: any = null;
     if (SpeechRec) {
       try {
-        const rec = new SpeechRec();
+        rec = new SpeechRec();
         rec.lang = 'en-US';
         rec.continuous = true;
         rec.interimResults = true;
@@ -670,9 +678,9 @@ export default function ChatView() {
           console.warn('SpeechRecognition notice:', event?.error);
         };
         rec.start();
-        recognitionRef.current = rec;
       } catch (e) {
         console.warn('SpeechRecognition initialization notice:', e);
+        rec = null;
       }
     }
 
@@ -688,9 +696,10 @@ export default function ChatView() {
           if (isCurrent()) return; // normal path owns this stream; it handles its own release
           try { lateStream.getTracks().forEach((t) => t.stop()); } catch (_) {}
         }).catch(() => {});
-        const timeoutPromise = new Promise<null>((_, reject) =>
-          setTimeout(() => reject(new Error('Audio permission/hardware timeout')), 4000)
-        );
+        let timeoutId: ReturnType<typeof setTimeout> | undefined;
+        const timeoutPromise = new Promise<null>((_, reject) => {
+          timeoutId = setTimeout(() => reject(new Error('Audio permission/hardware timeout')), 4000);
+        });
 
         let stream: MediaStream | null;
         try {
@@ -700,6 +709,9 @@ export default function ChatView() {
           // stream granted later must be released by the .then handler above.
           voiceRequestIdRef.current++;
           throw timeoutErr;
+        } finally {
+          // The success path must not leave a stray timer armed.
+          if (timeoutId !== undefined) clearTimeout(timeoutId);
         }
         if (stream) {
           // The user may have cancelled, sent, or navigated away while the
@@ -707,9 +719,8 @@ export default function ChatView() {
           // stream: the microphone track would stay live in the background.
           if (!isCurrent()) {
             releaseStream(stream);
-            if (recognitionRef.current) {
-              try { recognitionRef.current.stop(); } catch (_) {}
-              recognitionRef.current = null;
+            if (rec) {
+              try { rec.stop(); } catch (_) {}
             }
             return;
           }
@@ -728,17 +739,33 @@ export default function ChatView() {
       }
     } catch (err: any) {
       console.warn('Microphone access prompt notice:', err?.message || err);
-      // If mic is denied or timed out, stop speech rec and inform user gracefully without freezing
+      // Whatever failed, this request owns no recorder: stop its recognition
+      // and get out. Falling through would show the recording bar with a null
+      // MediaRecorder, and the user's entire note would be silently discarded
+      // on Send.
+      if (rec) {
+        try { rec.stop(); } catch (_) {}
+      }
       if (err?.name === 'NotAllowedError' || err?.name === 'PermissionDeniedError') {
         alert('Microphone permission was denied. Please allow microphone access to record voice messages.');
-        if (recognitionRef.current) {
-          try { recognitionRef.current.stop(); } catch (_) {}
-          recognitionRef.current = null;
-        }
-        return;
+      } else {
+        alert('Microphone unavailable or timed out. Voice note was not started - please try again.');
       }
+      return;
     }
 
+    // Never enter the recording UI without a live recorder (getUserMedia
+    // missing entirely also lands here).
+    if (!hasAudioStream) {
+      if (rec) {
+        try { rec.stop(); } catch (_) {}
+      }
+      alert('Microphone unavailable. Voice note was not started.');
+      return;
+    }
+
+    // Commit: this request now owns the live recognition session.
+    recognitionRef.current = rec;
     setIsRecordingVoice(true);
 
     // Recording seconds ticker
@@ -757,9 +784,14 @@ export default function ChatView() {
       recognitionRef.current = null;
     }
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      const recorder = mediaRecorderRef.current;
       try {
-        mediaRecorderRef.current.stop();
-        mediaRecorderRef.current.stream.getTracks().forEach((t) => t.stop());
+        recorder.stop();
+      } catch (_) {}
+      // Track release must be independent: if stop() threw (e.g. the
+      // recorder already died mid-recording), the mic must still be freed.
+      try {
+        recorder.stream.getTracks().forEach((t) => t.stop());
       } catch (_) {}
       mediaRecorderRef.current = null;
     }
