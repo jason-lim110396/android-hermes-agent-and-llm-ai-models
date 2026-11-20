@@ -52,6 +52,7 @@ export async function downsampleImageFile(file: File): Promise<OptimizedImage> {
       // Fail-open contract: read failures resolve to an empty string so this
       // function never rejects outward; the caller decides what to do with it.
       reader.onerror = () => resolve('');
+      reader.readAsDataURL(file);
     });
     if (!original) return { dataUrl: '', mimeType: file.type, sizeBytes: file.size };
 
