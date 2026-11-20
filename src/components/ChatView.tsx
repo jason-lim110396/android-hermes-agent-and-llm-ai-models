@@ -60,6 +60,7 @@ import CameraModal from './CameraModal';
 import CodeSandboxModal from './CodeSandboxModal';
 import TableSpreadsheetModal from './TableSpreadsheetModal';
 import ChatHistoryModal from './ChatHistoryModal';
+import ExportDocumentModal from './ExportDocumentModal';
 
 export default function ChatView() {
   const hardwareProfile = useAppStore((s) => s.hardwareProfile);
@@ -124,6 +125,7 @@ export default function ChatView() {
   });
   const [showBookmarksDrawer, setShowBookmarksDrawer] = useState(false);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
 
   // AI Code Playground & Sandbox State
   const [isCodeSandboxOpen, setIsCodeSandboxOpen] = useState(false);
@@ -1163,11 +1165,11 @@ export default function ChatView() {
 
           {/* Export Session */}
           <button
-            onClick={handleExportSession}
-            title="Export session to Markdown file"
+            onClick={() => setIsExportModalOpen(true)}
+            title="Export session to Markdown, Text, HTML or JSON"
             className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-cyan-300 hover:border-cyan-500/40 text-[10px] font-bold transition-all cursor-pointer"
           >
-            <Download className="w-3.5 h-3.5" />
+            <Download className="w-3.5 h-3.5 text-cyan-400" />
             <span>Export</span>
           </button>
         </div>
@@ -2381,6 +2383,14 @@ export default function ChatView() {
       <ChatHistoryModal
         isOpen={showHistoryModal}
         onClose={() => setShowHistoryModal(false)}
+      />
+
+      {/* Multi-Format Offline Document Exporter Modal */}
+      <ExportDocumentModal
+        isOpen={isExportModalOpen}
+        onClose={() => setIsExportModalOpen(false)}
+        session={currentSession}
+        modelName={currentModel?.name}
       />
     </div>
   );
