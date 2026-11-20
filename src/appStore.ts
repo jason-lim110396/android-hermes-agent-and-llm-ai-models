@@ -355,6 +355,38 @@ export const useAppStore = create<AppStore>((set, get) => ({
       return;
     }
 
+    // Refuse a download that cannot fit inside this origin's storage quota.
+    // NOTE: quota is a share of total disk (Chrome/WebView report roughly 60%),
+    // NOT free disk space, so this only catches an exhausted quota. A full disk
+    // with an untouched quota still passes; true free-space needs a native bridge.
+    if (typeof navigator !== 'undefined' && navigator.storage?.estimate) {
+      try {
+        const { quota = 0, usage = 0 } = await navigator.storage.estimate();
+        const quotaRemainingMB = Math.round((quota - usage) / (1024 * 1024));
+        const requiredMB = Math.ceil(spec.sizeMB * 1.1);
+        if (quota > 0 && quotaRemainingMB < requiredMB) {
+          set((state) => ({
+            downloads: {
+              ...state.downloads,
+              [modelId]: {
+                modelId,
+                isDownloading: false,
+                progressPct: 0,
+                downloadedMB: 0,
+                totalMB: spec.sizeMB,
+                speedMBs: 0,
+                isReady: false,
+                errorMessage: `Not enough app storage available: ${quotaRemainingMB} MB left in the browser quota, about ${requiredMB} MB needed. Free up space or pick a smaller model.`,
+              },
+            },
+          }));
+          return;
+        }
+      } catch (_) {
+        // Storage estimate is best-effort; never block a download because it failed.
+      }
+    }
+
     set((state) => ({
       downloads: {
         ...state.downloads,
@@ -418,6 +450,19 @@ export const useAppStore = create<AppStore>((set, get) => ({
       const friendlyMsg = /gpu|adapter|webgpu/i.test(rawMsg)
         ? 'Your device/browser does not support WebGPU, which real on-device AI requires. Try updating Android System WebView from the Play Store, or use a WebGPU-capable device.'
         : `Failed to download ${spec.name} weights: ${rawMsg}`;
+      // Drop any partial weights from a failed or interrupted download. The web
+      // platform cannot report true free disk space, so a mid-download write
+      // failure is the one reliable signal; cleaning up here is what stops a
+      // half-written multi-GB file from lingering and blocking a later retry.
+      let cleanedPartial = false;
+      if (!/stopped by user|aborted/i.test(rawMsg)) {
+        try {
+          await deleteModelFromCache(modelId);
+          cleanedPartial = true;
+        } catch (_) {
+          // Best-effort: cache APIs can be unavailable in some WebViews.
+        }
+      }
       // Set download state to failed/not ready so the user knows real weights were not downloaded.
       // NOTE: intentionally not re-thrown — ModelHub/ChatView call this fire-and-forget, so a thrown
       // error here would become an unhandled promise rejection that never reaches the user.
@@ -432,7 +477,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
             totalMB: spec.sizeMB,
             speedMBs: 0,
             isReady: false,
-            errorMessage: friendlyMsg,
+            errorMessage: cleanedPartial ? `${friendlyMsg} Partial data was cleared; retry when you have space.` : friendlyMsg,
           },
         },
       }));
