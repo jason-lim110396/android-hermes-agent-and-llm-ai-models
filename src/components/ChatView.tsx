@@ -53,6 +53,7 @@ import {
   BookOpen,
   FileSpreadsheet,
   History,
+  Calculator,
 } from 'lucide-react';
 import { useAppStore, Attachment } from '@/appStore';
 import { AVAILABLE_MODELS, ModelSpec } from '@/models';
@@ -61,6 +62,7 @@ import CodeSandboxModal from './CodeSandboxModal';
 import TableSpreadsheetModal from './TableSpreadsheetModal';
 import ChatHistoryModal from './ChatHistoryModal';
 import ExportDocumentModal from './ExportDocumentModal';
+import MathFormulaModal from './MathFormulaModal';
 
 export default function ChatView() {
   const hardwareProfile = useAppStore((s) => s.hardwareProfile);
@@ -149,6 +151,21 @@ export default function ChatView() {
   const handleOpenTableModal = (content: string) => {
     setTableModalMarkdown(content);
     setIsTableModalOpen(true);
+    if (navigator.vibrate) navigator.vibrate(20);
+  };
+
+  // LaTeX Math Formula & Step-by-Step Solver Modal State
+  const [isMathModalOpen, setIsMathModalOpen] = useState(false);
+  const [mathModalLatex, setMathModalLatex] = useState<string>('');
+
+  const handleOpenMathModal = (content: string) => {
+    const match = content.match(/\$\$([\s\S]*?)\$\$/) || content.match(/\\\[([\s\S]*?)\\\]/);
+    if (match && match[1]) {
+      setMathModalLatex(match[1].trim());
+    } else {
+      setMathModalLatex(content.trim());
+    }
+    setIsMathModalOpen(true);
     if (navigator.vibrate) navigator.vibrate(20);
   };
 
@@ -1621,6 +1638,18 @@ export default function ChatView() {
                       </button>
                     )}
 
+                    {/* View / Solve LaTeX Math Formula */}
+                    {(msg.content.includes('$$') || msg.content.includes('\\frac') || msg.content.includes('\\sqrt') || msg.content.includes('\\sum') || msg.content.includes('\\int')) && (
+                      <button
+                        onClick={() => handleOpenMathModal(msg.content)}
+                        title="View rendered mathematical LaTeX formula and step-by-step solver"
+                        className="flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold bg-violet-950/70 hover:bg-violet-900/80 text-violet-300 hover:text-white border border-violet-700/80 transition-all cursor-pointer shadow-sm"
+                      >
+                        <Calculator className="w-3 h-3 text-violet-400" />
+                        <span>Math Solver</span>
+                      </button>
+                    )}
+
                     {/* Star / Bookmark Button */}
                     <button
                       onClick={() => toggleStarMessage(msg.id)}
@@ -1724,6 +1753,19 @@ export default function ChatView() {
               >
                 <span>Table Spreadsheet</span>
                 <FileSpreadsheet className="w-4 h-4" />
+              </button>
+
+              <button
+                onClick={() => {
+                  setIsFabOpen(false);
+                  setMathModalLatex('');
+                  setIsMathModalOpen(true);
+                  if (navigator.vibrate) navigator.vibrate(20);
+                }}
+                className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-violet-600 hover:bg-violet-500 text-white shadow-xl text-xs font-bold transition-all cursor-pointer"
+              >
+                <span>Math & LaTeX Solver</span>
+                <Calculator className="w-4 h-4" />
               </button>
             </div>
           )}
@@ -2391,6 +2433,13 @@ export default function ChatView() {
         onClose={() => setIsExportModalOpen(false)}
         session={currentSession}
         modelName={currentModel?.name}
+      />
+
+      {/* LaTeX Math Formula & Step-by-Step Solver Modal */}
+      <MathFormulaModal
+        isOpen={isMathModalOpen}
+        initialLatex={mathModalLatex}
+        onClose={() => setIsMathModalOpen(false)}
       />
     </div>
   );
