@@ -95,6 +95,7 @@ export default function ChatView() {
 
   const [inputVal, setInputVal] = useState('');
   const [isCameraOpen, setIsCameraOpen] = useState(false);
+  const [isFabOpen, setIsFabOpen] = useState(false);
   const [showModeMenu, setShowModeMenu] = useState(false);
   const [showModelPicker, setShowModelPicker] = useState(false);
   const [showSessionPicker, setShowSessionPicker] = useState(false);
@@ -1454,10 +1455,17 @@ export default function ChatView() {
                   </div>
                 ) : (
                   <div
-                    className={`p-3 rounded-2xl text-xs leading-relaxed ${
+                    onDoubleClick={() => {
+                      if (!isUser) {
+                        toggleStarMessage(msg.id);
+                        if (navigator.vibrate) navigator.vibrate([30, 30]);
+                      }
+                    }}
+                    title={!isUser ? 'Double-tap to save/bookmark this message' : undefined}
+                    className={`p-3 rounded-2xl text-xs leading-relaxed transition-all ${
                       isUser
                         ? 'bg-cyan-600 text-white rounded-br-xs shadow-md'
-                        : 'bg-zinc-900 border border-zinc-800 text-zinc-200 rounded-bl-xs shadow-md'
+                        : 'bg-zinc-900 border border-zinc-800 text-zinc-200 rounded-bl-xs shadow-md select-text'
                     }`}
                   >
                     <div className="space-y-2 font-sans text-xs">
@@ -1572,6 +1580,76 @@ export default function ChatView() {
           );
         })}
         <div ref={messagesEndRef} />
+
+        {/* Speed-Dial Floating Action Button (FAB) */}
+        <div className="absolute bottom-20 right-4 z-30 flex flex-col items-end gap-2">
+          {isFabOpen && (
+            <div className="flex flex-col items-end gap-2 animate-in slide-in-from-bottom duration-200">
+              <button
+                onClick={() => {
+                  setIsFabOpen(false);
+                  setIsCameraOpen(true);
+                  if (navigator.vibrate) navigator.vibrate(20);
+                }}
+                className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-cyan-600 hover:bg-cyan-500 text-white shadow-xl text-xs font-bold transition-all cursor-pointer"
+              >
+                <span>Camera HUD Scan</span>
+                <Camera className="w-4 h-4" />
+              </button>
+
+              <button
+                onClick={() => {
+                  setIsFabOpen(false);
+                  setCurrentTab('voice-studio');
+                  if (navigator.vibrate) navigator.vibrate(20);
+                }}
+                className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-600 hover:bg-amber-500 text-white shadow-xl text-xs font-bold transition-all cursor-pointer"
+              >
+                <span>Audio Dictation</span>
+                <Mic className="w-4 h-4" />
+              </button>
+
+              <button
+                onClick={() => {
+                  setIsFabOpen(false);
+                  setCurrentTab('workflows');
+                  if (navigator.vibrate) navigator.vibrate(20);
+                }}
+                className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-rose-600 hover:bg-rose-500 text-white shadow-xl text-xs font-bold transition-all cursor-pointer"
+              >
+                <span>Autonomous Workflows</span>
+                <Zap className="w-4 h-4" />
+              </button>
+
+              <button
+                onClick={() => {
+                  setIsFabOpen(false);
+                  setCurrentTab('benchmark');
+                  if (navigator.vibrate) navigator.vibrate(20);
+                }}
+                className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-violet-600 hover:bg-violet-500 text-white shadow-xl text-xs font-bold transition-all cursor-pointer"
+              >
+                <span>WebGPU Benchmark</span>
+                <Gauge className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+
+          <button
+            onClick={() => {
+              setIsFabOpen(!isFabOpen);
+              if (navigator.vibrate) navigator.vibrate(25);
+            }}
+            className={`w-11 h-11 rounded-full flex items-center justify-center shadow-2xl transition-all cursor-pointer ${
+              isFabOpen
+                ? 'bg-zinc-800 text-white rotate-45 border border-zinc-700'
+                : 'bg-gradient-to-tr from-cyan-500 to-blue-600 text-white shadow-cyan-500/30 hover:scale-105 active:scale-95'
+            }`}
+            title="Speed Dial Mobile Quick Actions"
+          >
+            <Plus className="w-5 h-5 transition-transform" />
+          </button>
+        </div>
       </div>
 
       {/* Pending Attachments Tray */}
