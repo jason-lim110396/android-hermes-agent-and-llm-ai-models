@@ -55,6 +55,7 @@ import {
 import { useAppStore, Attachment } from '@/appStore';
 import { AVAILABLE_MODELS, ModelSpec } from '@/models';
 import CameraModal from './CameraModal';
+import CodeSandboxModal from './CodeSandboxModal';
 
 export default function ChatView() {
   const hardwareProfile = useAppStore((s) => s.hardwareProfile);
@@ -118,6 +119,21 @@ export default function ChatView() {
     return [];
   });
   const [showBookmarksDrawer, setShowBookmarksDrawer] = useState(false);
+
+  // AI Code Playground & Sandbox State
+  const [isCodeSandboxOpen, setIsCodeSandboxOpen] = useState(false);
+  const [sandboxInitialCode, setSandboxInitialCode] = useState<string>('');
+
+  const handleRunInSandbox = (text: string) => {
+    const match = text.match(/```(?:html|javascript|js|css|svg)?\s*([\s\S]*?)```/);
+    if (match && match[1]) {
+      setSandboxInitialCode(match[1].trim());
+    } else {
+      setSandboxInitialCode(text.trim());
+    }
+    setIsCodeSandboxOpen(true);
+    if (navigator.vibrate) navigator.vibrate(20);
+  };
 
   // Smart Prompt Snippets & System Directives State
   interface PromptSnippet {
@@ -1554,6 +1570,18 @@ export default function ChatView() {
                       )}
                     </button>
 
+                    {/* Run in Code Sandbox (for code blocks) */}
+                    {(msg.content.includes('```') || msg.content.includes('<html') || msg.content.includes('<svg')) && (
+                      <button
+                        onClick={() => handleRunInSandbox(msg.content)}
+                        title="Run code in interactive mobile sandbox"
+                        className="flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold bg-cyan-950/70 hover:bg-cyan-900/80 text-cyan-300 hover:text-white border border-cyan-700/80 transition-all cursor-pointer shadow-sm"
+                      >
+                        <Play className="w-3 h-3 text-cyan-400" />
+                        <span>Run Sandbox</span>
+                      </button>
+                    )}
+
                     {/* Star / Bookmark Button */}
                     <button
                       onClick={() => toggleStarMessage(msg.id)}
@@ -1631,6 +1659,19 @@ export default function ChatView() {
               >
                 <span>WebGPU Benchmark</span>
                 <Gauge className="w-4 h-4" />
+              </button>
+
+              <button
+                onClick={() => {
+                  setIsFabOpen(false);
+                  setSandboxInitialCode('');
+                  setIsCodeSandboxOpen(true);
+                  if (navigator.vibrate) navigator.vibrate(20);
+                }}
+                className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white shadow-xl text-xs font-bold transition-all cursor-pointer"
+              >
+                <span>Code Sandbox</span>
+                <FileCode className="w-4 h-4" />
               </button>
             </div>
           )}
@@ -2271,6 +2312,13 @@ export default function ChatView() {
           </div>
         </div>
       )}
+
+      {/* AI Code Sandbox Modal */}
+      <CodeSandboxModal
+        isOpen={isCodeSandboxOpen}
+        initialCode={sandboxInitialCode}
+        onClose={() => setIsCodeSandboxOpen(false)}
+      />
     </div>
   );
 }
