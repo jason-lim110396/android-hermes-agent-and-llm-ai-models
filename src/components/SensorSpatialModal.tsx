@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   X,
   Compass,
@@ -95,15 +95,32 @@ export default function SensorSpatialModal({
   const [isCopied, setIsCopied] = useState<boolean>(false);
   const [isCalibrating, setIsCalibrating] = useState<boolean>(false);
   const [lastRefreshed, setLastRefreshed] = useState<string>('Just now');
+  // Latest orientation heading, for the one-shot GPS callback below. A ref
+  // keeps that callback fresh without putting live sensor state in the
+  // effect's dependency array.
+  const orientationAlphaRef = useRef<number>(42.5);
 
   // Real Hardware Listeners
   useEffect(() => {
     if (!isOpen) return;
 
+    // Everything this effect registers is removed in the cleanup below, so
+    // none of it may outlive the modal.
+    let cancelled = false;
+    let batt: any = null;
+    let updateBatt: (() => void) | null = null;
+    let conn: any = null;
+    let updateConn: (() => void) | null = null;
+    let ambientSensor: any = null;
+
     // 1. Battery API
     if (typeof navigator !== 'undefined' && 'getBattery' in navigator) {
-      (navigator as any).getBattery().then((batt: any) => {
-        const updateBatt = () => {
+      (navigator as any).getBattery().then((b: any) => {
+        // The promise can resolve after the modal closed; then nothing is
+        // registered and nothing leaks.
+        if (cancelled) return;
+        batt = b;
+        updateBatt = () => {
           setBatteryState({
             level: Math.round(batt.level * 100),
             charging: batt.charging,
@@ -119,9 +136,10 @@ export default function SensorSpatialModal({
 
     // 2. Network Info API
     if (typeof navigator !== 'undefined') {
-      const conn = (navigator as any).connection || (navigator as any).mozConnection || (navigator as any).webkitConnection;
-      if (conn) {
-        const updateConn = () => {
+      const c = (navigator as any).connection || (navigator as any).mozConnection || (navigator as any).webkitConnection;
+      if (c) {
+        conn = c;
+        updateConn = () => {
           setNetworkInfo({
             effectiveType: conn.effectiveType ? conn.effectiveType.toUpperCase() : '5G',
             downlink: conn.downlink || 52.4,
@@ -138,8 +156,10 @@ export default function SensorSpatialModal({
     // 3. Device Orientation & Motion
     const handleOrientation = (e: DeviceOrientationEvent) => {
       if (e.alpha !== null && e.beta !== null && e.gamma !== null) {
+        const alpha = +e.alpha.toFixed(1);
+        orientationAlphaRef.current = alpha;
         setOrientation({
-          alpha: +e.alpha.toFixed(1),
+          alpha,
           beta: +e.beta.toFixed(1),
           gamma: +e.gamma.toFixed(1),
         });
@@ -172,7 +192,7 @@ export default function SensorSpatialModal({
             longitude: +pos.coords.longitude.toFixed(4),
             altitude: +(pos.coords.altitude || 24).toFixed(1),
             accuracy: +(pos.coords.accuracy || 5).toFixed(1),
-            heading: +(pos.coords.heading || orientation.alpha).toFixed(1),
+            heading: +(pos.coords.heading || orientationAlphaRef.current).toFixed(1),
             speed: +(pos.coords.speed || 0).toFixed(1),
             locality: 'Live GPS Satellite Fix · Real-Time Coordinates',
           });
@@ -188,6 +208,7 @@ export default function SensorSpatialModal({
     if (typeof window !== 'undefined' && 'AmbientLightSensor' in window) {
       try {
         const sensor = new (window as any).AmbientLightSensor();
+        ambientSensor = sensor;
         sensor.addEventListener('reading', () => {
           const lux = sensor.illuminance;
           setAmbientLux(Math.round(lux));
@@ -203,12 +224,23 @@ export default function SensorSpatialModal({
     setLastRefreshed(new Date().toLocaleTimeString());
 
     return () => {
+      cancelled = true;
       if (typeof window !== 'undefined') {
         window.removeEventListener('deviceorientation', handleOrientation);
         window.removeEventListener('devicemotion', handleMotion);
       }
+      if (batt && updateBatt) {
+        batt.removeEventListener('levelchange', updateBatt);
+        batt.removeEventListener('chargingchange', updateBatt);
+      }
+      if (conn && updateConn) {
+        conn.removeEventListener('change', updateConn);
+      }
+      if (ambientSensor) {
+        try { ambientSensor.stop(); } catch (_) {}
+      }
     };
-  }, [isOpen, orientation.alpha]);
+  }, [isOpen]);
 
   const handleCalibrate = () => {
     setIsCalibrating(true);
