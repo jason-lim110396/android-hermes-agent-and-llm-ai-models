@@ -188,7 +188,15 @@ function resolveFallbackConfig(get: () => AppStore) {
   const onFallback = (info: { from: string; to: string; reason: string }) => {
     get().setFallbackNotice(`Model limit hit: ${info.from} ${info.reason}. Switched to ${info.to}.`);
   };
-  return { fallbacks, onFallback };
+  // Every free/remote endpoint is exhausted: say so *before* the on-device
+  // model download begins, which is the step most likely to stall or crash a
+  // low-memory Android WebView.
+  const onRemoteChainExhausted = (info: { reason: string; to: string }) => {
+    get().setFallbackNotice(
+      `All remote models unavailable (${info.reason}). Loading ${info.to} - first run may download weights.`
+    );
+  };
+  return { fallbacks, onFallback, onRemoteChainExhausted };
 }
 
 export const useAppStore = create<AppStore>((set, get) => ({
