@@ -136,9 +136,14 @@ export default function StructuredToolTesterModal({ isOpen, onClose }: Structure
   const displayCode = schemaFormat === 'json' ? schemaString : schemaFormat === 'pydantic' ? currentPydantic : currentZod;
 
   const handleCopySchema = () => {
-    navigator.clipboard.writeText(displayCode);
-    setCopiedSchema(true);
-    setTimeout(() => setCopiedSchema(false), 2000);
+    // Only report "Copied" when the clipboard write actually resolved.
+    navigator.clipboard
+      .writeText(displayCode)
+      .then(() => {
+        setCopiedSchema(true);
+        setTimeout(() => setCopiedSchema(false), 2000);
+      })
+      .catch(() => setCopiedSchema(false));
   };
 
   const handleDownloadSchema = () => {
@@ -155,6 +160,10 @@ export default function StructuredToolTesterModal({ isOpen, onClose }: Structure
   };
 
   const handleRunTool = async () => {
+    // Remember which tool this run belongs to: the selector pills stay
+    // tappable during execution, and a result from tool A must not be
+    // displayed as tool B's output after a mid-run switch.
+    const runToolIndex = selectedToolIndex;
     setIsExecuting(true);
     setExecResult(null);
     setExecDuration(null);
@@ -167,11 +176,13 @@ export default function StructuredToolTesterModal({ isOpen, onClose }: Structure
       });
 
       const res = await currentTool.execute(args);
+      if (selectedToolIndex !== runToolIndex) return;
       const elapsed = Math.round(performance.now() - startTime);
       setExecResult(res);
       setExecDuration(elapsed);
       if (navigator.vibrate) navigator.vibrate(30);
     } catch (err: any) {
+      if (selectedToolIndex !== runToolIndex) return;
       setExecResult(`Error executing tool: ${err?.message || err}`);
       setExecDuration(Math.round(performance.now() - startTime));
     } finally {

@@ -132,9 +132,12 @@ export default function TableSpreadsheetModal({
   };
 
   const toMarkdownString = () => {
-    const headerLine = `| ${headers.join(' | ')} |`;
+    // A literal | inside a cell would silently split into phantom columns in
+    // the pasted markdown table, so escape it the GFM way.
+    const esc = (c: string) => (c || '').replace(/\|/g, '\\|');
+    const headerLine = `| ${headers.map(esc).join(' | ')} |`;
     const sepLine = `| ${headers.map(() => '---').join(' | ')} |`;
-    const rowLines = rows.map((r) => `| ${r.join(' | ')} |`).join('\n');
+    const rowLines = rows.map((r) => `| ${r.map(esc).join(' | ')} |`).join('\n');
     return `${headerLine}\n${sepLine}\n${rowLines}`;
   };
 
@@ -151,9 +154,17 @@ export default function TableSpreadsheetModal({
 
   const handleCopy = (type: 'csv' | 'markdown') => {
     const text = type === 'csv' ? toCSVString() : toMarkdownString();
-    navigator.clipboard.writeText(text);
-    setCopiedType(type);
-    setTimeout(() => setCopiedType(null), 2000);
+    // Android WebView rejects the async clipboard API on focus races; only
+    // report success when the write actually resolved.
+    navigator.clipboard
+      .writeText(text)
+      .then(() => {
+        setCopiedType(type);
+        setTimeout(() => setCopiedType(null), 2000);
+      })
+      .catch(() => {
+        setCopiedType(null);
+      });
   };
 
   const handleSendToChat = () => {
@@ -163,11 +174,15 @@ export default function TableSpreadsheetModal({
     setCurrentTab('chat');
   };
 
-  const filteredRows = rows.filter((r) => {
-    if (!searchFilter.trim()) return true;
-    const q = searchFilter.toLowerCase();
-    return r.some((c) => c.toLowerCase().includes(q));
-  });
+  // Keep each visible row's REAL index: handlers operate on the unfiltered
+  // rows array, so a filtered-list index would edit or delete the wrong row.
+  const filteredRows = rows
+    .map((r, realIdx) => ({ row: r, realIdx }))
+    .filter(({ row }) => {
+      if (!searchFilter.trim()) return true;
+      const q = searchFilter.toLowerCase();
+      return row.some((c) => c.toLowerCase().includes(q));
+    });
 
   if (!isOpen) return null;
 
@@ -281,24 +296,24 @@ export default function TableSpreadsheetModal({
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-900 bg-zinc-950/80">
-                {filteredRows.map((row, rowIdx) => (
-                  <tr key={rowIdx} className="hover:bg-zinc-900/50 transition-colors">
+                {filteredRows.map(({ row, realIdx }) => (
+                  <tr key={realIdx} className="hover:bg-zinc-900/50 transition-colors">
                     <td className="px-2 py-1.5 text-[10px] text-zinc-500 font-mono text-center select-none">
-                      {rowIdx + 1}
+                      {realIdx + 1}
                     </td>
                     {row.map((cell, colIdx) => (
                       <td key={colIdx} className="px-2 py-1 border-l border-zinc-800/60">
                         <input
                           type="text"
                           value={cell}
-                          onChange={(e) => handleCellChange(rowIdx, colIdx, e.target.value)}
+                          onChange={(e) => handleCellChange(realIdx, colIdx, e.target.value)}
                           className="w-full bg-transparent text-zinc-200 text-xs outline-none focus:bg-zinc-900 px-1.5 py-0.5 rounded border border-transparent focus:border-emerald-500/50"
                         />
                       </td>
                     ))}
                     <td className="px-2 py-1 text-center">
                       <button
-                        onClick={() => handleDeleteRow(rowIdx)}
+                        onClick={() => handleDeleteRow(realIdx)}
                         title="Delete row"
                         className="p-1 text-zinc-500 hover:text-rose-400 cursor-pointer"
                       >

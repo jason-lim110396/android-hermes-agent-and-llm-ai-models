@@ -54,10 +54,12 @@ export default function SlideDeckModal({
     setCurrentSlideIndex(0);
   }, [initialContent]);
 
-  // Auto-advance slideshow timer
+  // Auto-advance slideshow timer. Guard on isOpen: this modal stays mounted
+  // when closed, so without it a started slideshow keeps a hidden interval -
+  // CPU/battery burn - advancing slides nobody can see or pause.
   useEffect(() => {
     let timer: NodeJS.Timeout;
-    if (isPlayingAuto && slides.length > 1) {
+    if (isOpen && isPlayingAuto && slides.length > 1) {
       timer = setInterval(() => {
         setCurrentSlideIndex((prev) => (prev + 1) % slides.length);
       }, 4500);
@@ -65,7 +67,7 @@ export default function SlideDeckModal({
     return () => {
       if (timer) clearInterval(timer);
     };
-  }, [isPlayingAuto, slides.length]);
+  }, [isOpen, isPlayingAuto, slides.length]);
 
   // Keyboard navigation
   useEffect(() => {
@@ -177,10 +179,15 @@ export default function SlideDeckModal({
   };
 
   const handleCopyMarkdown = () => {
-    navigator.clipboard.writeText(initialContent);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-    if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(25);
+    // Only report "Copied" when the clipboard write actually resolved.
+    navigator.clipboard
+      .writeText(initialContent)
+      .then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+        if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(25);
+      })
+      .catch(() => setCopied(false));
   };
 
   return (

@@ -299,7 +299,7 @@ export default function ClipboardVaultModal({
             />
           </div>
           <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none">
-            {(['all', 'url', 'phone', 'email', 'code', 'text'] as const).map((type) => (
+            {(['all', 'url', 'phone', 'email', 'number', 'code', 'text'] as const).map((type) => (
               <button
                 key={type}
                 onClick={() => setFilterType(type)}

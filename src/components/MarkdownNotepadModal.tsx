@@ -89,9 +89,11 @@ export default function MarkdownNotepadModal({
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) {
+        if (Array.isArray(parsed)) {
+          // An intentionally empty vault ("[]") is authoritative: seeding
+          // DEFAULT_NOTES here would resurrect every note the user deleted.
           setNotes(parsed);
-          setActiveNoteId(parsed[0].id);
+          setActiveNoteId(parsed[0]?.id || '');
           return;
         }
       }
@@ -175,9 +177,14 @@ export default function MarkdownNotepadModal({
 
   const handleCopyContent = () => {
     if (!activeNote) return;
-    navigator.clipboard.writeText(activeNote.content);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    // Only report "Copied" when the clipboard write actually resolved.
+    navigator.clipboard
+      .writeText(activeNote.content)
+      .then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      })
+      .catch(() => setCopied(false));
   };
 
   const handleExportFile = () => {

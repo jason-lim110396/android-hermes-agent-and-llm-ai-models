@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   X,
   Globe,
@@ -148,6 +148,16 @@ export default function OfflinePhraseBookModal({ isOpen, onClose }: OfflinePhras
     setSpeakingId(null);
   };
 
+  // The modal stays mounted when closed; without this the TTS engine keeps
+  // reading a long phrase aloud over the rest of the app with no visible
+  // Stop control left to silence it.
+  useEffect(() => {
+    if (isOpen) return;
+    speakRequestIdRef.current++;
+    cancelSpeech();
+    setSpeakingId(null);
+  }, [isOpen]);
+
   const handleCopy = async (phrase: Phrase) => {
     const text = `${phrase.english}\n${phrase.translations[selectedLang.code]} (${phrase.phonetics[selectedLang.code]})`;
     if (typeof navigator !== 'undefined' && navigator.clipboard) {
@@ -189,7 +199,7 @@ export default function OfflinePhraseBookModal({ isOpen, onClose }: OfflinePhras
             <div>
               <h2 className="text-sm font-bold text-zinc-100">Offline Travel Phrase Book</h2>
               <p className="text-[11px] text-zinc-400">
-                9 categories · 100% offline · Neural TTS pronunciation
+                {CATEGORIES.length} categories · 100% offline · Neural TTS pronunciation
               </p>
             </div>
           </div>

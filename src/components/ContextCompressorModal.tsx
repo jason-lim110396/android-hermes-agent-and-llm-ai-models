@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   X,
   Layers,
@@ -27,6 +27,26 @@ interface ContextCompressorModalProps {
   activeSessionId: string;
 }
 
+// Seeded only when a session has no saved facts of its own.
+const DEFAULT_FACTS = [
+  'Target Platform: Android Mobile (Capacitor + Next.js 16)',
+  'Primary Local Model: Hermes 3 (3B) / Qwen 2.5 (0.5B-3B)',
+  'Privacy Policy: Zero external cloud egress (100% on-device)',
+];
+
+function loadPinnedFacts(sessionId: string): string[] {
+  if (typeof window !== 'undefined') {
+    try {
+      const saved = localStorage.getItem(`hermes_scratchpad_facts_${sessionId}`);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return parsed.filter((f) => typeof f === 'string');
+      }
+    } catch (_) {}
+  }
+  return DEFAULT_FACTS;
+}
+
 export default function ContextCompressorModal({
   isOpen,
   onClose,
@@ -50,20 +70,18 @@ export default function ContextCompressorModal({
   const [copied, setCopied] = useState(false);
   const [newPinnedFact, setNewPinnedFact] = useState('');
 
-  // Persistent scratchpad facts (immune to eviction)
-  const [pinnedFacts, setPinnedFacts] = useState<string[]>(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        const saved = localStorage.getItem(`hermes_scratchpad_facts_${activeSessionId}`);
-        if (saved) return JSON.parse(saved);
-      } catch (_) {}
-    }
-    return [
-      'Target Platform: Android Mobile (Capacitor + Next.js 16)',
-      'Primary Local Model: Hermes 3 (3B) / Qwen 2.5 (0.5B-3B)',
-      'Privacy Policy: Zero external cloud egress (100% on-device)',
-    ];
-  });
+  // Persistent scratchpad facts (immune to eviction), scoped to the session
+  // the modal is opened on. This component stays mounted for the whole app
+  // lifetime with a changing activeSessionId prop, so a one-shot useState
+  // initializer would forever show (and, worse, save and compress) the
+  // session that happened to be active at app start into every other
+  // session's fact store and chat context. Reload per open instead.
+  const [pinnedFacts, setPinnedFacts] = useState<string[]>(DEFAULT_FACTS);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setPinnedFacts(loadPinnedFacts(activeSessionId));
+  }, [isOpen, activeSessionId]);
 
   const savePinnedFacts = (facts: string[]) => {
     setPinnedFacts(facts);
