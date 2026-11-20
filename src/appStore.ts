@@ -61,6 +61,7 @@ export interface ChatSession {
 export type NavigationTab =
   | 'chat'
   | 'workflows'
+  | 'benchmark'
   | 'models'
   | 'device'
   | 'settings'

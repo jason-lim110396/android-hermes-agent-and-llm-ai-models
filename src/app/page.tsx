@@ -14,6 +14,7 @@ import {
   Search,
   Wand2,
   Zap,
+  Gauge,
 } from 'lucide-react';
 import { useAppStore, NavigationTab } from '@/appStore';
 import ChatView from '@/components/ChatView';
@@ -25,6 +26,7 @@ import VisionStudio from '@/components/VisionStudio';
 import VoiceStudio from '@/components/VoiceStudio';
 import FileSearchStudio from '@/components/FileSearchStudio';
 import TaskWorkflowsStudio from '@/components/TaskWorkflowsStudio';
+import BenchmarkStudio from '@/components/BenchmarkStudio';
 
 export default function Home() {
   const currentTab = useAppStore((s) => s.currentTab);
@@ -63,6 +65,7 @@ export default function Home() {
   const studioTabs: { id: NavigationTab; label: string; icon: any; color: string }[] = [
     { id: 'chat', label: 'Hermes Agent', icon: Bot, color: 'from-cyan-500 to-blue-600' },
     { id: 'workflows', label: 'Workflows', icon: Zap, color: 'from-amber-500 to-rose-600' },
+    { id: 'benchmark', label: 'Benchmark', icon: Gauge, color: 'from-violet-600 to-indigo-600' },
     { id: 'image-studio', label: 'Image Studio', icon: ImageIcon, color: 'from-fuchsia-600 to-pink-600' },
     { id: 'vision-studio', label: 'Vision OCR', icon: Eye, color: 'from-emerald-600 to-teal-600' },
     { id: 'voice-studio', label: 'Neural Voice', icon: Volume2, color: 'from-amber-500 to-orange-500' },
@@ -112,6 +115,7 @@ export default function Home() {
       <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
         {currentTab === 'chat' && <ChatView />}
         {currentTab === 'workflows' && <TaskWorkflowsStudio />}
+        {currentTab === 'benchmark' && <BenchmarkStudio />}
         {currentTab === 'image-studio' && <ImageStudio />}
         {currentTab === 'vision-studio' && <VisionStudio />}
         {currentTab === 'voice-studio' && <VoiceStudio />}
