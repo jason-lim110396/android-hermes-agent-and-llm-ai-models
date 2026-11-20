@@ -13,6 +13,7 @@ import {
   releaseActiveModelEngines,
 } from './inferenceEngine';
 import { abortActiveCpuDownloads } from './wasmInferenceEngine';
+import { loadPersistedSessions, schedulePersistSessions } from './utils/sessionPersistence';
 
 // Global tracking for mock/fallback download timers
 const activeDownloadIntervals = new Map<string, NodeJS.Timeout>();
@@ -116,6 +117,7 @@ interface AppStore {
   agentSessions: Record<string, ChatSession>;
   activeChatSessionId: string;
   activeAgentSessionId: string;
+  restorePersistedSessions: () => void;
   createNewSession: (mode?: 'chat' | 'agent') => void;
   switchSession: (sessionId: string, mode?: 'chat' | 'agent') => void;
   deleteSession: (sessionId: string, mode?: 'chat' | 'agent') => void;
@@ -422,6 +424,33 @@ export const useAppStore = create<AppStore>((set, get) => ({
   },
   activeChatSessionId: 'session-chat-default',
   activeAgentSessionId: 'session-agent-default',
+
+  // Conversation Persistence Vault: bring back chats saved by a previous app
+  // run. Called once after mount (never during SSR/hydration) so the server
+  // HTML and the first client render always agree.
+  restorePersistedSessions: () => {
+    const persisted = loadPersistedSessions();
+    if (!persisted) return;
+    const hasChat = Object.keys(persisted.chatSessions).length > 0;
+    const hasAgent = Object.keys(persisted.agentSessions).length > 0;
+    if (!hasChat && !hasAgent) return;
+    set((state) => ({
+      // Merge over whatever exists (rather than wholesale replace) so sessions
+      // created between store init and this restore are never discarded.
+      chatSessions: hasChat ? { ...state.chatSessions, ...persisted.chatSessions } : state.chatSessions,
+      agentSessions: hasAgent ? { ...state.agentSessions, ...persisted.agentSessions } : state.agentSessions,
+      activeChatSessionId: hasChat
+        ? persisted.chatSessions[persisted.activeChatSessionId]
+          ? persisted.activeChatSessionId
+          : Object.keys(persisted.chatSessions)[0]
+        : state.activeChatSessionId,
+      activeAgentSessionId: hasAgent
+        ? persisted.agentSessions[persisted.activeAgentSessionId]
+          ? persisted.activeAgentSessionId
+          : Object.keys(persisted.agentSessions)[0]
+        : state.activeAgentSessionId,
+    }));
+  },
 
   createNewSession: (targetMode?: 'chat' | 'agent') => {
     const mode = targetMode || get().operatingMode;
@@ -1340,3 +1369,16 @@ function updateMsg(
     });
   }
 }
+
+// Conversation Persistence Vault (auto-save): whenever a chat or agent session
+// tree changes, schedule a debounced quota-safe snapshot to localStorage so
+// conversations survive Android killing the app in the background.
+useAppStore.subscribe((state, prev) => {
+  if (state.chatSessions === prev.chatSessions && state.agentSessions === prev.agentSessions) return;
+  schedulePersistSessions({
+    chatSessions: state.chatSessions,
+    agentSessions: state.agentSessions,
+    activeChatSessionId: state.activeChatSessionId,
+    activeAgentSessionId: state.activeAgentSessionId,
+  });
+});
