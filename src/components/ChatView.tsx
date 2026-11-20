@@ -50,6 +50,7 @@ import {
   Bell,
   Star,
   Bookmark,
+  BookOpen,
 } from 'lucide-react';
 import { useAppStore, Attachment } from '@/appStore';
 import { AVAILABLE_MODELS, ModelSpec } from '@/models';
@@ -116,6 +117,117 @@ export default function ChatView() {
     return [];
   });
   const [showBookmarksDrawer, setShowBookmarksDrawer] = useState(false);
+
+  // Smart Prompt Snippets & System Directives State
+  interface PromptSnippet {
+    id: string;
+    category: 'all' | 'reasoning' | 'code' | 'productivity' | 'mobile' | 'custom';
+    title: string;
+    directive: string;
+  }
+
+  const BUILTIN_SNIPPETS: PromptSnippet[] = [
+    {
+      id: 'deep-reasoning',
+      category: 'reasoning',
+      title: '🧠 Deep Step-by-Step Reasoner',
+      directive: 'Analyze this problem deeply using first-principles reasoning. Show comprehensive chain-of-thought analysis before providing the final concise conclusion.',
+    },
+    {
+      id: 'code-review',
+      category: 'code',
+      title: '🛡️ Rigorous Bug & Edge-Case Review',
+      directive: 'Review the following code with extreme scrutiny. Identify race conditions, memory leaks, null pointer dereferences, security vulnerabilities, and propose optimized fixes.',
+    },
+    {
+      id: 'strict-json',
+      category: 'code',
+      title: '📦 Strict JSON Data Extractor',
+      directive: 'Parse the input and output strictly as a single valid JSON object with typed fields and zero markdown conversational filler.',
+    },
+    {
+      id: 'exec-summary',
+      category: 'productivity',
+      title: '📊 Executive 3-Bullet Briefing',
+      directive: 'Distill the key points into a high-level executive summary: 1) Core Challenge, 2) Strategic Action, 3) Measurable Outcome.',
+    },
+    {
+      id: 'meeting-minutes',
+      category: 'productivity',
+      title: '📝 Meeting Action Items & Owners',
+      directive: 'Format the following notes into a structured Markdown table with columns: Action Item, Owner, Deadline, and Priority.',
+    },
+    {
+      id: 'device-audit',
+      category: 'mobile',
+      title: '📱 Mobile Diagnostics & WebGPU Check',
+      directive: 'Perform a full system audit checking battery thermal levels, WebGPU tensor engine status, and local model memory footprint.',
+    },
+    {
+      id: 'refactor-clean',
+      category: 'code',
+      title: '⚡ Code Optimizer & Modern Refactor',
+      directive: 'Refactor this code to follow modern idiomatic design patterns, eliminate redundancy, and improve computational performance.',
+    },
+    {
+      id: 'eli5-concept',
+      category: 'reasoning',
+      title: '💡 Explain Like I\'m 5 (ELI5)',
+      directive: 'Explain this complex technical concept using simple, intuitive everyday real-world analogies suitable for a beginner.',
+    },
+  ];
+
+  const [showSnippetsDrawer, setShowSnippetsDrawer] = useState(false);
+  const [snippetCategory, setSnippetCategory] = useState<string>('all');
+  const [customSnippets, setCustomSnippets] = useState<PromptSnippet[]>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        return JSON.parse(window.localStorage.getItem('hermes_custom_snippets') || '[]');
+      } catch (_) {}
+    }
+    return [];
+  });
+  const [isAddingSnippet, setIsAddingSnippet] = useState(false);
+  const [newSnippetTitle, setNewSnippetTitle] = useState('');
+  const [newSnippetDirective, setNewSnippetDirective] = useState('');
+
+  const handleSaveCustomSnippet = () => {
+    if (!newSnippetTitle.trim() || !newSnippetDirective.trim()) return;
+    const snippet: PromptSnippet = {
+      id: `custom-${Date.now()}`,
+      category: 'custom',
+      title: newSnippetTitle.trim(),
+      directive: newSnippetDirective.trim(),
+    };
+    const next = [snippet, ...customSnippets];
+    setCustomSnippets(next);
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem('hermes_custom_snippets', JSON.stringify(next));
+    }
+    setNewSnippetTitle('');
+    setNewSnippetDirective('');
+    setIsAddingSnippet(false);
+  };
+
+  const handleDeleteCustomSnippet = (id: string) => {
+    const next = customSnippets.filter((s) => s.id !== id);
+    setCustomSnippets(next);
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem('hermes_custom_snippets', JSON.stringify(next));
+    }
+  };
+
+  const handleInsertSnippet = (directive: string) => {
+    setInputVal((prev) => (prev ? `${prev}\n\n${directive}` : directive));
+    setShowSnippetsDrawer(false);
+    if (navigator.vibrate) navigator.vibrate(20);
+  };
+
+  const handleExecuteSnippetNow = (directive: string) => {
+    setShowSnippetsDrawer(false);
+    if (navigator.vibrate) navigator.vibrate(30);
+    sendMessage(directive);
+  };
 
   const toggleStarMessage = (msgId: string) => {
     setStarredMessageIds((prev) => {
@@ -1635,6 +1747,16 @@ export default function ChatView() {
                   <Paperclip className="w-4 h-4 text-cyan-400" />
                 </button>
               )}
+
+              {/* Smart Prompt Snippets & System Directives Trigger */}
+              <button
+                type="button"
+                onClick={() => setShowSnippetsDrawer(true)}
+                title="Smart Prompt Snippets & Custom Directives"
+                className="p-2 rounded-xl text-zinc-400 hover:text-amber-400 hover:bg-zinc-800 transition-all cursor-pointer"
+              >
+                <BookOpen className="w-4 h-4 text-amber-400" />
+              </button>
             </div>
 
             {/* Hidden File Inputs */}
@@ -1903,6 +2025,166 @@ export default function ChatView() {
               <span className="text-[10px] text-zinc-500 font-mono">Persisted on device</span>
               <button
                 onClick={() => setShowBookmarksDrawer(false)}
+                className="px-4 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white font-medium text-xs cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Smart Prompt Snippets & System Directives Drawer */}
+      {showSnippetsDrawer && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-end animate-in fade-in">
+          <div className="bg-zinc-900 border-l border-zinc-800 w-full max-w-md h-full flex flex-col shadow-2xl p-4">
+            {/* Header */}
+            <div className="flex items-center justify-between pb-3 border-b border-zinc-800">
+              <div className="flex items-center gap-2">
+                <BookOpen className="w-4 h-4 text-amber-400" />
+                <h3 className="text-sm font-bold text-white">Prompt Snippets & Directives</h3>
+                <span className="text-[10px] bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded-full font-mono font-bold">
+                  {BUILTIN_SNIPPETS.length + customSnippets.length}
+                </span>
+              </div>
+              <button
+                onClick={() => {
+                  setShowSnippetsDrawer(false);
+                  setIsAddingSnippet(false);
+                }}
+                className="p-1 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition-all cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Category Filter Pills */}
+            <div className="flex items-center gap-1.5 py-2.5 overflow-x-auto scrollbar-none border-b border-zinc-800/80">
+              {[
+                { id: 'all', label: 'All' },
+                { id: 'reasoning', label: '🧠 Reasoning' },
+                { id: 'code', label: '🛡️ Code' },
+                { id: 'productivity', label: '📊 Productivity' },
+                { id: 'mobile', label: '📱 Mobile' },
+                { id: 'custom', label: `⭐ Custom (${customSnippets.length})` },
+              ].map((cat) => (
+                <button
+                  key={cat.id}
+                  onClick={() => setSnippetCategory(cat.id)}
+                  className={`px-2.5 py-1 rounded-full text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${
+                    snippetCategory === cat.id
+                      ? 'bg-amber-500 text-black shadow-md shadow-amber-500/20'
+                      : 'bg-zinc-800 text-zinc-400 hover:text-zinc-200'
+                  }`}
+                >
+                  {cat.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Create Custom Snippet Expandable Form */}
+            <div className="py-2">
+              {!isAddingSnippet ? (
+                <button
+                  onClick={() => setIsAddingSnippet(true)}
+                  className="w-full py-1.5 px-3 rounded-xl border border-dashed border-zinc-700 hover:border-amber-500/60 text-xs font-semibold text-zinc-400 hover:text-amber-400 flex items-center justify-center gap-1.5 transition-all cursor-pointer bg-zinc-950/40"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Create Custom Snippet</span>
+                </button>
+              ) : (
+                <div className="p-3 bg-zinc-950 rounded-xl border border-amber-500/40 space-y-2.5 shadow-lg">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-amber-400">New Custom Prompt</span>
+                    <button
+                      onClick={() => setIsAddingSnippet(false)}
+                      className="text-zinc-500 hover:text-zinc-300 text-xs"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="Snippet Title (e.g. SQL Query Generator)"
+                    value={newSnippetTitle}
+                    onChange={(e) => setNewSnippetTitle(e.target.value)}
+                    className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                  />
+                  <textarea
+                    rows={3}
+                    placeholder="Enter system prompt directive or reusable instructions..."
+                    value={newSnippetDirective}
+                    onChange={(e) => setNewSnippetDirective(e.target.value)}
+                    className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-amber-500 resize-none"
+                  />
+                  <button
+                    onClick={handleSaveCustomSnippet}
+                    disabled={!newSnippetTitle.trim() || !newSnippetDirective.trim()}
+                    className="w-full py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-black font-bold text-xs disabled:opacity-40 transition-all cursor-pointer"
+                  >
+                    Save Snippet
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Snippets Scrollable List */}
+            <div className="flex-1 overflow-y-auto py-1 space-y-2.5">
+              {[...customSnippets, ...BUILTIN_SNIPPETS]
+                .filter((s) => snippetCategory === 'all' || s.category === snippetCategory)
+                .map((snippet) => (
+                  <div key={snippet.id} className="p-3 rounded-xl bg-zinc-950 border border-zinc-800/80 space-y-2 group hover:border-zinc-700 transition-all">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-white flex items-center gap-1.5">
+                        {snippet.title}
+                      </span>
+                      <div className="flex items-center gap-1">
+                        <span className="text-[9px] uppercase px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400 font-mono">
+                          {snippet.category}
+                        </span>
+                        {snippet.category === 'custom' && (
+                          <button
+                            onClick={() => handleDeleteCustomSnippet(snippet.id)}
+                            className="p-1 text-rose-400 hover:text-rose-300 cursor-pointer"
+                            title="Delete custom snippet"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    <p className="text-[11px] text-zinc-400 line-clamp-3 font-mono leading-relaxed bg-zinc-900/60 p-2 rounded-lg border border-zinc-800/60">
+                      {snippet.directive}
+                    </p>
+
+                    <div className="flex items-center gap-2 pt-1 border-t border-zinc-800/80">
+                      <button
+                        onClick={() => handleInsertSnippet(snippet.directive)}
+                        className="flex-1 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-semibold flex items-center justify-center gap-1 transition-all cursor-pointer"
+                      >
+                        <Plus className="w-3.5 h-3.5 text-cyan-400" />
+                        <span>Insert in Prompt</span>
+                      </button>
+                      <button
+                        onClick={() => handleExecuteSnippetNow(snippet.directive)}
+                        className="flex-1 py-1.5 rounded-lg bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-black text-xs font-bold flex items-center justify-center gap-1 transition-all cursor-pointer shadow-md shadow-amber-500/20"
+                      >
+                        <Zap className="w-3.5 h-3.5" />
+                        <span>Run Now</span>
+                      </button>
+                    </div>
+                  </div>
+                ))}
+            </div>
+
+            {/* Footer */}
+            <div className="pt-3 border-t border-zinc-800 flex items-center justify-between">
+              <span className="text-[10px] text-zinc-500 font-mono">100% On-Device Macros</span>
+              <button
+                onClick={() => {
+                  setShowSnippetsDrawer(false);
+                  setIsAddingSnippet(false);
+                }}
                 className="px-4 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white font-medium text-xs cursor-pointer"
               >
                 Close
