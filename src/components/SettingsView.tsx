@@ -38,6 +38,7 @@ import {
 } from 'lucide-react';
 import { useAppStore } from '@/appStore';
 import { FREE_FALLBACK_PRESETS, FallbackModelEntry } from '@/utils/modelFallback';
+import { sanitizeImportedBackup } from '@/utils/sessionPersistence';
 
 const PROMPT_PRESETS = [
   {
@@ -137,24 +138,49 @@ export default function SettingsView() {
   const handleImportBackup = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    // Allow re-picking the same file later.
+    e.target.value = '';
     const reader = new FileReader();
     reader.onload = (event) => {
+      let parsed: unknown;
       try {
-        const parsed = JSON.parse(event.target?.result as string);
-        if (parsed.chatSessions) {
-          useAppStore.setState({
-            chatSessions: parsed.chatSessions,
-            agentSessions: parsed.agentSessions || {},
-            systemPrompt: parsed.systemPrompt || systemPrompt,
-          });
-          setBackupStatus('Backup restored successfully!');
-          setTimeout(() => setBackupStatus(null), 3000);
-        } else {
-          setBackupStatus('Invalid backup format.');
-        }
+        parsed = JSON.parse(event.target?.result as string);
       } catch (_) {
         setBackupStatus('Failed to parse JSON backup.');
+        return;
       }
+      // Route the payload through the same session/message validators the
+      // normal restore path uses: a hand-edited or older-format backup with
+      // a missing message.content would otherwise crash the chat render and
+      // be re-persisted before the user could react.
+      const sanitized = sanitizeImportedBackup(parsed);
+      if (!sanitized) {
+        setBackupStatus('Invalid backup format: no valid chat or agent sessions found.');
+        return;
+      }
+      const hasChat = Object.keys(sanitized.chatSessions).length > 0;
+      const hasAgent = Object.keys(sanitized.agentSessions).length > 0;
+      const systemFromBackup = (parsed as Record<string, unknown>).systemPrompt;
+      useAppStore.setState((state) => ({
+        // Replace a mode's tree only when the backup has valid sessions for
+        // it: an agent-only backup must not wipe the live chat history (and
+        // vice versa). The old code always assigned parsed.agentSessions ||
+        // {} - silently destroying all agent sessions when the key was absent.
+        chatSessions: hasChat ? sanitized.chatSessions : state.chatSessions,
+        agentSessions: hasAgent ? sanitized.agentSessions : state.agentSessions,
+        activeChatSessionId: hasChat
+          ? sanitized.activeChatSessionId || Object.keys(sanitized.chatSessions)[0]
+          : state.activeChatSessionId,
+        activeAgentSessionId: hasAgent
+          ? sanitized.activeAgentSessionId || Object.keys(sanitized.agentSessions)[0]
+          : state.activeAgentSessionId,
+        systemPrompt:
+          typeof systemFromBackup === 'string' && systemFromBackup.trim()
+            ? systemFromBackup
+            : state.systemPrompt,
+      }));
+      setBackupStatus('Backup restored successfully!');
+      setTimeout(() => setBackupStatus(null), 3000);
     };
     reader.readAsText(file);
   };
