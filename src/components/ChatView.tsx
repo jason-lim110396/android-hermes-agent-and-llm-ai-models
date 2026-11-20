@@ -575,6 +575,24 @@ export default function ChatView() {
     isVoiceMountedRef.current = true;
     return () => {
       isVoiceMountedRef.current = false;
+      const store = useAppStore.getState();
+      const opMode = store.operatingMode;
+      if (opMode === 'agent') {
+        const activeId = store.activeAgentSessionId;
+        const sess = store.agentSessions[activeId];
+        if (sess && sess.messages.some((m: any) => m.isStreaming)) {
+          const msgs = sess.messages.map((m: any) => m.isStreaming ? { ...m, isStreaming: false, content: m.content ? m.content + String.fromCharCode(10,10) + '*[Stopped: view unmounted]*' : '*[Task stopped: view unmounted]*' } : m);
+          useAppStore.setState({ agentSessions: { ...store.agentSessions, [activeId]: { ...sess, messages: msgs } } });
+        }
+      } else {
+        const activeId = store.activeChatSessionId;
+        const sess = store.chatSessions[activeId];
+        if (sess && sess.messages.some((m: any) => m.isStreaming)) {
+          const msgs = sess.messages.map((m: any) => m.isStreaming ? { ...m, isStreaming: false, content: m.content ? m.content + String.fromCharCode(10,10) + '*[Stopped: view unmounted]*' : '*[Task stopped: view unmounted]*' } : m);
+          useAppStore.setState({ chatSessions: { ...store.chatSessions, [activeId]: { ...sess, messages: msgs } } });
+        }
+      }
+      if (store.isGenerating) useAppStore.setState({ isGenerating: false });
       voiceRequestIdRef.current++;
       if (voiceTimerRef.current) clearInterval(voiceTimerRef.current);
       if (recognitionRef.current) {
