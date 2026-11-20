@@ -22,6 +22,9 @@ import {
   Upload,
   FileJson,
   Radio,
+  Sun,
+  Moon,
+  Palette,
 } from 'lucide-react';
 import { useAppStore } from '@/appStore';
 
@@ -69,6 +72,23 @@ export default function SettingsView() {
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [clearCacheSuccess, setClearCacheSuccess] = useState(false);
   const [backupStatus, setBackupStatus] = useState<string | null>(null);
+
+  // Mobile Theme & Battery Saver State
+  const [activeTheme, setActiveTheme] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      return window.localStorage.getItem('hermes_app_theme') || 'cyber-dark';
+    }
+    return 'cyber-dark';
+  });
+
+  const handleSelectTheme = (themeId: string) => {
+    setActiveTheme(themeId);
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem('hermes_app_theme', themeId);
+      document.documentElement.setAttribute('data-theme', themeId);
+    }
+    if (navigator.vibrate) navigator.vibrate(25);
+  };
 
   const handleExportBackup = () => {
     const backupData = {
@@ -265,6 +285,55 @@ export default function SettingsView() {
                 Max tokens/sec, unthrottled WebGPU hardware compute for flagship smartphones.
               </p>
             </button>
+          </div>
+        </div>
+
+        {/* AMOLED & DISPLAY THEME BATTERY SAVER */}
+        <div className="bg-gradient-to-br from-zinc-900 via-zinc-900/90 to-zinc-950 border border-zinc-800 rounded-2xl p-3.5 shadow-xl">
+          <div className="flex items-center justify-between mb-1">
+            <div className="flex items-center gap-2">
+              <Palette className="w-4 h-4 text-fuchsia-400" />
+              <label className="text-xs font-bold text-white">Display Theme & OLED Battery Saver</label>
+            </div>
+            {activeTheme === 'amoled-black' && (
+              <span className="text-[10px] font-mono font-bold uppercase px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-300 border border-emerald-500/30 flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                <span>+35% OLED Battery Saver</span>
+              </span>
+            )}
+          </div>
+          <p className="text-[10px] text-zinc-400 mb-3">
+            Pure Black turns off individual OLED pixels to drastically reduce battery drain and thermal heat on smartphones during heavy LLM generation.
+          </p>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            {[
+              { id: 'cyber-dark', name: 'Cyber Dark', desc: 'Default Slate', icon: Moon, color: 'text-cyan-400' },
+              { id: 'amoled-black', name: 'AMOLED Black', desc: 'Pixels Off / Max Saver', icon: Zap, color: 'text-emerald-400' },
+              { id: 'solar-amber', name: 'Solar Amber', desc: 'High Sunlight Contrast', icon: Sun, color: 'text-amber-400' },
+              { id: 'matrix-emerald', name: 'Matrix Green', desc: 'Terminal Aesthetic', icon: Terminal, color: 'text-emerald-400' },
+            ].map((theme) => {
+              const isSelected = activeTheme === theme.id;
+              const Icon = theme.icon;
+              return (
+                <button
+                  key={theme.id}
+                  onClick={() => handleSelectTheme(theme.id)}
+                  className={`text-left p-2.5 rounded-xl border transition-all cursor-pointer ${
+                    isSelected
+                      ? 'bg-zinc-800/90 border-fuchsia-500 text-white shadow-md ring-1 ring-fuchsia-500/40'
+                      : 'bg-zinc-950/70 border-zinc-800/80 text-zinc-400 hover:border-zinc-700'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-1">
+                    <Icon className={`w-3.5 h-3.5 ${theme.color}`} />
+                    {isSelected && <span className="w-1.5 h-1.5 rounded-full bg-fuchsia-400" />}
+                  </div>
+                  <span className="text-xs font-bold block text-zinc-200">{theme.name}</span>
+                  <span className="text-[9px] text-zinc-500 block leading-tight mt-0.5">{theme.desc}</span>
+                </button>
+              );
+            })}
           </div>
         </div>
 

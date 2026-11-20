@@ -37,3 +37,13 @@ body {
 .animate-spin-slow {
   animation: spin-slow 8s linear infinite;
 }
+
+[data-theme="amoled-black"] {
+  --background: #000000 !important;
+  background-color: #000000 !important;
+}
+
+[data-theme="amoled-black"] body,
+[data-theme="amoled-black"] main {
+  background-color: #000000 !important;
+}
