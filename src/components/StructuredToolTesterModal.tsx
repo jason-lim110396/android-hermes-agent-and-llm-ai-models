@@ -13,6 +13,9 @@ import {
   CheckCircle2,
   Clock,
   Sparkles,
+  FileCode,
+  Download,
+  Plus,
 } from 'lucide-react';
 import { AGENT_TOOLS, AgentTool } from '@/agentTools';
 import { useAppStore } from '@/appStore';
@@ -40,6 +43,7 @@ export default function StructuredToolTesterModal({ isOpen, onClose }: Structure
   const [execDuration, setExecDuration] = useState<number | null>(null);
   const [isExecuting, setIsExecuting] = useState(false);
   const [copiedSchema, setCopiedSchema] = useState(false);
+  const [schemaFormat, setSchemaFormat] = useState<'json' | 'pydantic' | 'zod'>('json');
 
   if (!isOpen) return null;
 
@@ -67,6 +71,89 @@ export default function StructuredToolTesterModal({ isOpen, onClose }: Structure
 
   const schemaString = JSON.stringify(jsonSchema, null, 2);
 
+  const generatePydanticCode = (toolName: string, desc: string, params: AgentTool['parameters']) => {
+    const className = toolName.split('_').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join('') + 'Args';
+    const lines = [
+      'from pydantic import BaseModel, Field',
+      'from typing import Optional',
+      '',
+      `class ${className}(BaseModel):`,
+      `    """${desc}"""`,
+    ];
+    if (params.length === 0) {
+      lines.push('    pass');
+    } else {
+      params.forEach((p) => {
+        let pyType = 'str';
+        if (p.type === 'number') pyType = 'float';
+        if (p.type === 'boolean') pyType = 'bool';
+        if (p.type === 'object') pyType = 'dict';
+        if (p.type === 'array') pyType = 'list';
+
+        if (p.required) {
+          lines.push(`    ${p.name}: ${pyType} = Field(..., description="${p.description}")`);
+        } else {
+          lines.push(`    ${p.name}: Optional[${pyType}] = Field(default=None, description="${p.description}")`);
+        }
+      });
+    }
+    return lines.join('\n');
+  };
+
+  const generateZodCode = (toolName: string, params: AgentTool['parameters']) => {
+    const schemaVarName = toolName.split('_').map((w, i) => i === 0 ? w : w.charAt(0).toUpperCase() + w.slice(1)).join('') + 'Schema';
+    const lines = [
+      'import { z } from "zod";',
+      '',
+      `export const ${schemaVarName} = z.object({`,
+    ];
+    if (params.length === 0) {
+      lines.push('});');
+    } else {
+      params.forEach((p) => {
+        let zType = 'z.string()';
+        if (p.type === 'number') zType = 'z.number()';
+        if (p.type === 'boolean') zType = 'z.boolean()';
+        if (p.type === 'object') zType = 'z.record(z.any())';
+        if (p.type === 'array') zType = 'z.array(z.string())';
+
+        if (p.required) {
+          lines.push(`  ${p.name}: ${zType}.describe("${p.description}"),`);
+        } else {
+          lines.push(`  ${p.name}: ${zType}.optional().describe("${p.description}"),`);
+        }
+      });
+      lines.push('});');
+      lines.push('');
+      lines.push(`export type ${toolName.split('_').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join('')}Args = z.infer<typeof ${schemaVarName}>;`);
+    }
+    return lines.join('\n');
+  };
+
+  const currentPydantic = generatePydanticCode(currentTool.name, currentTool.description, currentTool.parameters);
+  const currentZod = generateZodCode(currentTool.name, currentTool.parameters);
+
+  const displayCode = schemaFormat === 'json' ? schemaString : schemaFormat === 'pydantic' ? currentPydantic : currentZod;
+
+  const handleCopySchema = () => {
+    navigator.clipboard.writeText(displayCode);
+    setCopiedSchema(true);
+    setTimeout(() => setCopiedSchema(false), 2000);
+  };
+
+  const handleDownloadSchema = () => {
+    const ext = schemaFormat === 'json' ? 'json' : schemaFormat === 'pydantic' ? 'py' : 'ts';
+    const mime = schemaFormat === 'json' ? 'application/json' : 'text/plain';
+    const blob = new Blob([displayCode], { type: mime });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${currentTool.name}_schema.${ext}`;
+    a.click();
+    URL.revokeObjectURL(url);
+    if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(40);
+  };
+
   const handleRunTool = async () => {
     setIsExecuting(true);
     setExecResult(null);
@@ -90,12 +177,6 @@ export default function StructuredToolTesterModal({ isOpen, onClose }: Structure
     } finally {
       setIsExecuting(false);
     }
-  };
-
-  const handleCopySchema = () => {
-    navigator.clipboard.writeText(schemaString);
-    setCopiedSchema(true);
-    setTimeout(() => setCopiedSchema(false), 2000);
   };
 
   const handleDispatchToHermes = () => {
@@ -245,23 +326,68 @@ export default function StructuredToolTesterModal({ isOpen, onClose }: Structure
             </div>
           )}
 
-          {/* Schema Code Inspector */}
-          <div className="space-y-1.5 pt-2 border-t border-zinc-800/80">
+          {/* On-Device Schema Code Generator Studio */}
+          <div className="space-y-2 pt-2 border-t border-zinc-800/80">
             <div className="flex items-center justify-between text-xs font-bold text-zinc-300">
               <span className="flex items-center gap-1.5 text-cyan-400">
                 <Code2 className="w-3.5 h-3.5" />
-                <span>OpenAI / Hermes Function Schema</span>
+                <span>On-Device Schema Generator Studio</span>
               </span>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleDownloadSchema}
+                  className="text-[11px] text-zinc-400 hover:text-zinc-200 flex items-center gap-1 cursor-pointer transition-colors"
+                  title="Download Schema File"
+                >
+                  <Download className="w-3 h-3 text-cyan-400" />
+                  <span>Export</span>
+                </button>
+                <button
+                  onClick={handleCopySchema}
+                  className="text-[11px] text-cyan-400 hover:text-cyan-300 flex items-center gap-1 cursor-pointer transition-colors"
+                >
+                  {copiedSchema ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                  <span>{copiedSchema ? 'Copied' : 'Copy'}</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Format Switcher Pills */}
+            <div className="flex items-center gap-1.5 bg-zinc-950 p-1 rounded-xl border border-zinc-800/80">
               <button
-                onClick={handleCopySchema}
-                className="text-[11px] text-cyan-400 hover:text-cyan-300 flex items-center gap-1 cursor-pointer"
+                onClick={() => setSchemaFormat('json')}
+                className={`flex-1 py-1 px-2 rounded-lg text-[11px] font-bold transition-all ${
+                  schemaFormat === 'json'
+                    ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-sm'
+                    : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900'
+                }`}
               >
-                {copiedSchema ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
-                <span>{copiedSchema ? 'Copied' : 'Copy Schema'}</span>
+                JSON Schema (Hermes/OAI)
+              </button>
+              <button
+                onClick={() => setSchemaFormat('pydantic')}
+                className={`flex-1 py-1 px-2 rounded-lg text-[11px] font-bold transition-all ${
+                  schemaFormat === 'pydantic'
+                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-sm'
+                    : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900'
+                }`}
+              >
+                Python Pydantic v2
+              </button>
+              <button
+                onClick={() => setSchemaFormat('zod')}
+                className={`flex-1 py-1 px-2 rounded-lg text-[11px] font-bold transition-all ${
+                  schemaFormat === 'zod'
+                    ? 'bg-blue-500/20 text-blue-300 border border-blue-500/40 shadow-sm'
+                    : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900'
+                }`}
+              >
+                TypeScript Zod
               </button>
             </div>
-            <pre className="p-3 bg-zinc-950 border border-zinc-800 rounded-xl text-[11px] text-zinc-400 font-mono overflow-x-auto leading-relaxed select-text max-h-44">
-              {schemaString}
+
+            <pre className="p-3 bg-zinc-950 border border-zinc-800 rounded-xl text-[11px] text-zinc-300 font-mono overflow-x-auto leading-relaxed select-text max-h-48 scrollbar-thin">
+              {displayCode}
             </pre>
           </div>
         </div>
