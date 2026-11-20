@@ -293,4 +293,30 @@ export const AVAILABLE_MODELS: ModelSpec[] = [
     author: 'Hugging Face',
     systemPromptPreset: 'You are SmolLM2, a helpful concise on-device assistant.'
   }
+  ,
+  {
+    id: 'flux-schnell-mobile',
+    mlcModelId: 'flux-schnell-nano-q4',
+    name: 'FLUX.1 Schnell (Mobile)',
+    category: 'image',
+    family: 'image',
+    purposeTitle: 'Image Generation',
+    purposeIcon: 'image',
+    tagline: 'Fast on-device image generation 1.2GB',
+    sizeMB: 1200,
+    parameters: '1.6B',
+    quantization: 'Q4',
+    contextWindow: 512,
+    minRamGB: 4,
+    recommendedRamGB: 6,
+    engine: 'webgpu',
+    requiresWebGpu: true,
+    isRecommended: true,
+    capabilities: ['image-gen'],
+    inputTypes: ['text'],
+    outputTypes: ['image'],
+    description: 'Compact FLUX.1 Schnell variant tuned for mobile WebGPU image generation.',
+    author: 'Black Forest Labs',
+    systemPromptPreset: 'You are an image generation model.'
+  }
 ];
