@@ -10,7 +10,7 @@
     "lint": "eslint",
     "postinstall": "node scripts/copy-wllama-assets.js",
     "sync:android": "next build && npx cap sync android",
-    "build:android": "next build && npx cap sync android && cd android && gradlew.bat assembleDebug"
+    "build:android": "next build && npx cap sync android && cd android && .\\gradlew.bat assembleDebug"
   },
   "dependencies": {
     "@capacitor/android": "6.2.2",
