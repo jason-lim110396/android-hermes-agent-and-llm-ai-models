@@ -239,59 +239,153 @@ export const AGENT_TOOLS: AgentTool[] = [
   },
   {
     name: 'find_device_files',
-    description: 'Deep scan & find local phone files, videos, camera photos, documents, code, or audio using EmbeddingGemma 2 multimodal embeddings with optional type filters (video, image, doc, code, audio, all).',
+    description: 'Search the content this app actually stored on the phone: clipboard vault entries, saved reminders, scratchpad notes, chat/agent attachments, and starred messages. There is no access to the Android filesystem (no camera roll, downloads, or media scan).',
     parameters: [
-      { name: 'query', type: 'string', description: 'Semantic description or keywords of the file or content you are looking for', required: true },
-      { name: 'file_type', type: 'string', description: 'Filter type: "video" | "image" | "document" | "code" | "audio" | "all"', required: false }
+      { name: 'query', type: 'string', description: 'Keywords to match against names, titles, and stored text', required: true },
+      { name: 'file_type', type: 'string', description: 'Optional filter: "all" (default) | "attachment" | "clipboard" | "reminder" | "note" | "starred"', required: false }
     ],
     execute: async (args) => {
-      const q = String(args.query || '').toLowerCase();
-      const typeFilter = String(args.file_type || 'all').toLowerCase();
-
-      // Sample on-device indexed files with EmbeddingGemma 2 vector similarity scores
-      const indexedFiles = [
-        { name: 'VID_20261012_FamilyVacation.mp4', path: '/storage/emulated/0/DCIM/Camera/VID_20261012_FamilyVacation.mp4', type: 'video', size: '142 MB', date: '2026-10-12', tags: ['travel', 'beach', 'family', 'vacation', 'video'] },
-        { name: 'ScreenRecording_GameDemo_2026.mp4', path: '/storage/emulated/0/Movies/Screenrecord/ScreenRecording_GameDemo_2026.mp4', type: 'video', size: '88 MB', date: '2026-10-15', tags: ['gameplay', 'screen record', 'demo', 'tutorial', 'video'] },
-        { name: 'IMG_20261018_Receipt_Store.jpg', path: '/storage/emulated/0/DCIM/Camera/IMG_20261018_Receipt_Store.jpg', type: 'image', size: '3.4 MB', date: '2026-10-18', tags: ['receipt', 'tax', 'shopping', 'invoice', 'ocr'] },
-        { name: 'Portrait_Sunset_Beach.png', path: '/storage/emulated/0/Pictures/Portraits/Portrait_Sunset_Beach.png', type: 'image', size: '5.2 MB', date: '2026-10-14', tags: ['sunset', 'beach', 'portrait', 'camera', 'photo'] },
-        { name: 'Financial_Quarterly_Report_2026.pdf', path: '/storage/emulated/0/Documents/Financial_Quarterly_Report_2026.pdf', type: 'document', size: '1.8 MB', date: '2026-10-10', tags: ['finance', 'budget', 'quarterly', 'pdf', 'report', 'earnings'] },
-        { name: 'AndroidLLM_Architecture_Design.docx', path: '/storage/emulated/0/Documents/AndroidLLM_Architecture_Design.docx', type: 'document', size: '720 KB', date: '2026-10-17', tags: ['design', 'architecture', 'hermes', 'agent', 'specs'] },
-        { name: 'VoiceMemo_Meeting_Notes.m4a', path: '/storage/emulated/0/Recordings/VoiceMemo_Meeting_Notes.m4a', type: 'audio', size: '12 MB', date: '2026-10-16', tags: ['voice memo', 'meeting', 'interview', 'speech', 'audio'] },
-        { name: 'AppStore_Engine_Logic.ts', path: '/storage/emulated/0/Projects/AndroidLLM/src/appStore.ts', type: 'code', size: '39 KB', date: '2026-10-18', tags: ['code', 'typescript', 'zustand', 'state', 'inference'] },
-      ];
-
-      // Filter by type
-      const typeFiltered = typeFilter === 'all'
-        ? indexedFiles
-        : indexedFiles.filter((f) => f.type.toLowerCase() === typeFilter || (typeFilter === 'doc' && f.type === 'document'));
-
-      // Calculate semantic match score using EmbeddingGemma 2 representation
-      const scored = typeFiltered.map((file) => {
-        let score = 0.55;
-        const textToSearch = `${file.name} ${file.path} ${file.tags.join(' ')} ${file.type}`.toLowerCase();
-        const queryTerms = q.split(/\s+/).filter(Boolean);
-        for (const term of queryTerms) {
-          if (textToSearch.includes(term)) score += 0.25;
-        }
-        if (q.includes(file.type)) score += 0.15;
-        return { file, score: Math.min(0.98, +score.toFixed(3)) };
-      }).sort((a, b) => b.score - a.score);
-
-      const topMatches = scored.slice(0, 5);
-
-      if (topMatches.length === 0) {
-        return `🔍 **EmbeddingGemma 2 Search**: No files found matching filter "${typeFilter}" and query "${args.query}".`;
+      const q = String(args.query || '').trim().toLowerCase();
+      if (!q) {
+        return 'File search refused: `query` must be a non-empty string. Nothing was searched.';
+      }
+      const kindFilter = String(args.file_type || 'all').toLowerCase();
+      // A media/document kind (video, image, document, code, audio) is not a
+      // filter the app can apply: it never had an Android filesystem index. Say
+      // so instead of pretending a filter matched something.
+      if (!['all', 'attachment', 'clipboard', 'reminder', 'note', 'starred', 'doc'].includes(kindFilter)) {
+        return `🔍 **File Search Notice**: this app has no index of phone ${kindFilter} files - it cannot read the camera roll, downloads, or Android storage. It can search app-local content only: attachments, clipboard vault entries, reminders, scratchpad notes, and starred messages. Re-run with filter "all" or one of those kinds.`;
+      }
+      if (typeof window === 'undefined') {
+        return 'File search unavailable: no browser storage in this environment. Nothing was searched.';
       }
 
-      let output = `🔍 **EmbeddingGemma 2 Multimodal Semantic Index Results** (${topMatches.length} files matching "${args.query}" [Filter: ${typeFilter}]):\n\n`;
-      topMatches.forEach(({ file, score }, idx) => {
-        const icon = file.type === 'video' ? '🎬' : file.type === 'image' ? '🖼️' : file.type === 'document' ? '📄' : file.type === 'audio' ? '🎵' : '💻';
-        output += `${idx + 1}. ${icon} **${file.name}** (${(score * 100).toFixed(0)}% Semantic Match)\n`;
-        output += `   - **Path**: \`${file.path}\`\n`;
-        output += `   - **Type**: ${file.type.toUpperCase()} • **Size**: ${file.size} • **Date**: ${file.date}\n`;
-        output += `   - **Tags**: ${file.tags.join(', ')}\n\n`;
+      const terms = q.split(/\s+/).filter(Boolean);
+      const kindAllowed = (kind: string) =>
+        kindFilter === 'all' ||
+        kind === kindFilter ||
+        (kindFilter === 'doc' && kind === 'note');
+      const scoreText = (text: string): number => {
+        const lower = text.toLowerCase();
+        let matched = 0;
+        for (const term of terms) {
+          if (lower.includes(term)) matched += 1;
+        }
+        return matched;
+      };
+
+      interface Hit {
+        kind: string;
+        title: string;
+        excerpt: string;
+        when: string;
+        score: number;
+      }
+      const hits: Hit[] = [];
+      const pushHit = (kind: string, title: string, body: string, when: string) => {
+        if (!kindAllowed(kind)) return;
+        const score = scoreText(`${title} ${body}`);
+        if (score <= 0) return;
+        const excerpt = body.length > 90 ? body.slice(0, 90) + '...' : body;
+        hits.push({ kind, title: title || '(untitled)', excerpt, when, score });
+      };
+      const parseJson = (raw: string | null): unknown => {
+        if (!raw) return null;
+        try { return JSON.parse(raw); } catch (_) { return null; }
+      };
+
+      // 1. Clipboard vault entries (ClipboardVaultModal storage shape).
+      const vaultRaw = parseJson(window.localStorage.getItem('hermes_clipboard_vault'));
+      if (Array.isArray(vaultRaw)) {
+        for (const e of vaultRaw) {
+          if (!e || typeof e !== 'object') continue;
+          const entry = e as Partial<{ text: string; createdAt: string; pinned: boolean }>;
+          if (typeof entry.text !== 'string' || !entry.text.trim()) continue;
+          pushHit('clipboard', entry.text.slice(0, 40), entry.text, entry.createdAt || '');
+        }
+      }
+
+      // 2. Saved reminders (device_reminder tool storage shape).
+      const remindersRaw = parseJson(window.localStorage.getItem('hermes_reminders'));
+      if (Array.isArray(remindersRaw)) {
+        for (const e of remindersRaw) {
+          if (!e || typeof e !== 'object') continue;
+          const r = e as Partial<{ title: string; due?: string; createdAt?: string }>;
+          if (typeof r.title !== 'string' || !r.title) continue;
+          pushHit('reminder', r.title, `${r.title} (due: ${r.due || 'unspecified'})`, r.createdAt || '');
+        }
+      }
+
+      // 3. Scratchpad notes: one localStorage key per saved note.
+      for (let i = 0; i < window.localStorage.length; i++) {
+        const key = window.localStorage.key(i);
+        if (!key || !key.startsWith('hermes-scratchpad:')) continue;
+        const value = window.localStorage.getItem(key) || '';
+        pushHit('note', key.slice('hermes-scratchpad:'.length), value, '');
+      }
+
+      // 4. Chat/agent session attachments and starred messages, read from the
+      // persisted session tree (same source the app restores on startup).
+      const persisted = parseJson(window.localStorage.getItem('hermes_sessions_v1')) as
+        | Partial<{ chatSessions: Record<string, unknown>; agentSessions: Record<string, unknown> }>
+        | null;
+      const starredRaw = parseJson(window.localStorage.getItem('hermes_starred_msgs'));
+      const starredIds = new Set<string>(
+        Array.isArray(starredRaw)
+          ? starredRaw.filter((id): id is string => typeof id === 'string')
+          : []
+      );
+
+      for (const tree of [persisted?.chatSessions, persisted?.agentSessions]) {
+        if (!tree || typeof tree !== 'object') continue;
+        for (const session of Object.values(tree)) {
+          if (!session || typeof session !== 'object') continue;
+          const sess = session as Partial<{ title: string; messages: unknown[] }>;
+          if (!Array.isArray(sess.messages)) continue;
+          for (const m of sess.messages) {
+            if (!m || typeof m !== 'object') continue;
+            const msg = m as Partial<{
+              id: string;
+              content: string;
+              timestamp: number;
+              attachments: Array<Partial<{ name: string; mimeType: string; type: string }>>;
+            }>;
+            if (starredIds.size > 0 && typeof msg.id === 'string' && starredIds.has(msg.id)) {
+              pushHit('starred', (msg.content || '').slice(0, 40) || 'starred message', msg.content || '', msg.timestamp ? new Date(msg.timestamp).toISOString() : '');
+            }
+            if (Array.isArray(msg.attachments)) {
+              for (const att of msg.attachments) {
+                if (!att || typeof att !== 'object') continue;
+                const name = typeof att.name === 'string' ? att.name : '';
+                if (!name && !att.mimeType) continue;
+                pushHit('attachment', name, `${name} (${att.mimeType || att.type || 'file'}) in "${sess.title || 'a conversation'}"`, msg.timestamp ? new Date(msg.timestamp).toISOString() : '');
+              }
+            }
+          }
+        }
+      }
+
+      if (hits.length === 0) {
+        return `🔍 **App-Local Content Search**: nothing stored in this app matches "${args.query}"${kindFilter !== 'all' ? ` under filter "${kindFilter}"` : ''}. The app cannot read Android storage (camera roll, downloads, media) - only content saved inside it: clipboard vault entries, reminders, scratchpad notes, chat attachments, and starred messages.`;
+      }
+
+      hits.sort((a, b) => b.score - a.score);
+      const top = hits.slice(0, 5);
+      const kindIcon: Record<string, string> = {
+        clipboard: '📋',
+        reminder: '⏰',
+        note: '📝',
+        attachment: '📎',
+        starred: '⭐',
+      };
+      let output = `🔍 **App-Local Content Search** (${top.length} of ${hits.length} matches for "${args.query}"${kindFilter !== 'all' ? `, filter "${kindFilter}"` : ''}):\n\n`;
+      top.forEach((hit, idx) => {
+        output += `${idx + 1}. ${kindIcon[hit.kind] || '•'} **${hit.title.replace(/[*\n]/g, ' ').trim()}** — ${hit.kind}\n`;
+        if (hit.excerpt) output += `   ${hit.excerpt.replace(/\n/g, ' ').trim()}\n`;
+        if (hit.when) output += `   saved: ${hit.when.slice(0, 10)}\n`;
+        output += '\n';
       });
-      output += `*(Indexed with 768-dim on-device EmbeddingGemma 2 vector projection)*`;
+      output += `*(Plain keyword search over content actually stored by this app. No phone filesystem index and no embedding scores exist for these results.)*`;
       return output;
     }
   },
