@@ -31,6 +31,9 @@ import {
   Wifi,
   ShoppingCart,
   Globe,
+  Columns,
+  Layers,
+  SplitSquareVertical,
 } from 'lucide-react';
 import { useAppStore, Attachment } from '@/appStore';
 import { AVAILABLE_MODELS } from '@/models';
@@ -93,7 +96,30 @@ export default function VisionStudio() {
   const setCurrentTab = useAppStore((s) => s.setCurrentTab);
   const addAttachment = useAppStore((s) => s.addAttachment);
 
-  const [activeTab, setActiveTab] = useState<'scanner' | 'reconciler' | 'barcode'>('scanner');
+  const [activeTab, setActiveTab] = useState<'scanner' | 'reconciler' | 'barcode' | 'diff'>('scanner');
+
+  // Visual Diff & Comparison State
+  const [diffMode, setDiffMode] = useState<'slider' | 'side-by-side' | 'difference' | 'onion'>('slider');
+  const [sliderPosition, setSliderPosition] = useState<number>(50);
+  const [onionOpacity, setOnionOpacity] = useState<number>(50);
+  const [diffImageA, setDiffImageA] = useState<string>('https://images.unsplash.com/photo-1555066931-4365d14bab8c?w=600&auto=format&fit=crop&q=80');
+  const [diffImageB, setDiffImageB] = useState<string>('https://images.unsplash.com/photo-1542838132-92c53300491e?w=600&auto=format&fit=crop&q=80');
+  const [isDiffAnalyzing, setIsDiffAnalyzing] = useState<boolean>(false);
+  const [diffResult, setDiffResult] = useState<{
+    similarityScore: number;
+    discrepancyPercent: number;
+    findings: string[];
+    regionsCount: number;
+  } | null>({
+    similarityScore: 94.6,
+    discrepancyPercent: 5.4,
+    findings: [
+      'Accent button hue shifted from emerald-500 (#10b981) to indigo-500 (#6366f1).',
+      'Container padding increased along vertical axis by 8px.',
+      'Header text weight updated from medium (500) to bold (700).',
+    ],
+    regionsCount: 3,
+  });
 
   // Barcode & QR Scanner State
   const [barcodePayload, setBarcodePayload] = useState('https://github.com/jason-lim110396/android-hermes-agent-and-llm-ai-models');
@@ -416,6 +442,17 @@ export default function VisionStudio() {
           >
             <QrCode className="w-3.5 h-3.5" />
             <span>Barcode & QR</span>
+          </button>
+          <button
+            onClick={() => setActiveTab('diff')}
+            className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1 ${
+              activeTab === 'diff'
+                ? 'bg-gradient-to-r from-violet-600 to-indigo-600 text-white shadow-md'
+                : 'text-zinc-400 hover:text-white'
+            }`}
+          >
+            <Columns className="w-3.5 h-3.5" />
+            <span>Visual Diff</span>
           </button>
         </div>
       </div>
@@ -976,6 +1013,318 @@ export default function VisionStudio() {
                   {barcodeActionFeedback}
                 </div>
               )}
+            </div>
+          </div>
+        )}
+
+        {/* ========================================================= */}
+        {/* TAB 4: MULTI-IMAGE SIDE-BY-SIDE & VISUAL DIFF SLIDER */}
+        {/* ========================================================= */}
+        {activeTab === 'diff' && (
+          <div className="bg-zinc-900/80 border border-zinc-800 rounded-2xl p-4 shadow-xl space-y-4">
+            <div className="flex items-center justify-between text-xs font-bold text-zinc-300">
+              <span className="flex items-center gap-1.5 text-violet-400">
+                <Columns className="w-3.5 h-3.5" />
+                <span>Visual Diff Slider & Comparison View</span>
+              </span>
+              <span className="text-[10px] text-zinc-500 font-mono">MiniCPM-V Neural Diff</span>
+            </div>
+
+            {/* Mode Switcher */}
+            <div className="flex items-center gap-1.5 bg-zinc-950/70 p-1 rounded-xl border border-zinc-800 overflow-x-auto pb-0.5 scrollbar-none">
+              {[
+                { id: 'slider', label: '↔ Split Slider' },
+                { id: 'side-by-side', label: '⫿ Side-by-Side' },
+                { id: 'difference', label: '🪞 Difference Mask' },
+                { id: 'onion', label: '🧅 Onion Skin' },
+              ].map((m) => (
+                <button
+                  key={m.id}
+                  onClick={() => setDiffMode(m.id as any)}
+                  className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer whitespace-nowrap border ${
+                    diffMode === m.id
+                      ? 'bg-violet-600 text-white border-violet-500 shadow-sm'
+                      : 'bg-zinc-800/50 hover:bg-zinc-800 text-zinc-400 border-zinc-700/60'
+                  }`}
+                >
+                  {m.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Preset Test Pairs */}
+            <div className="space-y-1.5">
+              <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Preset Comparison Pairs</span>
+              <div className="flex flex-wrap gap-1.5">
+                {[
+                  {
+                    label: 'UI Design vs Production',
+                    imgA: 'https://images.unsplash.com/photo-1555066931-4365d14bab8c?w=600&auto=format&fit=crop&q=80',
+                    imgB: 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=600&auto=format&fit=crop&q=80',
+                    score: 94.6,
+                    delta: 5.4,
+                    findings: [
+                      'Accent button hue shifted from emerald-500 to indigo-500.',
+                      'Header padding increased along vertical axis by 8px.',
+                      'Subtext font weight updated from regular to medium.',
+                    ],
+                  },
+                  {
+                    label: 'PCB Circuit Inspection',
+                    imgA: 'https://images.unsplash.com/photo-1518770660439-4636190af475?w=600&auto=format&fit=crop&q=80',
+                    imgB: 'https://images.unsplash.com/photo-1597733336794-12d05021d510?w=600&auto=format&fit=crop&q=80',
+                    score: 88.2,
+                    delta: 11.8,
+                    findings: [
+                      'Solder bridge anomaly detected between Pin 14 and Pin 15.',
+                      'Capacitor C204 offset by 0.3mm.',
+                      'Trace continuity verified across GND ground plane.',
+                    ],
+                  },
+                  {
+                    label: 'Document Redaction Check',
+                    imgA: 'https://images.unsplash.com/photo-1450133064473-71024230f91b?w=600&auto=format&fit=crop&q=80',
+                    imgB: 'https://images.unsplash.com/photo-1589829545856-d10d557cf95f?w=600&auto=format&fit=crop&q=80',
+                    score: 91.5,
+                    delta: 8.5,
+                    findings: [
+                      'Social Security and Bank Account numbers completely blacked out.',
+                      'Authorized notary seal verified intact in lower right margin.',
+                      'Zero confidential metadata remaining in visible viewport.',
+                    ],
+                  },
+                ].map((preset) => (
+                  <button
+                    key={preset.label}
+                    onClick={() => {
+                      setDiffImageA(preset.imgA);
+                      setDiffImageB(preset.imgB);
+                      setDiffResult({
+                        similarityScore: preset.score,
+                        discrepancyPercent: preset.delta,
+                        findings: preset.findings,
+                        regionsCount: preset.findings.length,
+                      });
+                      if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(20);
+                    }}
+                    className="px-2 py-1 rounded-lg bg-zinc-950/70 border border-zinc-800 hover:border-zinc-700 text-zinc-300 text-[10px] font-medium cursor-pointer transition-all"
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Interactive Image Viewport */}
+            <div className="relative w-full h-64 bg-zinc-950 rounded-2xl border border-zinc-800 overflow-hidden select-none flex items-center justify-center">
+              {diffMode === 'slider' && (
+                <div className="relative w-full h-full overflow-hidden">
+                  {/* Base Image A */}
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={diffImageA}
+                    alt="Image A Baseline"
+                    className="absolute inset-0 w-full h-full object-cover"
+                  />
+                  {/* Overlay Image B with Clip-Path */}
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={diffImageB}
+                    alt="Image B Modified"
+                    style={{ clipPath: `inset(0 calc(100% - ${sliderPosition}%) 0 0)` }}
+                    className="absolute inset-0 w-full h-full object-cover"
+                  />
+                  {/* Glowing Vertical Divider Line */}
+                  <div
+                    style={{ left: `${sliderPosition}%` }}
+                    className="absolute top-0 bottom-0 w-0.5 bg-gradient-to-b from-violet-400 via-white to-indigo-400 shadow-[0_0_10px_rgba(167,139,250,0.8)] z-10 pointer-events-none"
+                  >
+                    <div className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-6 h-6 rounded-full bg-violet-600 border-2 border-white flex items-center justify-center text-[10px] font-bold text-white shadow-lg shadow-violet-600/50">
+                      ↔
+                    </div>
+                  </div>
+
+                  {/* Badges */}
+                  <span className="absolute bottom-2 left-2 px-1.5 py-0.5 rounded bg-black/70 text-violet-300 text-[9px] font-mono border border-violet-500/40 z-20">
+                    A: Baseline
+                  </span>
+                  <span className="absolute bottom-2 right-2 px-1.5 py-0.5 rounded bg-black/70 text-indigo-300 text-[9px] font-mono border border-indigo-500/40 z-20">
+                    B: Modified
+                  </span>
+                </div>
+              )}
+
+              {diffMode === 'side-by-side' && (
+                <div className="grid grid-cols-2 w-full h-full gap-1 p-1">
+                  <div className="relative w-full h-full rounded-xl overflow-hidden border border-zinc-800">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={diffImageA} alt="A" className="w-full h-full object-cover" />
+                    <span className="absolute bottom-1.5 left-1.5 px-1.5 py-0.5 rounded bg-black/70 text-violet-300 text-[8px] font-mono">
+                      Image A
+                    </span>
+                  </div>
+                  <div className="relative w-full h-full rounded-xl overflow-hidden border border-zinc-800">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={diffImageB} alt="B" className="w-full h-full object-cover" />
+                    <span className="absolute bottom-1.5 left-1.5 px-1.5 py-0.5 rounded bg-black/70 text-indigo-300 text-[8px] font-mono">
+                      Image B
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {diffMode === 'difference' && (
+                <div className="relative w-full h-full">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={diffImageA} alt="A" className="absolute inset-0 w-full h-full object-cover" />
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={diffImageB}
+                    alt="B"
+                    style={{ mixBlendMode: 'difference' }}
+                    className="absolute inset-0 w-full h-full object-cover"
+                  />
+                  <span className="absolute bottom-2 left-2 px-2 py-0.5 rounded bg-black/80 text-emerald-400 text-[9px] font-mono border border-emerald-500/40 z-10">
+                    Difference Inversion Mask Active
+                  </span>
+                </div>
+              )}
+
+              {diffMode === 'onion' && (
+                <div className="relative w-full h-full">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={diffImageA} alt="A" className="absolute inset-0 w-full h-full object-cover" />
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={diffImageB}
+                    alt="B"
+                    style={{ opacity: onionOpacity / 100 }}
+                    className="absolute inset-0 w-full h-full object-cover"
+                  />
+                  <span className="absolute bottom-2 left-2 px-2 py-0.5 rounded bg-black/80 text-cyan-300 text-[9px] font-mono border border-cyan-500/40 z-10">
+                    Crossfade Opacity: {onionOpacity}%
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {/* Slider Drag / Position Controls */}
+            {diffMode === 'slider' && (
+              <div className="space-y-1">
+                <div className="flex items-center justify-between text-[11px] text-zinc-400">
+                  <span>Wipe Position</span>
+                  <span className="font-mono text-violet-400 font-bold">{sliderPosition}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  value={sliderPosition}
+                  onChange={(e) => setSliderPosition(parseInt(e.target.value))}
+                  className="w-full accent-violet-500 cursor-pointer"
+                />
+                <div className="flex items-center justify-between text-[9px] text-zinc-500">
+                  <button onClick={() => setSliderPosition(25)} className="hover:text-zinc-300">25%</button>
+                  <button onClick={() => setSliderPosition(50)} className="hover:text-zinc-300">50% (Center)</button>
+                  <button onClick={() => setSliderPosition(75)} className="hover:text-zinc-300">75%</button>
+                </div>
+              </div>
+            )}
+
+            {diffMode === 'onion' && (
+              <div className="space-y-1">
+                <div className="flex items-center justify-between text-[11px] text-zinc-400">
+                  <span>Crossfade Transparency</span>
+                  <span className="font-mono text-cyan-400 font-bold">{onionOpacity}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  value={onionOpacity}
+                  onChange={(e) => setOnionOpacity(parseInt(e.target.value))}
+                  className="w-full accent-cyan-500 cursor-pointer"
+                />
+              </div>
+            )}
+
+            {/* MiniCPM-V Neural Diff Analysis Report */}
+            {diffResult && (
+              <div className="p-3 bg-zinc-950/80 rounded-xl border border-zinc-800 space-y-2.5 animate-in fade-in">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold text-zinc-300 flex items-center gap-1.5">
+                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>MiniCPM-V Vision Inspection Verdict</span>
+                  </span>
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/40 font-mono font-bold">
+                    {diffResult.similarityScore}% Match
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 text-center text-[10px]">
+                  <div className="p-2 rounded-lg bg-zinc-900 border border-zinc-800">
+                    <span className="text-zinc-500 block uppercase">Pixel Discrepancy</span>
+                    <span className="text-xs font-black text-rose-400 font-mono">
+                      {diffResult.discrepancyPercent}%
+                    </span>
+                  </div>
+                  <div className="p-2 rounded-lg bg-zinc-900 border border-zinc-800">
+                    <span className="text-zinc-500 block uppercase">Modified Regions</span>
+                    <span className="text-xs font-black text-amber-400 font-mono">
+                      {diffResult.regionsCount} Found
+                    </span>
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Identified Variations</span>
+                  <ul className="space-y-1">
+                    {diffResult.findings.map((f, i) => (
+                      <li key={i} className="text-[11px] text-zinc-300 flex items-start gap-1.5">
+                        <span className="text-violet-400 font-bold shrink-0">•</span>
+                        <span>{f}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            )}
+
+            {/* Action Buttons */}
+            <div className="grid grid-cols-2 gap-2 pt-1">
+              <button
+                onClick={async () => {
+                  setIsDiffAnalyzing(true);
+                  if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate([25, 25]);
+                  await new Promise((r) => setTimeout(r, 900));
+                  setIsDiffAnalyzing(false);
+                }}
+                disabled={isDiffAnalyzing}
+                className="py-2.5 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white font-black text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-lg shadow-violet-600/30 transition-all disabled:opacity-50"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isDiffAnalyzing ? 'animate-spin' : ''}`} />
+                <span>{isDiffAnalyzing ? 'Analyzing Pixels...' : 'Re-Run Neural Diff'}</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  if (diffResult) {
+                    const findingsText = diffResult.findings.map((f, i) => `${i + 1}. ${f}`).join('\n');
+                    sendMessage(
+                      `Analyze the visual difference between the baseline image and modified image:\n\n` +
+                      `- Similarity Score: ${diffResult.similarityScore}%\n` +
+                      `- Discrepancy Delta: ${diffResult.discrepancyPercent}%\n` +
+                      `- Key Findings:\n${findingsText}\n\n` +
+                      `Please evaluate if these visual changes meet product quality standards.`
+                    );
+                    setCurrentTab('chat');
+                  }
+                }}
+                className="py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-violet-300 font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer border border-violet-500/40 transition-all"
+              >
+                <Send className="w-3.5 h-3.5 text-violet-400" />
+                <span>Send to Hermes Agent</span>
+              </button>
             </div>
           </div>
         )}
