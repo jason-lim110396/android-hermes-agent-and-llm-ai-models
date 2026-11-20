@@ -421,22 +421,65 @@ export const AGENT_TOOLS: AgentTool[] = [
         { name: 'Emergency Family Contact', relationship: 'Family / ICE', phone: '+1-555-011-0000', email: 'ice@familynet.org', notes: 'Emergency primary contact' }
       ];
 
+      // LLM-supplied contact_data may be invalid JSON or a JSON non-object
+      // (e.g. '"John"' parses fine but is a string). Only a plain object with
+      // a name field may enter the vault; coerce the rest to safe strings.
+      const coerceContactEntry = (raw: unknown): ContactRecord | null => {
+        if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return null;
+        const o = raw as Record<string, unknown>;
+        if (typeof o.name !== 'string' || !o.name.trim()) return null;
+        return {
+          name: o.name,
+          relationship: typeof o.relationship === 'string' ? o.relationship : 'Contact',
+          phone: typeof o.phone === 'string' ? o.phone : 'N/A',
+          email: typeof o.email === 'string' ? o.email : '',
+          notes: typeof o.notes === 'string' ? o.notes : undefined,
+        };
+      };
+
+      // A stored vault may be corrupt or hold junk pushed by an earlier bad
+      // `add` (any non-object entry makes every later search throw on
+      // c.name.toLowerCase). Sanitize on read so one poisoned entry cannot
+      // permanently break the tool.
+      const sanitizeContacts = (raw: unknown): ContactRecord[] => {
+        if (!Array.isArray(raw)) return [];
+        const cleaned: ContactRecord[] = [];
+        for (const entry of raw) {
+          const coerced = coerceContactEntry(entry);
+          if (coerced) cleaned.push(coerced);
+        }
+        return cleaned;
+      };
+
       try {
         let contacts: ContactRecord[] = defaultContacts;
         if (typeof window !== 'undefined') {
           const stored = window.localStorage.getItem('hermes_contacts_vault');
           if (stored) {
-            contacts = JSON.parse(stored);
+            try {
+              contacts = sanitizeContacts(JSON.parse(stored));
+            } catch (_) {
+              contacts = [];
+            }
           }
         }
 
         if (act === 'add' && args.contact_data) {
-          const newEntry: ContactRecord = JSON.parse(String(args.contact_data));
+          let parsedNew: unknown;
+          try {
+            parsedNew = JSON.parse(String(args.contact_data));
+          } catch (_) {
+            return `📇 **Contact Not Saved**: \`contact_data\` was not valid JSON. Send a JSON object such as \`{"name":"Jane Doe","phone":"+1-555-010-1234","relationship":"Colleague","email":"jane@example.com"}\` and retry.`;
+          }
+          const newEntry = coerceContactEntry(parsedNew);
+          if (!newEntry) {
+            return `📇 **Contact Not Saved**: \`contact_data\` must be a JSON object with at least a non-empty \`name\` string field. Nothing was written to the vault.`;
+          }
           contacts.push(newEntry);
           if (typeof window !== 'undefined') {
             window.localStorage.setItem('hermes_contacts_vault', JSON.stringify(contacts));
           }
-          return `📇 **Contact Stored Successfully**: "${newEntry.name || 'New Contact'}" (Phone: ${newEntry.phone || 'N/A'}) saved to phone vault.`;
+          return `📇 **Contact Stored Successfully**: "${newEntry.name}" (Phone: ${newEntry.phone || 'N/A'}) saved to phone vault.`;
         }
 
         const matches = contacts.filter((c) =>
@@ -457,7 +500,7 @@ export const AGENT_TOOLS: AgentTool[] = [
         out += `*(Tip: You can instruct Hermes to call or SMS this contact using phone_intent)*`;
         return out;
       } catch (_) {
-        return `📇 **Contacts Vault Notice**: Query processed for "${args.query}".`;
+        return `📇 **Contacts Vault Error**: The "${act}" action could not be completed (vault read failed). Nothing was changed.`;
       }
     }
   },
