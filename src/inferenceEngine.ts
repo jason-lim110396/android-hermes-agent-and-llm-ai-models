@@ -1,6 +1,7 @@
 import type { MLCEngine, InitProgressReport } from '@mlc-ai/web-llm';
 import { AVAILABLE_MODELS, ModelSpec } from './models';
 import { describeLimitFailure } from './utils/modelFallback';
+import { redactSensitiveMessages } from './utils/sensitiveContent';
 import {
   isCpuModelCached,
   downloadCpuModelWeights,
@@ -59,6 +60,8 @@ export interface InferenceBackendConfig {
   fallbacks?: FallbackEndpoint[];
   /** Called once per switch, so the UI can say which model actually answered. */
   onFallback?: (info: { from: string; to: string; reason: string }) => void;
+  /** Called when the remote-request privacy guard redacts high-confidence secrets. */
+  onPrivacyRedaction?: (count: number) => void;
 }
 
 class RemoteEndpointError extends Error {
@@ -469,6 +472,10 @@ export async function callRealLLMInference({
 
     // Option A: If User provided an external Local Server / Ollama / OpenRouter API
     if (config?.apiEndpoint) {
+      const sanitizedRemotePrompt = redactSensitiveMessages(messages, systemPrompt);
+      if (sanitizedRemotePrompt.redactionCount > 0) {
+        try { config.onPrivacyRedaction?.(sanitizedRemotePrompt.redactionCount); } catch (_) {}
+      }
       const primaryModel = config.customModelName || (modelId.includes('hermes') ? 'nousresearch/hermes-3-llama-3.2-3b' : modelId);
       const candidates: FallbackEndpoint[] = [
         {
@@ -487,7 +494,7 @@ export async function callRealLLMInference({
         try {
           const text = await streamChatCompletion(
             candidate,
-            { systemPrompt, messages, temperature, maxTokens },
+            { systemPrompt: sanitizedRemotePrompt.systemPrompt, messages: sanitizedRemotePrompt.messages, temperature, maxTokens },
             signal,
             onStreamChunk
           );
