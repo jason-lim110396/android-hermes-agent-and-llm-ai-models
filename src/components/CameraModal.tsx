@@ -35,6 +35,8 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const generationRef = useRef(0);
+  // True between the visibilitychange-hidden stop and the visible resume.
+  const wasStreamingBeforeHiddenRef = useRef(false);
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [capturedUrl, setCapturedUrl] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -81,19 +83,68 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
 
   useEffect(() => {
     if (isOpen) {
+      wasStreamingBeforeHiddenRef.current = false;
       setCapturedUrl(null);
       setErrorMsg(null);
       setTorchEnabled(false);
       startCamera(facingMode);
     } else {
       stopCamera();
+      // The modal stays mounted while closed (ChatView renders it
+      // unconditionally): clear the multi-MB capture state so it is not
+      // retained for the rest of the app session, and so a later reopen
+      // never shows a stale, unattachable filmstrip.
+      setCapturedUrl(null);
+      setBurstFrames([]);
+      setSelectedFrameIndex(0);
+      setBurstCount(0);
     }
     return () => {
       stopCamera();
     };
   }, [isOpen, facingMode]);
 
+  // The Retry path unmounts the error screen and mounts the <video> in the
+  // same render batch the stream arrives in, so the srcObject assignment in
+  // startCamera can find no element yet. Attach the live stream whenever
+  // the element (re)mounts under an existing stream.
+  useEffect(() => {
+    if (stream && videoRef.current && videoRef.current.srcObject !== stream) {
+      videoRef.current.srcObject = stream;
+    }
+  }, [stream, errorMsg, capturedUrl]);
+
+  // Android does not stop WebView camera tracks when the app is
+  // backgrounded: without this handler the camera - and the torch LED -
+  // keep running behind the green privacy dot until the OS kills the
+  // process. Stop the tracks on hidden; on return, resume the preview only
+  // if it was live when we left (a taken capture or an error screen must
+  // not be trashed by a re-acquire).
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleVisibility = () => {
+      if (document.visibilityState === 'hidden') {
+        if (streamRef.current) {
+          wasStreamingBeforeHiddenRef.current = true;
+          stopCamera();
+          setTorchEnabled(false);
+        }
+      } else if (wasStreamingBeforeHiddenRef.current) {
+        wasStreamingBeforeHiddenRef.current = false;
+        startCamera(facingMode);
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, facingMode]);
+
   const startCamera = async (facing: 'environment' | 'user') => {
+    // A successful Retry must clear the error screen that unmounted the
+    // <video> element - without this the camera streams with no preview,
+    // stuck behind the stale error, and every further Retry stacks another
+    // live stream.
+    setErrorMsg(null);
     stopCamera();
     const token = ++generationRef.current;
     try {
