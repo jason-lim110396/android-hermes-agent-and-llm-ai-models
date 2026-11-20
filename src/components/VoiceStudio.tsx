@@ -249,6 +249,13 @@ export default function VoiceStudio() {
         gain.connect(ctx.destination);
         osc.start();
         osc.stop(ctx.currentTime + 0.8);
+        // Chromium caps simultaneous AudioContexts (~6): each audition that
+        // leaves its context open kills preview audio for the rest of the
+        // session once the cap is hit, and the native output stream drains
+        // battery while it sits alive. Close it once the tone has ended.
+        osc.onended = () => {
+          try { ctx.close(); } catch (_) {}
+        };
       }
     } catch (_) {}
 
@@ -340,6 +347,16 @@ export default function VoiceStudio() {
       if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
     };
   }, [isRecording]);
+
+  // The cloner spectrum rAF loop only stops itself when speech ends; leaving
+  // the tab mid-speech left it drawing to a detached canvas. Cancel it on
+  // unmount alongside the main visualizer.
+  useEffect(() => () => {
+    if (clonerAnimFrameRef.current) {
+      cancelAnimationFrame(clonerAnimFrameRef.current);
+      clonerAnimFrameRef.current = null;
+    }
+  }, []);
 
   const drawWaveform = () => {
     const canvas = canvasRef.current;
@@ -1563,6 +1580,12 @@ export default function VoiceStudio() {
 
                       osc.start();
                       osc.stop(ctx.currentTime + 1.2);
+                      // Same AudioContext cap as the trimmer audition: close
+                      // the context when the tone ends or repeated auditions
+                      // permanently break preview audio on the device.
+                      osc.onended = () => {
+                        try { ctx.close(); } catch (_) {}
+                      };
                     }
                   } catch (_) {}
 
