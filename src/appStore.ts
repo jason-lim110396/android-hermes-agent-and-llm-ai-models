@@ -428,8 +428,10 @@ export const useAppStore = create<AppStore>((set, get) => ({
     const hasAgent = Object.keys(persisted.agentSessions).length > 0;
     if (!hasChat && !hasAgent) return;
     set((state) => ({
-      chatSessions: hasChat ? persisted.chatSessions : state.chatSessions,
-      agentSessions: hasAgent ? persisted.agentSessions : state.agentSessions,
+      // Merge over whatever exists (rather than wholesale replace) so sessions
+      // created between store init and this restore are never discarded.
+      chatSessions: hasChat ? { ...state.chatSessions, ...persisted.chatSessions } : state.chatSessions,
+      agentSessions: hasAgent ? { ...state.agentSessions, ...persisted.agentSessions } : state.agentSessions,
       activeChatSessionId: hasChat
         ? persisted.chatSessions[persisted.activeChatSessionId]
           ? persisted.activeChatSessionId
