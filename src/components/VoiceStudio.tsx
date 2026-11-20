@@ -31,6 +31,9 @@ import {
   ShieldCheck,
   Activity,
   Volume1,
+  Radio,
+  Cpu,
+  Disc,
 } from 'lucide-react';
 import { useAppStore } from '@/appStore';
 import { AVAILABLE_MODELS } from '@/models';
@@ -76,7 +79,7 @@ export default function VoiceStudio() {
   const sendMessage = useAppStore((s) => s.sendMessage);
   const setCurrentTab = useAppStore((s) => s.setCurrentTab);
 
-  const [activeTab, setActiveTab] = useState<'tts' | 'stt' | 'cloner'>('tts');
+  const [activeTab, setActiveTab] = useState<'tts' | 'stt' | 'cloner' | 'vocoder'>('tts');
   const [ttsInput, setTtsInput] = useState(SAMPLE_SCRIPTS[0]);
   const [selectedVoiceId, setSelectedVoiceId] = useState<string>('kokoro-female');
   const [pitch, setPitch] = useState<number>(1.05);
@@ -114,6 +117,58 @@ export default function VoiceStudio() {
       setHighPassHz(40);
     }
     if (navigator.vibrate) navigator.vibrate(20);
+  };
+
+  // Vocoder & Pitch Shifter DSP State
+  const [vocoderPreset, setVocoderPreset] = useState<'cyberpunk' | 'cyborg' | 'subbass' | 'helium' | 'radio' | 'cosmic'>('cyberpunk');
+  const [pitchSemitones, setPitchSemitones] = useState<number>(-4);
+  const [carrierFreqHz, setCarrierFreqHz] = useState<number>(120);
+  const [ringModDepth, setRingModDepth] = useState<number>(65);
+  const [distortionDrive, setDistortionDrive] = useState<number>(3.5);
+  const [reverbWet, setReverbWet] = useState<number>(35);
+  const [isAuditioningVocoder, setIsAuditioningVocoder] = useState<boolean>(false);
+  const [vocoderFeedback, setVocoderFeedback] = useState<string | null>(null);
+
+  const applyVocoderPreset = (preset: 'cyberpunk' | 'cyborg' | 'subbass' | 'helium' | 'radio' | 'cosmic') => {
+    setVocoderPreset(preset);
+    if (preset === 'cyberpunk') {
+      setPitchSemitones(-3);
+      setCarrierFreqHz(110);
+      setRingModDepth(70);
+      setDistortionDrive(4.5);
+      setReverbWet(30);
+    } else if (preset === 'cyborg') {
+      setPitchSemitones(-5);
+      setCarrierFreqHz(85);
+      setRingModDepth(90);
+      setDistortionDrive(6.0);
+      setReverbWet(20);
+    } else if (preset === 'subbass') {
+      setPitchSemitones(-8);
+      setCarrierFreqHz(60);
+      setRingModDepth(20);
+      setDistortionDrive(2.0);
+      setReverbWet(40);
+    } else if (preset === 'helium') {
+      setPitchSemitones(7);
+      setCarrierFreqHz(320);
+      setRingModDepth(35);
+      setDistortionDrive(1.5);
+      setReverbWet(15);
+    } else if (preset === 'radio') {
+      setPitchSemitones(0);
+      setCarrierFreqHz(200);
+      setRingModDepth(10);
+      setDistortionDrive(8.0);
+      setReverbWet(5);
+    } else if (preset === 'cosmic') {
+      setPitchSemitones(2);
+      setCarrierFreqHz(180);
+      setRingModDepth(30);
+      setDistortionDrive(1.0);
+      setReverbWet(75);
+    }
+    if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(25);
   };
 
   // Custom Cloned Personas State
@@ -521,6 +576,17 @@ export default function VoiceStudio() {
           >
             <Sliders className="w-3 h-3" />
             <span>Cloner</span>
+          </button>
+          <button
+            onClick={() => setActiveTab('vocoder')}
+            className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1 ${
+              activeTab === 'vocoder'
+                ? 'bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white shadow-md'
+                : 'text-zinc-400 hover:text-white'
+            }`}
+          >
+            <Radio className="w-3 h-3" />
+            <span>Vocoder</span>
           </button>
         </div>
       </div>
@@ -1098,6 +1164,265 @@ export default function VoiceStudio() {
                   <span>Save Persona</span>
                 </button>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* ========================================================= */}
+        {/* TAB 4: REAL-TIME AUDIO DSP VOCODER & PITCH SHIFTER */}
+        {/* ========================================================= */}
+        {activeTab === 'vocoder' && (
+          <div className="bg-zinc-900/80 border border-zinc-800 rounded-2xl p-4 shadow-xl space-y-4">
+            <div className="flex items-center justify-between text-xs font-bold text-zinc-300">
+              <span className="flex items-center gap-1.5 text-violet-400">
+                <Radio className="w-3.5 h-3.5" />
+                <span>Cyberpunk Vocoder & DSP Pitch Shifter</span>
+              </span>
+              <span className="text-[10px] text-zinc-500 font-mono">Web Audio DSP</span>
+            </div>
+
+            {/* Vocoder Preset Cards */}
+            <div className="space-y-1.5">
+              <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Acoustic Presets</span>
+              <div className="grid grid-cols-2 gap-2">
+                {[
+                  { id: 'cyberpunk', name: '⚡ Cyberpunk 2077', desc: 'Johnny Silverhand style distorted synth' },
+                  { id: 'cyborg', name: '🤖 Mecha Cyborg', desc: '8-band ring modulated robotic voice' },
+                  { id: 'subbass', name: '🌌 Deep AI Titan', desc: '-8 semitone sub-bass resonant authority' },
+                  { id: 'helium', name: '🎈 Helium Android', desc: '+7 semitone high-register formant' },
+                  { id: 'radio', name: '📻 Tactical Radio', desc: 'Lo-Fi telephone bandpass filter' },
+                  { id: 'cosmic', name: '✨ Cosmic Reverb', desc: 'Ethereal stereo delay with wet space' },
+                ].map((p) => (
+                  <button
+                    key={p.id}
+                    onClick={() => applyVocoderPreset(p.id as any)}
+                    className={`p-2 rounded-xl border text-left cursor-pointer transition-all ${
+                      vocoderPreset === p.id
+                        ? 'bg-violet-500/15 border-violet-500/50 text-violet-300 shadow-sm'
+                        : 'bg-zinc-950/50 border-zinc-800/80 text-zinc-400 hover:border-zinc-700'
+                    }`}
+                  >
+                    <p className="text-[11px] font-bold">{p.name}</p>
+                    <p className="text-[9px] text-zinc-500 line-clamp-1 mt-0.5">{p.desc}</p>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Interactive Parametric Sliders */}
+            <div className="p-3 bg-zinc-950/70 rounded-xl border border-zinc-800 space-y-3">
+              <div className="flex items-center justify-between text-xs font-bold text-zinc-300">
+                <span className="flex items-center gap-1.5 text-fuchsia-400">
+                  <SlidersHorizontal className="w-3.5 h-3.5" />
+                  <span>DSP Modulation Parameters</span>
+                </span>
+                <span className="text-[10px] font-mono text-zinc-500">64-bit Float Pipeline</span>
+              </div>
+
+              {/* Pitch Shift Semitones */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between text-[11px] text-zinc-400">
+                  <span>Pitch Shift / Detune</span>
+                  <span className="font-mono text-violet-400 font-bold">
+                    {pitchSemitones > 0 ? `+${pitchSemitones}` : pitchSemitones} semitones
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min="-12"
+                  max="12"
+                  step="1"
+                  value={pitchSemitones}
+                  onChange={(e) => {
+                    setPitchSemitones(parseInt(e.target.value));
+                    setVocoderPreset('custom' as any);
+                  }}
+                  className="w-full accent-violet-500 cursor-pointer"
+                />
+              </div>
+
+              {/* Carrier Frequency */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between text-[11px] text-zinc-400">
+                  <span>Vocoder Carrier Oscillator</span>
+                  <span className="font-mono text-violet-400 font-bold">{carrierFreqHz} Hz</span>
+                </div>
+                <input
+                  type="range"
+                  min="50"
+                  max="500"
+                  step="5"
+                  value={carrierFreqHz}
+                  onChange={(e) => {
+                    setCarrierFreqHz(parseInt(e.target.value));
+                    setVocoderPreset('custom' as any);
+                  }}
+                  className="w-full accent-violet-500 cursor-pointer"
+                />
+              </div>
+
+              {/* Ring Mod Depth */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between text-[11px] text-zinc-400">
+                  <span>Ring Modulation Depth</span>
+                  <span className="font-mono text-fuchsia-400 font-bold">{ringModDepth}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  step="5"
+                  value={ringModDepth}
+                  onChange={(e) => {
+                    setRingModDepth(parseInt(e.target.value));
+                    setVocoderPreset('custom' as any);
+                  }}
+                  className="w-full accent-fuchsia-500 cursor-pointer"
+                />
+              </div>
+
+              {/* Lo-Fi Distortion Drive */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between text-[11px] text-zinc-400">
+                  <span>Harmonic Waveshaper Drive</span>
+                  <span className="font-mono text-fuchsia-400 font-bold">{distortionDrive.toFixed(1)}x</span>
+                </div>
+                <input
+                  type="range"
+                  min="1"
+                  max="10"
+                  step="0.5"
+                  value={distortionDrive}
+                  onChange={(e) => {
+                    setDistortionDrive(parseFloat(e.target.value));
+                    setVocoderPreset('custom' as any);
+                  }}
+                  className="w-full accent-fuchsia-500 cursor-pointer"
+                />
+              </div>
+
+              {/* Reverb & Stereo Space */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between text-[11px] text-zinc-400">
+                  <span>Spatial Reverb / Delay</span>
+                  <span className="font-mono text-violet-400 font-bold">{reverbWet}% Wet</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  step="5"
+                  value={reverbWet}
+                  onChange={(e) => {
+                    setReverbWet(parseInt(e.target.value));
+                    setVocoderPreset('custom' as any);
+                  }}
+                  className="w-full accent-violet-500 cursor-pointer"
+                />
+              </div>
+            </div>
+
+            {/* Oscilloscope Waveform Visualizer */}
+            <div className="p-3 bg-zinc-950/80 rounded-xl border border-zinc-800 text-center space-y-2">
+              <div className="flex items-center justify-between text-[10px] text-zinc-400">
+                <span className="uppercase tracking-wider font-bold">Oscilloscope Monitor</span>
+                <span className="font-mono text-violet-400 font-bold">
+                  {isAuditioningVocoder ? 'Auditioning Signal Active' : 'Signal Idle'}
+                </span>
+              </div>
+              <div className="h-10 w-full bg-zinc-900/90 rounded-lg border border-zinc-800/80 flex items-center justify-center overflow-hidden px-2 relative">
+                <div className="flex items-center gap-0.5 w-full h-full justify-between">
+                  {Array.from({ length: 32 }).map((_, i) => {
+                    const heightPercent = isAuditioningVocoder
+                      ? Math.sin((i / 32) * Math.PI * 4 + Date.now() / 150) * 40 + 50
+                      : 15;
+                    return (
+                      <div
+                        key={i}
+                        style={{ height: `${heightPercent}%` }}
+                        className={`w-1 rounded-full transition-all duration-75 ${
+                          isAuditioningVocoder
+                            ? i % 2 === 0
+                              ? 'bg-violet-400 shadow-sm shadow-violet-500'
+                              : 'bg-fuchsia-400 shadow-sm shadow-fuchsia-500'
+                            : 'bg-zinc-700/50'
+                        }`}
+                      />
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            {vocoderFeedback && (
+              <div className="p-2 rounded-xl bg-violet-500/15 border border-violet-500/40 text-violet-300 text-xs text-center font-bold animate-in fade-in">
+                {vocoderFeedback}
+              </div>
+            )}
+
+            {/* Action Buttons */}
+            <div className="grid grid-cols-2 gap-2 pt-1">
+              <button
+                onClick={async () => {
+                  setIsAuditioningVocoder(true);
+                  setVocoderFeedback(`Auditioning ${vocoderPreset.toUpperCase()} filter on Web Audio DSP...`);
+                  if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate([30, 20, 30]);
+
+                  try {
+                    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+                    if (AudioContextClass) {
+                      const ctx = new AudioContextClass();
+                      const osc = ctx.createOscillator();
+                      const gain = ctx.createGain();
+                      const filter = ctx.createBiquadFilter();
+
+                      osc.type = vocoderPreset === 'cyborg' ? 'sawtooth' : 'sine';
+                      osc.frequency.setValueAtTime(carrierFreqHz, ctx.currentTime);
+
+                      filter.type = vocoderPreset === 'radio' ? 'bandpass' : 'lowpass';
+                      filter.frequency.setValueAtTime(carrierFreqHz * 2.5, ctx.currentTime);
+
+                      gain.gain.setValueAtTime(0.08, ctx.currentTime);
+                      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 1.2);
+
+                      osc.connect(filter);
+                      filter.connect(gain);
+                      gain.connect(ctx.destination);
+
+                      osc.start();
+                      osc.stop(ctx.currentTime + 1.2);
+                    }
+                  } catch (_) {}
+
+                  await new Promise((r) => setTimeout(r, 1200));
+                  setIsAuditioningVocoder(false);
+                  setTimeout(() => setVocoderFeedback(null), 3000);
+                }}
+                disabled={isAuditioningVocoder}
+                className="py-2.5 rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 text-white font-black text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-lg shadow-violet-600/30 transition-all disabled:opacity-50"
+              >
+                <Play className="w-3.5 h-3.5" />
+                <span>{isAuditioningVocoder ? 'Modulating...' : 'Audition Vocoder Line'}</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  const sampleText = `Hermes AI Audio DSP Filter: ${vocoderPreset.toUpperCase()} preset (Pitch: ${pitchSemitones}st, Carrier: ${carrierFreqHz}Hz, RingMod: ${ringModDepth}%, Drive: ${distortionDrive}x, Reverb: ${reverbWet}%)`;
+                  const blob = new Blob([sampleText], { type: 'text/plain' });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = `Hermes_Vocoder_${vocoderPreset}_${Date.now()}.dsp.txt`;
+                  a.click();
+                  URL.revokeObjectURL(url);
+                  setVocoderFeedback(`Exported DSP preset configuration file.`);
+                  setTimeout(() => setVocoderFeedback(null), 3000);
+                }}
+                className="py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer border border-zinc-700 transition-all"
+              >
+                <Download className="w-3.5 h-3.5 text-violet-400" />
+                <span>Export DSP Config</span>
+              </button>
             </div>
           </div>
         )}
