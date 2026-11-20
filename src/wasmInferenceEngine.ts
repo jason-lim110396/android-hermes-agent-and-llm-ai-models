@@ -316,7 +316,7 @@ function searchKnowledgeBaseResponse(userQuery: string, modelName: string): stri
     body +=
       `\n### ${idx + 1}. ${doc.title}\n` +
       `- **Category**: ${doc.category} • **Updated**: ${doc.lastUpdated}\n` +
-      `- **Matched keywords**: ${matched.map((t) => `\`${t}\``).join(', ')} (${score} term hits)\n` +
+      `- **Matched keywords**: ${matched.map((t) => `\`${t}\``).join(', ')} (match score ${score})\n` +
       `> ${trimmed}\n`;
   });
 
