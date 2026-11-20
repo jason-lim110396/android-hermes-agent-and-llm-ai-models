@@ -192,6 +192,28 @@ export default function SettingsView() {
     }
   };
 
+  const [providerModels, setProviderModels] = useState<string[]>([]);
+  const [isFetchingModels, setIsFetchingModels] = useState(false);
+  const handleFetchProviderModels = async () => {
+    if (!apiEndpoint.trim()) return;
+    setIsFetchingModels(true);
+    setProviderModels([]);
+    try {
+      const targetUrl = apiEndpoint.trim().replace(/\/+$/, '') + '/models';
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (apiKey.trim()) headers['Authorization'] = 'Bearer ' + apiKey.trim();
+      const res = await fetch(targetUrl, { headers });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const data = await res.json();
+      const ids = (data?.data || data?.models || []).map((m: any) => m?.id || m?.name).filter(Boolean);
+      setProviderModels(ids);
+    } catch (err: any) {
+      setProviderModels([]);
+    } finally {
+      setIsFetchingModels(false);
+    }
+  };
+
   const handleClearCache = () => {
     if (typeof window !== 'undefined') {
       try {
