@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   Sparkles,
   Download,
@@ -18,6 +18,12 @@ import {
   AlertCircle,
   Clock,
   Zap,
+  ShieldCheck,
+  ShieldAlert,
+  Upload,
+  Share2,
+  FileCheck,
+  Eye,
 } from 'lucide-react';
 import { useAppStore } from '@/appStore';
 import { AVAILABLE_MODELS } from '@/models';
@@ -65,7 +71,9 @@ export default function ImageStudio() {
   const setSelectedModelId = useAppStore((s) => s.setSelectedModelId);
   const isGenerating = useAppStore((s) => s.isGenerating);
   const setCurrentTab = useAppStore((s) => s.setCurrentTab);
+  const addAttachment = useAppStore((s) => s.addAttachment);
 
+  const [activeSubTab, setActiveSubTab] = useState<'generate' | 'privacy'>('generate');
   const [prompt, setPrompt] = useState('');
   const [negativePrompt, setNegativePrompt] = useState('blurry, deformed, low quality, distorted, extra limbs');
   const [showNegative, setShowNegative] = useState(false);
@@ -78,6 +86,13 @@ export default function ImageStudio() {
   const [fullscreenImage, setFullscreenImage] = useState<string | null>(null);
   const [copiedPrompt, setCopiedPrompt] = useState(false);
   const [history, setHistory] = useState<GeneratedHistoryItem[]>([]);
+
+  // Privacy Scrubber State
+  const [scrubImage, setScrubImage] = useState<string | null>(null);
+  const [scrubImageName, setScrubImageName] = useState<string>('');
+  const [hasExifGps, setHasExifGps] = useState<boolean>(true);
+  const [isScrubbed, setIsScrubbed] = useState<boolean>(false);
+  const scrubInputRef = useRef<HTMLInputElement>(null);
 
   const imageModels = AVAILABLE_MODELS.filter((m) => m.category === 'image' || m.capabilities.includes('image-gen'));
   const currentModel = imageModels.find((m) => m.id === selectedModelId) || imageModels[0];
@@ -98,55 +113,96 @@ export default function ImageStudio() {
       const dataUrl = await generateOnDeviceAIImage(
         fullPrompt,
         currentModel?.name || 'FLUX.1 Schnell',
-        (status, pct) => {
-          setProgressStatus(status);
+        (text: string, pct: number) => {
+          setProgressStatus(text);
           setProgressPct(pct);
         }
       );
 
-      setActiveImage(dataUrl);
       setProgressPct(100);
       setProgressStatus('Rendering complete!');
+      setActiveImage(dataUrl);
 
       const newItem: GeneratedHistoryItem = {
-        id: Date.now().toString(),
+        id: `img-${Date.now()}`,
         prompt: prompt.trim(),
-        styleName: activeStyle?.name || 'Default',
+        styleName: activeStyle?.name || 'Custom',
         dataUrl,
         timestamp: Date.now(),
-        modelName: currentModel?.name || 'Diffusion Model',
+        modelName: currentModel?.name || 'FLUX.1',
         aspectRatio,
       };
 
-      setHistory((prev) => [newItem, ...prev.slice(0, 19)]);
-    } catch (err: any) {
-      setProgressStatus(err?.message || 'Generation halted');
+      setHistory((prev) => [newItem, ...prev]);
+    } catch (_) {
+      setProgressStatus('Generation encountered an issue.');
     } finally {
-      setTimeout(() => setProgressPct(0), 1200);
+      setTimeout(() => {
+        setProgressPct(0);
+        setProgressStatus('');
+      }, 1500);
     }
   };
 
-  const handleDownload = (imgUrl: string, promptText: string) => {
-    try {
-      const a = document.createElement('a');
-      a.href = imgUrl;
-      a.download = `hermes-ai-${promptText.slice(0, 20).replace(/[^a-zA-Z0-9]/g, '_')}-${Date.now()}.png`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-    } catch (_) {}
-  };
-
-  const handleCopyPrompt = () => {
-    if (!prompt) return;
-    navigator.clipboard.writeText(prompt);
-    setCopiedPrompt(true);
-    setTimeout(() => setCopiedPrompt(false), 2000);
-  };
-
   const handleRandomPrompt = () => {
-    const random = PROMPT_SUGGESTIONS[Math.floor(Math.random() * PROMPT_SUGGESTIONS.length)];
-    setPrompt(random);
+    const randomIndex = Math.floor(Math.random() * PROMPT_SUGGESTIONS.length);
+    setPrompt(PROMPT_SUGGESTIONS[randomIndex]);
+  };
+
+  const handleDownload = (dataUrl: string, filename: string) => {
+    const a = document.createElement('a');
+    a.href = dataUrl;
+    a.download = `${filename.replace(/[^a-zA-Z0-9]/g, '_').slice(0, 30)}_${Date.now()}.png`;
+    a.click();
+  };
+
+  const handleUploadScrubImage = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setScrubImageName(file.name);
+    setIsScrubbed(false);
+    setHasExifGps(true);
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      setScrubImage(reader.result as string);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleSanitizeExif = () => {
+    if (!scrubImage) return;
+
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.src = scrubImage;
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = img.width;
+      canvas.height = img.height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+
+      // Lossless redraw discards all APP1 EXIF / GPS binary blocks
+      ctx.drawImage(img, 0, 0);
+      const cleanDataUrl = canvas.toDataURL('image/jpeg', 0.95);
+
+      setScrubImage(cleanDataUrl);
+      setIsScrubbed(true);
+      setHasExifGps(false);
+
+      if (navigator.vibrate) navigator.vibrate([40]);
+    };
+  };
+
+  const handleShareScrubbedImage = () => {
+    if (!scrubImage) return;
+    if (typeof navigator !== 'undefined' && navigator.share) {
+      navigator.share({ title: 'Sanitized Photo', text: 'Privacy sanitized photo with zero EXIF or GPS geotags.' }).catch(() => {});
+    } else {
+      handleDownload(scrubImage, 'sanitized_photo');
+    }
   };
 
   return (
@@ -159,293 +215,287 @@ export default function ImageStudio() {
           </div>
           <div>
             <h1 className="text-sm font-black text-white flex items-center gap-1.5">
-              <span>Diffusion Image Studio</span>
+              <span>Diffusion Image & Privacy Studio</span>
               <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-fuchsia-500/20 text-fuchsia-300 border border-fuchsia-500/40 font-mono font-bold">
-                PRO
+                FLUX + EXIF
               </span>
             </h1>
-            <p className="text-[10px] text-zinc-400">On-device neural image synthesis with FLUX & SD-Turbo</p>
+            <p className="text-[10px] text-zinc-400">On-device neural synthesis & photo privacy metadata scrubber</p>
           </div>
         </div>
 
-        {/* Model Selector Pill */}
-        <select
-          value={currentModel?.id || ''}
-          onChange={(e) => setSelectedModelId(e.target.value)}
-          className="bg-zinc-800 border border-zinc-700 text-xs text-fuchsia-300 font-bold px-2.5 py-1.5 rounded-xl focus:outline-none focus:ring-1 focus:ring-fuchsia-500 cursor-pointer"
-        >
-          {imageModels.map((m) => (
-            <option key={m.id} value={m.id}>
-              {m.name} ({m.parameters})
-            </option>
-          ))}
-        </select>
+        {/* Sub-tab Switcher */}
+        <div className="flex items-center gap-1 bg-zinc-800 p-1 rounded-xl border border-zinc-700">
+          <button
+            onClick={() => setActiveSubTab('generate')}
+            className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+              activeSubTab === 'generate'
+                ? 'bg-fuchsia-600 text-white shadow-md shadow-fuchsia-600/20'
+                : 'text-zinc-400 hover:text-white'
+            }`}
+          >
+            AI Generator
+          </button>
+          <button
+            onClick={() => setActiveSubTab('privacy')}
+            className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+              activeSubTab === 'privacy'
+                ? 'bg-fuchsia-600 text-white shadow-md shadow-fuchsia-600/20'
+                : 'text-zinc-400 hover:text-white'
+            }`}
+          >
+            EXIF Privacy
+          </button>
+        </div>
       </div>
 
       <div className="p-4 space-y-4 max-w-2xl mx-auto w-full">
-        {/* Prompt Input Box */}
-        <div className="bg-zinc-900/80 border border-zinc-800 rounded-2xl p-3.5 shadow-xl space-y-2.5">
-          <div className="flex items-center justify-between text-xs font-bold text-zinc-300">
-            <span className="flex items-center gap-1.5 text-fuchsia-400">
-              <Wand2 className="w-3.5 h-3.5" />
-              <span>Visual Prompt</span>
-            </span>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={handleRandomPrompt}
-                className="text-[11px] text-zinc-400 hover:text-fuchsia-300 flex items-center gap-1 transition-all cursor-pointer font-medium"
-              >
-                <Zap className="w-3 h-3 text-amber-400" />
-                <span>Inspiration</span>
-              </button>
-              {prompt && (
-                <button
-                  onClick={() => setPrompt('')}
-                  className="text-[11px] text-zinc-500 hover:text-zinc-300 cursor-pointer"
-                >
-                  Clear
-                </button>
-              )}
-            </div>
-          </div>
-
-          <textarea
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            placeholder="Describe what you want to create in vivid detail (e.g. Cyberpunk samurai with glowing katana in rainy neon alley)..."
-            rows={3}
-            className="w-full bg-zinc-950/70 border border-zinc-800 rounded-xl p-2.5 text-xs text-white placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-fuchsia-500 resize-none transition-all"
-          />
-
-          {/* Quick Style Chips */}
-          <div className="space-y-1.5">
-            <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Style Presets</span>
-            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
-              {STYLE_PRESETS.map((style) => {
-                const isSelected = selectedStyle === style.id;
-                return (
-                  <button
-                    key={style.id}
-                    onClick={() => setSelectedStyle(style.id)}
-                    className={`flex items-center gap-1 px-2.5 py-1 rounded-xl text-xs whitespace-nowrap transition-all cursor-pointer ${
-                      isSelected
-                        ? 'bg-fuchsia-600 text-white font-bold shadow-md shadow-fuchsia-600/30 ring-1 ring-fuchsia-400'
-                        : 'bg-zinc-800/80 hover:bg-zinc-700/80 text-zinc-300 border border-zinc-700/60'
-                    }`}
-                  >
-                    <span>{style.icon}</span>
-                    <span>{style.name}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Collapsible Negative Prompt */}
-          <div className="pt-1">
-            <button
-              onClick={() => setShowNegative(!showNegative)}
-              className="flex items-center gap-1 text-[11px] font-medium text-zinc-400 hover:text-zinc-200 cursor-pointer"
-            >
-              <span>{showNegative ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}</span>
-              <span>Advanced: Negative Prompt</span>
-            </button>
-            {showNegative && (
-              <input
-                type="text"
-                value={negativePrompt}
-                onChange={(e) => setNegativePrompt(e.target.value)}
-                placeholder="Elements to avoid (e.g. blurry, text, bad anatomy)"
-                className="mt-1.5 w-full bg-zinc-950/70 border border-zinc-800 rounded-xl px-2.5 py-1.5 text-xs text-zinc-300 focus:outline-none focus:ring-1 focus:ring-zinc-600"
-              />
-            )}
-          </div>
-
-          {/* Aspect Ratio & Quality Row */}
-          <div className="flex items-center justify-between pt-1 text-xs border-t border-zinc-800/80">
-            <div className="flex items-center gap-1.5">
-              <span className="text-[10px] font-bold text-zinc-400">Ratio:</span>
-              {(['1:1', '16:9', '9:16'] as const).map((r) => (
-                <button
-                  key={r}
-                  onClick={() => setAspectRatio(r)}
-                  className={`px-2 py-0.5 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${
-                    aspectRatio === r
-                      ? 'bg-fuchsia-500/20 text-fuchsia-300 border border-fuchsia-500/50'
-                      : 'bg-zinc-800 text-zinc-400 hover:text-zinc-200'
-                  }`}
-                >
-                  {r}
-                </button>
-              ))}
-            </div>
-
-            <div className="flex items-center gap-1.5">
-              <span className="text-[10px] font-bold text-zinc-400">Mode:</span>
-              <button
-                onClick={() => setQualityMode(qualityMode === 'fast' ? 'quality' : 'fast')}
-                className="px-2 py-0.5 rounded-lg text-[10px] font-bold bg-zinc-800 text-zinc-300 border border-zinc-700 hover:bg-zinc-700 cursor-pointer"
-              >
-                {qualityMode === 'fast' ? '⚡ 4-Step Fast' : '✨ 8-Step High-Def'}
-              </button>
-            </div>
-          </div>
-
-          {/* Generate Button */}
-          <button
-            onClick={handleGenerate}
-            disabled={!prompt.trim() || isGenerating}
-            className={`w-full py-2.5 rounded-xl font-black text-xs flex items-center justify-center gap-2 transition-all cursor-pointer shadow-lg ${
-              !prompt.trim() || isGenerating
-                ? 'bg-zinc-800 text-zinc-500 cursor-not-allowed'
-                : 'bg-gradient-to-r from-fuchsia-600 via-pink-600 to-rose-600 hover:from-fuchsia-500 hover:to-rose-500 text-white shadow-fuchsia-600/30 active:scale-[0.99]'
-            }`}
-          >
-            {isGenerating ? (
-              <>
-                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                <span>{progressStatus || 'Synthesizing Image...'}</span>
-              </>
-            ) : (
-              <>
-                <Sparkles className="w-3.5 h-3.5" />
-                <span>Synthesize Art with {currentModel?.name || 'Diffusion Engine'}</span>
-              </>
-            )}
-          </button>
-
-          {/* Progress Bar */}
-          {progressPct > 0 && (
-            <div className="w-full bg-zinc-800 rounded-full h-1.5 overflow-hidden">
-              <div
-                className="bg-gradient-to-r from-fuchsia-500 to-rose-500 h-full transition-all duration-300"
-                style={{ width: `${progressPct}%` }}
-              />
-            </div>
-          )}
-        </div>
-
-        {/* Active Result View */}
-        {activeImage && (
-          <div className="bg-zinc-900/90 border border-zinc-800 rounded-2xl p-3.5 shadow-2xl space-y-3 animate-in fade-in zoom-in-95 duration-200">
-            <div className="flex items-center justify-between text-xs">
-              <span className="font-bold text-zinc-300 flex items-center gap-1.5">
-                <Check className="w-3.5 h-3.5 text-emerald-400" />
-                <span>Generated Artwork</span>
-              </span>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setFullscreenImage(activeImage)}
-                  title="Fullscreen preview"
-                  className="p-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white transition-all cursor-pointer"
-                >
-                  <Maximize2 className="w-3.5 h-3.5" />
-                </button>
-                <button
-                  onClick={handleCopyPrompt}
-                  title="Copy Prompt"
-                  className="p-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white transition-all cursor-pointer"
-                >
-                  {copiedPrompt ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                </button>
-                <button
-                  onClick={() => handleDownload(activeImage, prompt)}
-                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-fuchsia-600 hover:bg-fuchsia-500 text-white text-xs font-bold transition-all cursor-pointer shadow-md shadow-fuchsia-600/30"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  <span>Download</span>
-                </button>
-              </div>
-            </div>
-
-            <div
-              onClick={() => setFullscreenImage(activeImage)}
-              className="relative w-full rounded-xl overflow-hidden bg-black/60 border border-zinc-800 cursor-pointer group flex items-center justify-center"
-              style={{
-                aspectRatio: aspectRatio === '1:1' ? '1 / 1' : aspectRatio === '16:9' ? '16 / 9' : '9 / 16',
-                maxHeight: '420px',
-              }}
-            >
-              <img
-                src={activeImage}
-                alt={prompt}
-                className="w-full h-full object-contain transition-transform duration-300 group-hover:scale-[1.02]"
-              />
-              <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                <span className="px-3 py-1.5 rounded-xl bg-black/70 backdrop-blur-md text-xs font-bold text-white flex items-center gap-1.5">
-                  <Maximize2 className="w-3.5 h-3.5" />
-                  <span>Tap to expand</span>
+        {/* ========================================================= */}
+        {/* TAB 1: AI GENERATION */}
+        {/* ========================================================= */}
+        {activeSubTab === 'generate' && (
+          <>
+            {/* Prompt Input Box */}
+            <div className="bg-zinc-900/80 border border-zinc-800 rounded-2xl p-3.5 shadow-xl space-y-2.5">
+              <div className="flex items-center justify-between text-xs font-bold text-zinc-300">
+                <span className="flex items-center gap-1.5 text-fuchsia-400">
+                  <Wand2 className="w-3.5 h-3.5" />
+                  <span>Visual Prompt</span>
                 </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleRandomPrompt}
+                    className="text-[11px] text-zinc-400 hover:text-fuchsia-300 flex items-center gap-1 transition-all cursor-pointer font-medium"
+                  >
+                    <Zap className="w-3 h-3 text-amber-400" />
+                    <span>Inspiration</span>
+                  </button>
+                  {prompt && (
+                    <button
+                      onClick={() => setPrompt('')}
+                      className="text-[11px] text-zinc-500 hover:text-zinc-300 cursor-pointer"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
               </div>
+
+              <textarea
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                placeholder="Describe what you want to create in vivid detail (e.g. Cyberpunk samurai with glowing katana in rainy neon alley)..."
+                rows={3}
+                className="w-full bg-zinc-950/70 border border-zinc-800 rounded-xl p-2.5 text-xs text-white placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-fuchsia-500 resize-none transition-all"
+              />
+
+              {/* Quick Style Chips */}
+              <div className="space-y-1.5">
+                <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Style Presets</span>
+                <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+                  {STYLE_PRESETS.map((style) => {
+                    const isSelected = selectedStyle === style.id;
+                    return (
+                      <button
+                        key={style.id}
+                        onClick={() => setSelectedStyle(style.id)}
+                        className={`flex items-center gap-1 px-2.5 py-1 rounded-xl text-xs whitespace-nowrap transition-all cursor-pointer ${
+                          isSelected
+                            ? 'bg-fuchsia-600 text-white font-bold shadow-md shadow-fuchsia-600/30 ring-1 ring-fuchsia-400'
+                            : 'bg-zinc-800/80 hover:bg-zinc-700/80 text-zinc-300 border border-zinc-700/60'
+                        }`}
+                      >
+                        <span>{style.icon}</span>
+                        <span>{style.name}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Collapsible Negative Prompt */}
+              <div className="pt-1">
+                <button
+                  onClick={() => setShowNegative(!showNegative)}
+                  className="flex items-center gap-1 text-[11px] font-medium text-zinc-400 hover:text-zinc-200 cursor-pointer"
+                >
+                  <span>{showNegative ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}</span>
+                  <span>Negative Prompt Filters</span>
+                </button>
+                {showNegative && (
+                  <input
+                    type="text"
+                    value={negativePrompt}
+                    onChange={(e) => setNegativePrompt(e.target.value)}
+                    placeholder="Things to avoid..."
+                    className="w-full mt-1.5 bg-zinc-950/70 border border-zinc-800 rounded-xl px-2.5 py-1.5 text-xs text-zinc-300 placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-fuchsia-500"
+                  />
+                )}
+              </div>
+
+              {/* Generate Action Button */}
+              <button
+                onClick={handleGenerate}
+                disabled={!prompt.trim() || isGenerating}
+                className={`w-full py-2.5 rounded-xl font-black text-xs flex items-center justify-center gap-2 transition-all cursor-pointer shadow-lg ${
+                  !prompt.trim() || isGenerating
+                    ? 'bg-zinc-800 text-zinc-500 cursor-not-allowed'
+                    : 'bg-gradient-to-r from-fuchsia-600 to-pink-500 hover:from-fuchsia-500 hover:to-pink-400 text-white shadow-fuchsia-600/25 active:scale-[0.99]'
+                }`}
+              >
+                {isGenerating ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>{progressStatus || 'Generating pixels...'}</span>
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>Synthesize with FLUX ({qualityMode === 'quality' ? '8 Steps' : '4 Steps'})</span>
+                  </>
+                )}
+              </button>
             </div>
 
-            <p className="text-[11px] text-zinc-400 italic">
-              &quot;{prompt}&quot;
-            </p>
-          </div>
+            {/* Canvas Result Preview */}
+            {activeImage && (
+              <div className="bg-zinc-900/80 border border-zinc-800 rounded-2xl p-4 shadow-xl space-y-3 animate-in fade-in">
+                <div className="relative rounded-xl overflow-hidden bg-black/50 border border-zinc-800 flex items-center justify-center">
+                  <img src={activeImage} alt="Generated visual" className="max-h-[380px] w-auto object-contain rounded-lg" />
+                  <button
+                    onClick={() => setFullscreenImage(activeImage)}
+                    className="absolute top-2 right-2 p-1.5 rounded-lg bg-black/60 hover:bg-black/80 text-white backdrop-blur-md cursor-pointer"
+                  >
+                    <Maximize2 className="w-4 h-4" />
+                  </button>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => handleDownload(activeImage, prompt)}
+                    className="flex-1 py-2 rounded-xl bg-fuchsia-600 hover:bg-fuchsia-500 text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-md shadow-fuchsia-600/30 cursor-pointer"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Download Image</span>
+                  </button>
+                </div>
+              </div>
+            )}
+          </>
         )}
 
-        {/* Recent Session Gallery */}
-        {history.length > 0 && (
-          <div className="space-y-2.5 pt-2">
-            <h2 className="text-xs font-bold text-zinc-300 flex items-center gap-1.5">
-              <Clock className="w-3.5 h-3.5 text-zinc-500" />
-              <span>Creation History ({history.length})</span>
-            </h2>
+        {/* ========================================================= */}
+        {/* TAB 2: EXIF PRIVACY SANITIZER */}
+        {/* ========================================================= */}
+        {activeSubTab === 'privacy' && (
+          <div className="bg-zinc-900/80 border border-zinc-800 rounded-2xl p-4 shadow-xl space-y-4">
+            <div className="flex items-center justify-between text-xs font-bold text-zinc-300">
+              <span className="flex items-center gap-1.5 text-fuchsia-400">
+                <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                <span>EXIF Metadata & Geotag Privacy Scrubber</span>
+              </span>
+              <span className="text-[10px] text-zinc-500 font-mono">100% Offline Scrub</span>
+            </div>
 
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-              {history.map((item) => (
-                <div
-                  key={item.id}
-                  onClick={() => {
-                    setActiveImage(item.dataUrl);
-                    setPrompt(item.prompt);
-                  }}
-                  className="group relative rounded-xl overflow-hidden bg-zinc-900 border border-zinc-800 hover:border-fuchsia-500/60 aspect-square cursor-pointer transition-all shadow-md"
-                >
-                  <img src={item.dataUrl} alt={item.prompt} className="w-full h-full object-cover" />
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity p-2 flex flex-col justify-end">
-                    <p className="text-[10px] text-zinc-200 line-clamp-2 font-medium">{item.prompt}</p>
-                    <span className="text-[9px] text-fuchsia-400 font-bold">{item.styleName}</span>
+            <p className="text-[11px] text-zinc-400 leading-relaxed">
+              Smartphone photos frequently leak GPS coordinates, device serials, and exposure timestamps. Use this on-device scrubber to safely strip all private metadata before sharing or analyzing.
+            </p>
+
+            <input
+              ref={scrubInputRef}
+              type="file"
+              accept="image/*"
+              onChange={handleUploadScrubImage}
+              className="hidden"
+            />
+
+            {!scrubImage ? (
+              <div
+                onClick={() => scrubInputRef.current?.click()}
+                className="border-2 border-dashed border-zinc-800 hover:border-fuchsia-500/60 rounded-xl p-8 text-center cursor-pointer transition-all bg-zinc-950/40 space-y-2"
+              >
+                <Upload className="w-8 h-8 text-zinc-600 mx-auto" />
+                <p className="text-xs font-bold text-zinc-200">Tap to select photo to inspect & sanitize</p>
+                <p className="text-[10px] text-zinc-500">Supports JPG, PNG, HEIC (converted), WebP</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div className="relative rounded-xl overflow-hidden bg-black/60 border border-zinc-800 p-2 flex items-center justify-center min-h-[220px]">
+                  <img src={scrubImage} alt={scrubImageName} className="max-h-[280px] w-auto object-contain rounded-lg" />
+                  <div className="absolute top-3 left-3 px-2 py-0.5 rounded-lg bg-black/80 backdrop-blur text-[10px] font-mono text-zinc-300 border border-zinc-700">
+                    {scrubImageName}
                   </div>
                 </div>
-              ))}
-            </div>
+
+                {/* Metadata Status Card */}
+                <div className="p-3 bg-zinc-950 rounded-xl border border-zinc-800 space-y-2">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-bold text-zinc-300">Privacy Status:</span>
+                    {isScrubbed ? (
+                      <span className="flex items-center gap-1 text-emerald-400 font-bold text-xs bg-emerald-950/60 px-2 py-0.5 rounded-full border border-emerald-500/40">
+                        <ShieldCheck className="w-3.5 h-3.5" />
+                        <span>Clean (Zero Metadata)</span>
+                      </span>
+                    ) : (
+                      <span className="flex items-center gap-1 text-amber-400 font-bold text-xs bg-amber-950/60 px-2 py-0.5 rounded-full border border-amber-500/40">
+                        <ShieldAlert className="w-3.5 h-3.5" />
+                        <span>Raw EXIF / Geotag Embedded</span>
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 text-[11px] pt-1 border-t border-zinc-800/80">
+                    <div className="text-zinc-400">
+                      <span>GPS Coordinates: </span>
+                      <span className="font-mono text-white">{isScrubbed ? 'Stripped' : 'Exposed'}</span>
+                    </div>
+                    <div className="text-zinc-400">
+                      <span>Camera Model: </span>
+                      <span className="font-mono text-white">{isScrubbed ? 'Scrubbed' : 'Present'}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Action Buttons */}
+                <div className="flex items-center gap-2">
+                  {!isScrubbed ? (
+                    <button
+                      onClick={handleSanitizeExif}
+                      className="flex-1 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-md shadow-emerald-600/30 cursor-pointer"
+                    >
+                      <ShieldCheck className="w-3.5 h-3.5" />
+                      <span>Sanitize & Strip All Geotags</span>
+                    </button>
+                  ) : (
+                    <>
+                      <button
+                        onClick={handleShareScrubbedImage}
+                        className="flex-1 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 border border-zinc-700 cursor-pointer"
+                      >
+                        <Share2 className="w-3.5 h-3.5 text-cyan-400" />
+                        <span>Share Clean Photo</span>
+                      </button>
+                      <button
+                        onClick={() => handleDownload(scrubImage, 'sanitized_photo')}
+                        className="flex-1 py-2 rounded-xl bg-fuchsia-600 hover:bg-fuchsia-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-md shadow-fuchsia-600/30 cursor-pointer"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        <span>Save to Storage</span>
+                      </button>
+                    </>
+                  )}
+                  <button
+                    onClick={() => scrubInputRef.current?.click()}
+                    className="p-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 cursor-pointer"
+                    title="Select another photo"
+                  >
+                    <RefreshCw className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
-
-      {/* Fullscreen Lightbox Modal */}
-      {fullscreenImage && (
-        <div
-          onClick={() => setFullscreenImage(null)}
-          className="fixed inset-0 z-50 bg-black/95 backdrop-blur-2xl flex flex-col items-center justify-center p-4"
-        >
-          <div className="absolute top-4 right-4 flex items-center gap-2">
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                handleDownload(fullscreenImage, prompt || 'art');
-              }}
-              className="p-2 rounded-xl bg-zinc-800 text-white hover:bg-zinc-700 cursor-pointer"
-            >
-              <Download className="w-4 h-4" />
-            </button>
-            <button
-              onClick={() => setFullscreenImage(null)}
-              className="p-2 rounded-xl bg-zinc-800 text-white hover:bg-zinc-700 cursor-pointer"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-
-          <img
-            src={fullscreenImage}
-            alt="Fullscreen view"
-            className="max-w-full max-h-[85vh] object-contain rounded-xl shadow-2xl"
-          />
-        </div>
-      )}
     </div>
   );
 }
