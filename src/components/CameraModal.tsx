@@ -164,12 +164,19 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
 
   const takeSnapshot = () => {
     if (!videoRef.current || !canvasRef.current) return;
+    const v = videoRef.current;
+    // HAVE_NOTHING video (stream not delivering frames yet): drawImage is a
+    // spec no-op, producing a solid black JPEG the user would attach with no
+    // warning. Refuse the shot instead.
+    if (!v.videoWidth) {
+      if (navigator.vibrate) navigator.vibrate([40, 60, 40]);
+      return;
+    }
     if (navigator.vibrate) navigator.vibrate(60);
 
-    const v = videoRef.current;
     const c = canvasRef.current;
-    c.width = v.videoWidth || 1280;
-    c.height = v.videoHeight || 720;
+    c.width = v.videoWidth;
+    c.height = v.videoHeight;
     const ctx = c.getContext('2d');
     if (ctx) {
       ctx.drawImage(v, 0, 0, c.width, c.height);
@@ -181,13 +188,20 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
 
   const takeKeyframeBurst = async () => {
     if (!videoRef.current || !canvasRef.current || isBurstCapturing) return;
+    const v0 = videoRef.current;
+    // Same HAVE_NOTHING guard as the single snapshot: a burst taken before
+    // the stream delivers frames would attach four black JPEGs.
+    if (!v0.videoWidth) {
+      if (navigator.vibrate) navigator.vibrate([40, 60, 40]);
+      return;
+    }
     setIsBurstCapturing(true);
     setBurstFrames([]);
 
     const v = videoRef.current;
     const c = canvasRef.current;
-    c.width = v.videoWidth || 1280;
-    c.height = v.videoHeight || 720;
+    c.width = v.videoWidth;
+    c.height = v.videoHeight;
     const ctx = c.getContext('2d');
     if (!ctx) {
       setIsBurstCapturing(false);
@@ -231,11 +245,33 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
   const confirmAttachment = (bundleAll = false) => {
     if (!capturedUrl) return;
     const timeCode = new Date().toISOString().slice(11, 19).replace(/:/g, '');
-    const prefix = scanMode === 'document' ? 'DocScan' : scanMode === 'keyframes' ? (bundleAll ? 'MotionBurst_4Frames' : 'MotionKeyframe') : 'Photo';
+    const scanPrefix = scanMode === 'document' ? 'DocScan' : scanMode === 'keyframes' ? 'MotionKeyframe' : 'Photo';
+
+    // "Bundle All 4" must actually attach the whole burst: the old path only
+    // renamed the single selected frame to "MotionBurst_4Frames_....jpg" and
+    // silently dropped the other three, so the vision model answered from
+    // one frame while the user believed they sent the full motion sequence.
+    if (bundleAll && burstFrames.length > 0) {
+      const basePrefix = scanMode === 'keyframes' ? 'MotionBurst_4Frames' : scanPrefix;
+      burstFrames.forEach((frame, i) => {
+        const att: Attachment = {
+          id: `cam-${Date.now()}-${i + 1}`,
+          type: 'camera',
+          name: `${basePrefix}_Frame${i + 1}_${timeCode}.jpg`,
+          dataUrl: frame.url,
+          mimeType: 'image/jpeg',
+          sizeBytes: Math.round(frame.url.length * 0.75),
+        };
+        onCapture(att);
+      });
+      onClose();
+      return;
+    }
+
     const att: Attachment = {
       id: `cam-${Date.now()}`,
       type: 'camera',
-      name: `${prefix}_${timeCode}.jpg`,
+      name: `${scanPrefix}_${timeCode}.jpg`,
       dataUrl: capturedUrl,
       mimeType: 'image/jpeg',
       sizeBytes: Math.round(capturedUrl.length * 0.75),
