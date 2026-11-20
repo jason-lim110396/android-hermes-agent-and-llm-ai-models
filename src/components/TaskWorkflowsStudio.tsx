@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Play,
   RotateCcw,
@@ -201,6 +201,19 @@ export default function TaskWorkflowsStudio() {
   const [generatedFile, setGeneratedFile] = useState<{ name: string; url: string; size: string } | null>(null);
   const [copied, setCopied] = useState(false);
   const [isToolTesterOpen, setIsToolTesterOpen] = useState(false);
+
+  // Every workflow run mints a fresh Blob URL for its export file. Revoke the
+  // previous one whenever it is replaced (re-run, clear at run start) or the
+  // studio unmounts, so repeated runs cannot accumulate leaked Blob objects in
+  // the WebView until the next full page reload.
+  useEffect(() => {
+    const url = generatedFile?.url;
+    return () => {
+      if (url) {
+        try { URL.revokeObjectURL(url); } catch (_) {}
+      }
+    };
+  }, [generatedFile]);
 
   const currentTemplate = PRESET_WORKFLOWS.find((w) => w.id === activeWorkflowId) || PRESET_WORKFLOWS[0];
 
