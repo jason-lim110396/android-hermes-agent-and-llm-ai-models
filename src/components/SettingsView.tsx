@@ -37,6 +37,7 @@ import {
   Ban,
 } from 'lucide-react';
 import { useAppStore } from '@/appStore';
+import { FREE_FALLBACK_PRESETS, FallbackModelEntry } from '@/utils/modelFallback';
 
 const PROMPT_PRESETS = [
   {
@@ -72,6 +73,16 @@ export default function SettingsView() {
   const setApiEndpoint = useAppStore((s) => s.setApiEndpoint);
   const apiKey = useAppStore((s) => s.apiKey);
   const setApiKey = useAppStore((s) => s.setApiKey);
+  const modelFallbackEnabled = useAppStore((s) => s.modelFallbackEnabled);
+  const setModelFallbackEnabled = useAppStore((s) => s.setModelFallbackEnabled);
+  const modelFallbackChain = useAppStore((s) => s.modelFallbackChain);
+  const setModelFallbackChain = useAppStore((s) => s.setModelFallbackChain);
+  const fallbackNotice = useAppStore((s) => s.fallbackNotice);
+  const clearFallbackNotice = useAppStore((s) => s.clearFallbackNotice);
+  const [newEndpoint, setNewEndpoint] = useState('');
+  const [newKey, setNewKey] = useState('');
+  const [newModel, setNewModel] = useState('');
+  const [newLabel, setNewLabel] = useState('');
   const performanceMode = useAppStore((s) => s.performanceMode);
   const setPerformanceMode = useAppStore((s) => s.setPerformanceMode);
   const hardwareProfile = useAppStore((s) => s.hardwareProfile);
@@ -513,6 +524,152 @@ export default function SettingsView() {
                   {testResult.message}
                 </span>
               )}
+            </div>
+          </div>
+        </div>
+
+        {/* FREE-FIRST MODEL FALLBACK CHAIN */}
+        <div className="bg-zinc-900/60 border border-zinc-800 rounded-2xl p-3.5 space-y-2.5">
+          <div className="flex items-center justify-between">
+            <label className="text-xs font-bold text-white block">Auto fallback to free models</label>
+            <button
+              onClick={() => setModelFallbackEnabled(!modelFallbackEnabled)}
+              className={`relative w-9 h-5 rounded-full transition-colors cursor-pointer ${
+                modelFallbackEnabled ? 'bg-emerald-500' : 'bg-zinc-700'
+              }`}
+              aria-pressed={modelFallbackEnabled}
+            >
+              <span
+                className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${
+                  modelFallbackEnabled ? 'left-[18px]' : 'left-0.5'
+                }`}
+              />
+            </button>
+          </div>
+          <p className="text-[10px] text-zinc-400 leading-relaxed">
+            When the primary endpoint hits a usage limit (429 / quota / tier), the same request is retried
+            on the next model in this list and the answer says which model responded. Free tiers are listed
+            first so the app keeps working after a paid quota runs out. Keys are kept in memory only.
+          </p>
+
+          {fallbackNotice && (
+            <div className="flex items-start justify-between gap-2 bg-amber-950/40 border border-amber-500/40 rounded-xl px-2.5 py-2">
+              <span className="text-[10px] text-amber-200 leading-snug flex-1">{fallbackNotice}</span>
+              <button
+                onClick={clearFallbackNotice}
+                className="text-[10px] text-amber-300 hover:text-amber-100 font-bold cursor-pointer shrink-0"
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
+
+          <div className="space-y-1.5">
+            {modelFallbackChain.length === 0 && (
+              <p className="text-[10px] text-zinc-500">No fallback models yet - add a free preset below.</p>
+            )}
+            {modelFallbackChain.map((entry: FallbackModelEntry, idx: number) => (
+              <div
+                key={entry.id || idx}
+                className="flex items-center justify-between gap-2 bg-zinc-950/80 border border-zinc-800 rounded-xl px-2.5 py-1.5"
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="text-[11px] font-bold text-zinc-200 truncate">
+                    <span className="text-zinc-500 font-mono mr-1">{idx + 1}.</span>
+                    {entry.label}
+                  </p>
+                  <p className="text-[9px] text-zinc-500 truncate font-mono">
+                    {entry.endpoint}
+                    {entry.model ? ` - ${entry.model}` : ''}
+                    {entry.apiKey ? ' - key set' : ''}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setModelFallbackChain(modelFallbackChain.filter((_, i) => i !== idx))}
+                  className="text-zinc-500 hover:text-rose-400 transition-colors cursor-pointer shrink-0"
+                  aria-label={`Remove ${entry.label}`}
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            ))}
+          </div>
+
+          <div className="flex flex-wrap gap-1.5">
+            {FREE_FALLBACK_PRESETS.filter(
+              (p) => !modelFallbackChain.some((e) => e.id === p.id)
+            ).map((preset) => (
+              <button
+                key={preset.id}
+                onClick={() =>
+                  setModelFallbackChain([
+                    ...modelFallbackChain,
+                    { ...preset, apiKey: preset.apiKey || '' },
+                  ])
+                }
+                className="px-2 py-1 rounded-lg bg-emerald-950/40 border border-emerald-500/30 text-emerald-300 text-[10px] font-bold hover:bg-emerald-900/50 transition-colors cursor-pointer"
+              >
+                + {preset.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="space-y-1.5 pt-1 border-t border-zinc-800/80">
+            <p className="text-[10px] font-bold text-zinc-400">Add custom endpoint</p>
+            <input
+              type="text"
+              placeholder="Endpoint (e.g. https://api.groq.com/openai/v1)"
+              value={newEndpoint}
+              onChange={(e) => setNewEndpoint(e.target.value)}
+              className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-emerald-500/50 font-mono"
+            />
+            <div className="flex gap-1.5">
+              <input
+                type="password"
+                placeholder="API key (optional)"
+                value={newKey}
+                onChange={(e) => setNewKey(e.target.value)}
+                className="flex-1 bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-emerald-500/50 font-mono"
+              />
+              <input
+                type="text"
+                placeholder="Model id"
+                value={newModel}
+                onChange={(e) => setNewModel(e.target.value)}
+                className="flex-1 bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-emerald-500/50 font-mono"
+              />
+            </div>
+            <div className="flex gap-1.5">
+              <input
+                type="text"
+                placeholder="Label (e.g. My free tier)"
+                value={newLabel}
+                onChange={(e) => setNewLabel(e.target.value)}
+                className="flex-1 bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-emerald-500/50"
+              />
+              <button
+                onClick={() => {
+                  if (!newEndpoint.trim()) return;
+                  setModelFallbackChain([
+                    ...modelFallbackChain,
+                    {
+                      id: `custom-${Date.now()}`,
+                      label: newLabel.trim() || newEndpoint.trim(),
+                      endpoint: newEndpoint.trim(),
+                      apiKey: newKey.trim() || undefined,
+                      model: newModel.trim() || undefined,
+                    },
+                  ]);
+                  setNewEndpoint('');
+                  setNewKey('');
+                  setNewModel('');
+                  setNewLabel('');
+                }}
+                disabled={!newEndpoint.trim()}
+                className="px-3 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-bold transition-all cursor-pointer disabled:opacity-40"
+              >
+                Add
+              </button>
             </div>
           </div>
         </div>

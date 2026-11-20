@@ -14,6 +14,11 @@ import {
 } from './inferenceEngine';
 import { abortActiveCpuDownloads } from './wasmInferenceEngine';
 import { loadPersistedSessions, schedulePersistSessions } from './utils/sessionPersistence';
+import {
+  FallbackModelEntry,
+  loadFallbackSettings,
+  saveFallbackSettings,
+} from './utils/modelFallback';
 
 // Global tracking for mock/fallback download timers
 const activeDownloadIntervals = new Map<string, NodeJS.Timeout>();
@@ -152,12 +157,32 @@ interface AppStore {
   setApiEndpoint: (ep: string) => void;
   apiKey: string;
   setApiKey: (k: string) => void;
+  // Free-first model fallback chain
+  modelFallbackEnabled: boolean;
+  setModelFallbackEnabled: (v: boolean) => void;
+  modelFallbackChain: FallbackModelEntry[];
+  setModelFallbackChain: (chain: FallbackModelEntry[]) => void;
+  fallbackNotice: string | null;
+  setFallbackNotice: (n: string | null) => void;
+  clearFallbackNotice: () => void;
   systemPrompt: string;
   setSystemPrompt: (prompt: string) => void;
   temperature: number;
   setTemperature: (t: number) => void;
   maxTokens: number;
   setMaxTokens: (n: number) => void;
+}
+
+// Free-first failover: the primary endpoint, then the persisted chain.
+function resolveFallbackConfig(get: () => AppStore) {
+  const chain = get().modelFallbackEnabled ? get().modelFallbackChain : [];
+  const fallbacks = chain
+    .filter((e) => e && e.endpoint && e.endpoint.trim())
+    .map((e) => ({ label: e.label || e.endpoint, endpoint: e.endpoint, apiKey: e.apiKey, model: e.model }));
+  const onFallback = (info: { from: string; to: string; reason: string }) => {
+    get().setFallbackNotice(`Model limit hit: ${info.from} ${info.reason}. Switched to ${info.to}.`);
+  };
+  return { fallbacks, onFallback };
 }
 
 export const useAppStore = create<AppStore>((set, get) => ({
@@ -168,6 +193,19 @@ export const useAppStore = create<AppStore>((set, get) => ({
   setApiEndpoint: (ep) => set({ apiEndpoint: ep }),
   apiKey: '',
   setApiKey: (k) => set({ apiKey: k }),
+  modelFallbackEnabled: loadFallbackSettings().enabled,
+  setModelFallbackEnabled: (v) => {
+    saveFallbackSettings({ enabled: v, chain: get().modelFallbackChain });
+    set({ modelFallbackEnabled: v });
+  },
+  modelFallbackChain: loadFallbackSettings().chain,
+  setModelFallbackChain: (chain) => {
+    saveFallbackSettings({ enabled: get().modelFallbackEnabled, chain });
+    set({ modelFallbackChain: chain });
+  },
+  fallbackNotice: null,
+  setFallbackNotice: (n) => set({ fallbackNotice: n }),
+  clearFallbackNotice: () => set({ fallbackNotice: null }),
 
   operatingMode: (() => {
     if (typeof window !== 'undefined') {
@@ -1167,6 +1205,7 @@ async function executeHermesAgent(
     : (systemPrompt || model?.systemPromptPreset || 'You are Hermes 3, an expert autonomous agent.');
 
   let agentStreamLastFlush = 0;
+  const noticeBeforeAgent = get().fallbackNotice;
   const fullResult = await callRealLLMInference({
     messages: messagesToSend,
     modelId,
@@ -1178,6 +1217,7 @@ async function executeHermesAgent(
       backendType: apiEndpoint ? 'api' : 'webllm',
       apiEndpoint,
       apiKey,
+      ...resolveFallbackConfig(get),
     },
     onProgress: (statusText, pct) => {
       updateMsg(assistantMsgId, steps, `${visualPrefix}*[Autonomous Agent Reasoning: ${pct}% - ${statusText}]*`, true, set, get, 'agent', sessionId);
@@ -1197,11 +1237,13 @@ async function executeHermesAgent(
   // Finalize from the engine's return value: it always carries the full text
   // (or the error display text on fallback paths), never the throttled tail.
   const finalText = visualPrefix + (typeof fullResult === 'string' ? fullResult : '');
-  updateMsg(assistantMsgId, steps, finalText, false, set, get, 'agent', sessionId);
+  const agentNotice = get().fallbackNotice;
+  const displayText = finalText + (agentNotice && agentNotice !== noticeBeforeAgent ? `\n\n> ${agentNotice}` : '');
+  updateMsg(assistantMsgId, steps, displayText, false, set, get, 'agent', sessionId);
 
   // Trigger optional speech readout
-  if ((get().isVoiceOutputEnabled || get().operatingMode === 'voice') && finalText) {
-    get().speakText(finalText);
+  if ((get().isVoiceOutputEnabled || get().operatingMode === 'voice') && displayText) {
+    get().speakText(displayText);
   }
 }
 
@@ -1278,6 +1320,7 @@ async function executeDirectChat(
     : (systemPrompt || model?.systemPromptPreset || 'You are an intelligent, helpful on-device assistant.');
 
   let chatStreamLastFlush = 0;
+  const noticeBeforeChat = get().fallbackNotice;
   const fullResult = await callRealLLMInference({
     messages: messagesToSend,
     modelId,
@@ -1289,6 +1332,7 @@ async function executeDirectChat(
       backendType: apiEndpoint ? 'api' : 'webllm',
       apiEndpoint,
       apiKey,
+      ...resolveFallbackConfig(get),
     },
     onProgress: (statusText, pct) => {
       updateMsg(assistantMsgId, [], `${attachPrefix}*[Loading On-Device Model Weights: ${pct}% - ${statusText}]*`, true, set, get, 'chat', sessionId);
@@ -1314,12 +1358,14 @@ async function executeDirectChat(
   // Finalize from the engine's return value: it always carries the full text
   // (or the error display text on fallback paths), never the throttled tail.
   const finalText = attachPrefix + (typeof fullResult === 'string' ? fullResult : '');
-  updateMsg(assistantMsgId, [], finalText, false, set, get, 'chat', sessionId);
+  const chatNotice = get().fallbackNotice;
+  const displayText = finalText + (chatNotice && chatNotice !== noticeBeforeChat ? `\n\n> ${chatNotice}` : '');
+  updateMsg(assistantMsgId, [], displayText, false, set, get, 'chat', sessionId);
 
   // Trigger spoken readout if in voice synthesis mode or voice output is enabled
   const opMode = get().operatingMode;
-  if ((get().isVoiceOutputEnabled || opMode === 'voice' || model?.category === 'voice') && finalText) {
-    get().speakText(finalText);
+  if ((get().isVoiceOutputEnabled || opMode === 'voice' || model?.category === 'voice') && displayText) {
+    get().speakText(displayText);
   }
 }
 
