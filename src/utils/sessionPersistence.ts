@@ -27,6 +27,8 @@ interface PersistedSessions {
   activeAgentSessionId: string;
 }
 
+export type { PersistedSessions };
+
 let persistTimer: ReturnType<typeof setTimeout> | null = null;
 let pendingSnapshot: PersistedSessions | null = null;
 
@@ -216,4 +218,33 @@ export function loadPersistedSessions(): PersistedSessions | null {
   } catch (_) {
     return null;
   }
+}
+
+/**
+ * Validate and sanitize a user-imported backup JSON object (the Settings
+ * "Restore Backup" file picker). The import path must never bypass the
+ * session/message validators the normal restore path enforces: a
+ * hand-edited or older-format backup whose messages lack a string content
+ * would otherwise crash the chat render (m.content.toLowerCase on
+ * undefined) and be re-persisted by the subscriber before the user could
+ * react. Returns null when the payload contains no usable sessions.
+ */
+export function sanitizeImportedBackup(raw: unknown): PersistedSessions | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const parsed = raw as Record<string, unknown>;
+  const chatSessions = sanitizeSessions(parsed.chatSessions);
+  const agentSessions = sanitizeSessions(parsed.agentSessions);
+  if (!chatSessions && !agentSessions) return null;
+  return {
+    chatSessions: chatSessions || {},
+    agentSessions: agentSessions || {},
+    activeChatSessionId:
+      typeof parsed.activeChatSessionId === 'string' && chatSessions?.[parsed.activeChatSessionId]
+        ? parsed.activeChatSessionId
+        : Object.keys(chatSessions || {})[0] || '',
+    activeAgentSessionId:
+      typeof parsed.activeAgentSessionId === 'string' && agentSessions?.[parsed.activeAgentSessionId]
+        ? parsed.activeAgentSessionId
+        : Object.keys(agentSessions || {})[0] || '',
+  };
 }
