@@ -59,6 +59,15 @@ function stripAttachments(messages: ChatMessage[]): ChatMessage[] {
 // Pinned sessions always survive; so does the session the user is currently in,
 // even when it is the oldest one (otherwise the snapshot could persist a
 // pointer to a dropped session and silently lose the active history).
+// A corrupt or older persisted record can carry a missing/non-numeric
+// createdAt. Subtracting such values yields NaN, which makes Array.sort keep
+// the original (insertion) order - not newest-first - so quota trimming can
+// drop the wrong sessions. Coerce to a finite number with a safe fallback.
+function sessionCreatedAt(s: ChatSession): number {
+  const value = (s as Partial<ChatSession>).createdAt;
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+}
+
 function limitSessions(
   sessions: Record<string, ChatSession>,
   activeId: string
@@ -68,7 +77,7 @@ function limitSessions(
   const active = entries.find((s) => s.id === activeId && !pinned.includes(s));
   const rest = entries
     .filter((s) => !s.pinned && s.id !== activeId)
-    .sort((a, b) => b.createdAt - a.createdAt)
+    .sort((a, b) => sessionCreatedAt(b) - sessionCreatedAt(a))
     .slice(0, Math.max(0, MAX_SESSIONS_PER_MODE - pinned.length - (active ? 1 : 0)));
   const kept = [...pinned, ...(active ? [active] : []), ...rest];
   return Object.fromEntries(kept.map((s) => [s.id, s]));
