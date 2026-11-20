@@ -308,16 +308,53 @@ function setMsgModelUsed(
   }
 }
 
-export const useAppStore = create<AppStore>((set, get) => ({
+// Remote inference bridge configuration (endpoint + pinned model name).
+// Persisted so the fallback chain survives an app restart; the API key is
+// deliberately NOT persisted - it stays session-only by design, exactly
+// like the fallback chain keys (see saveFallbackSettings).
+function loadRemoteInferenceConfig(): { apiEndpoint: string; customModelName: string } {
+  if (typeof window === 'undefined') return { apiEndpoint: '', customModelName: '' };
+  try {
+    return {
+      apiEndpoint: localStorage.getItem('androidllm_api_endpoint') || '',
+      customModelName: localStorage.getItem('androidllm_custom_model') || '',
+    };
+  } catch (_) {
+    return { apiEndpoint: '', customModelName: '' };
+  }
+}
+
+export const useAppStore = create<AppStore>((set, get) => {
+  const persistedRemoteConfig = loadRemoteInferenceConfig();
+  return {
   currentTab: 'chat',
   setCurrentTab: (tab) => set({ currentTab: tab }),
 
-  apiEndpoint: '',
-  setApiEndpoint: (ep) => set({ apiEndpoint: ep }),
+  // Persisted: without this, a restart emptied the endpoint and the whole
+  // persisted fallback chain never triggered - the app silently answered
+  // from the on-device model with no notice, as if the user's provider was
+  // broken. The API key stays session-only by design (see modelFallback.ts).
+  apiEndpoint: persistedRemoteConfig.apiEndpoint,
+  setApiEndpoint: (ep) => {
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem('androidllm_api_endpoint', ep);
+      } catch (_) {}
+    }
+    set({ apiEndpoint: ep });
+  },
   apiKey: '',
+  // Session-only by design, matching the fallback chain key policy.
   setApiKey: (k) => set({ apiKey: k }),
-  customModelName: '',
-  setCustomModelName: (m) => set({ customModelName: m }),
+  customModelName: persistedRemoteConfig.customModelName,
+  setCustomModelName: (m) => {
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem('androidllm_custom_model', m);
+      } catch (_) {}
+    }
+    set({ customModelName: m });
+  },
   modelFallbackEnabled: loadFallbackSettings().enabled,
   setModelFallbackEnabled: (v) => {
     saveFallbackSettings({ enabled: v, chain: get().modelFallbackChain });
@@ -1263,7 +1300,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
   setTemperature: (t) => set({ temperature: t }),
   maxTokens: 2048,
   setMaxTokens: (n) => set({ maxTokens: n }),
-}));
+  };
+});
 
 // HERMES AUTONOMOUS AGENT RUNTIME
 async function executeHermesAgent(
