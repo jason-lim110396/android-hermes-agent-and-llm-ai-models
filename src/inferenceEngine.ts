@@ -1,6 +1,7 @@
 import type { MLCEngine, InitProgressReport } from '@mlc-ai/web-llm';
 import { AVAILABLE_MODELS, ModelSpec } from './models';
 import { describeLimitFailure, isUsageLimitFailure } from './utils/modelFallback';
+import { speakGuarded } from './utils/speechGuard';
 import { redactSensitiveMessages } from './utils/sensitiveContent';
 import {
   isCpuModelCached,
@@ -455,7 +456,6 @@ export async function callRealLLMInference({
       // Trigger immediate on-device browser/Android speech utterance with best acoustic voice
       if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
         try {
-          window.speechSynthesis.cancel();
           const utterance = new SpeechSynthesisUtterance(cleanSpoken);
           utterance.rate = 1.0;
           utterance.pitch = modelSpec.id.includes('kokoro') ? 1.0 : 1.05;
@@ -468,7 +468,7 @@ export async function callRealLLMInference({
             if (bestVoice) utterance.voice = bestVoice;
           }
 
-          window.speechSynthesis.speak(utterance);
+          speakGuarded(utterance);
         } catch (_) {}
       }
 
