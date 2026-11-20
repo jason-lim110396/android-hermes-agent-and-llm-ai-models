@@ -9,6 +9,7 @@ import {
   Sparkles,
   Zap,
   CheckCircle2,
+  Check,
   ChevronDown,
   ChevronUp,
   X,
@@ -94,6 +95,38 @@ export default function ChatView() {
   const [modelPromptDownload, setModelPromptDownload] = useState<ModelSpec | null>(null);
   const [expandedSteps, setExpandedSteps] = useState<Record<string, boolean>>({});
 
+  // Search & Message Actions
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showSearch, setShowSearch] = useState(false);
+  const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
+  const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
+
+  const QUICK_PROMPTS = [
+    { label: '🚀 Hardware Diagnostic', prompt: 'Audit all device hardware, RAM usage, and WebGPU tensor acceleration.' },
+    { label: '🎨 Cyberpunk Art', prompt: 'Generate an ultra-detailed FLUX digital illustration of a futuristic android operating a quantum terminal in neo-Tokyo.' },
+    { label: '🔍 Extract & Summarize', prompt: 'Find recent document files on device, analyze their contents, and generate an executive summary.' },
+    { label: '🎙️ Kokoro Voice Brief', prompt: 'Summarize today\'s offline device status and prepare a voice briefing script.' },
+  ];
+
+  const handleCopyMessage = (msgId: string, content: string) => {
+    if (typeof navigator !== 'undefined' && navigator.clipboard) {
+      navigator.clipboard.writeText(content);
+      setCopiedMessageId(msgId);
+      setTimeout(() => setCopiedMessageId(null), 2000);
+    }
+  };
+
+  const handleSpeakMessage = (msgId: string, content: string) => {
+    if (isSpeaking && speakingMessageId === msgId) {
+      stopSpeaking();
+      setSpeakingMessageId(null);
+    } else {
+      setSpeakingMessageId(msgId);
+      const cleaned = content.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+      speakText(cleaned);
+    }
+  };
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -106,6 +139,10 @@ export default function ChatView() {
 
   const messages = currentSession?.messages || [];
   const currentModel = AVAILABLE_MODELS.find((m) => m.id === selectedModelId);
+
+  const visibleMessages = searchQuery.trim()
+    ? messages.filter((m) => m.content.toLowerCase().includes(searchQuery.toLowerCase()) || m.role.toLowerCase().includes(searchQuery.toLowerCase()))
+    : messages;
 
   // Filter models based on the currently selected operatingMode
   // e.g. In image-gen mode, only display image models. In vision mode, vision models. In voice mode, voice models. In agent or chat mode, text/reasoning models.
@@ -910,6 +947,18 @@ export default function ChatView() {
             <span>Stop All</span>
           </button>
 
+          {/* Search Session */}
+          <button
+            onClick={() => setShowSearch(!showSearch)}
+            title="Search session messages"
+            className={`flex items-center gap-1 px-2.5 py-1 rounded-xl border text-[10px] font-bold transition-all cursor-pointer ${
+              showSearch ? 'bg-cyan-950/70 border-cyan-500/50 text-cyan-300' : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white'
+            }`}
+          >
+            <Search className="w-3.5 h-3.5" />
+            <span>Search</span>
+          </button>
+
           {/* Clear Session */}
           <button
             onClick={clearCurrentConversation}
@@ -973,6 +1022,31 @@ export default function ChatView() {
         </div>
       </div>
 
+      {/* Row 2.5: Search bar if active */}
+      {showSearch && (
+        <div className="px-3 py-2 bg-zinc-900/95 border-b border-zinc-800 flex items-center gap-2">
+          <Search className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search messages in this session..."
+            className="flex-1 bg-zinc-950 border border-zinc-800 rounded-lg px-2.5 py-1 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-cyan-500"
+          />
+          {searchQuery && (
+            <button
+              onClick={() => setSearchQuery('')}
+              className="text-zinc-400 hover:text-white text-xs px-1"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
+          <span className="text-[10px] text-zinc-400 font-mono">
+            {visibleMessages.length} match{visibleMessages.length === 1 ? '' : 'es'}
+          </span>
+        </div>
+      )}
+
 
 
       {/* MAIN VIEW: MESSAGES TIMELINE */}
@@ -1021,10 +1095,30 @@ export default function ChatView() {
                     </button>
                   </div>
                 )}
+
+                {/* Quick Action Prompt Chips */}
+                <div className="w-full space-y-2 pt-2">
+                  <div className="text-[11px] font-bold text-zinc-400 text-left">Suggested Autonomous Workflows:</div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {QUICK_PROMPTS.map((qp, idx) => (
+                      <button
+                        key={idx}
+                        onClick={() => {
+                          setInputVal(qp.prompt);
+                          sendMessage(qp.prompt);
+                        }}
+                        className="text-left p-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-850 border border-zinc-800 hover:border-cyan-500/50 text-xs transition-all group cursor-pointer"
+                      >
+                        <div className="font-bold text-zinc-200 group-hover:text-cyan-300 mb-0.5">{qp.label}</div>
+                        <div className="text-[10px] text-zinc-400 line-clamp-2 leading-relaxed">{qp.prompt}</div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </div>
             )}
 
-            {messages.map((msg) => {
+            {visibleMessages.map((msg) => {
               const isUser = msg.role === 'user';
               const isStepsOpen = expandedSteps[msg.id] ?? true;
               const lastAssistantId = messages.filter(m => m.role === 'assistant' && !m.isStreaming).at(-1)?.id;
@@ -1254,6 +1348,53 @@ export default function ChatView() {
                         return renderFormattedContent(content);
                       })()}
                     </div>
+                  </div>
+                )}
+
+                {/* Assistant Message Actions Toolbar */}
+                {!isUser && !msg.isStreaming && (
+                  <div className="flex items-center gap-1.5 mt-1.5 px-1">
+                    {/* Speak Button */}
+                    <button
+                      onClick={() => handleSpeakMessage(msg.id, msg.content)}
+                      title={isSpeaking && speakingMessageId === msg.id ? "Stop voice playback" : "Read message aloud with Kokoro TTS"}
+                      className={`flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-medium transition-all cursor-pointer ${
+                        isSpeaking && speakingMessageId === msg.id
+                          ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40 animate-pulse'
+                          : 'bg-zinc-900/80 hover:bg-zinc-800 text-zinc-400 hover:text-white border border-zinc-800/80'
+                      }`}
+                    >
+                      {isSpeaking && speakingMessageId === msg.id ? (
+                        <>
+                          <VolumeX className="w-3 h-3 text-rose-400" />
+                          <span>Stop</span>
+                        </>
+                      ) : (
+                        <>
+                          <Volume2 className="w-3 h-3 text-cyan-400" />
+                          <span>Speak</span>
+                        </>
+                      )}
+                    </button>
+
+                    {/* Copy Message Button */}
+                    <button
+                      onClick={() => handleCopyMessage(msg.id, msg.content)}
+                      title="Copy full response"
+                      className="flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-medium bg-zinc-900/80 hover:bg-zinc-800 text-zinc-400 hover:text-white border border-zinc-800/80 transition-all cursor-pointer"
+                    >
+                      {copiedMessageId === msg.id ? (
+                        <>
+                          <Check className="w-3 h-3 text-emerald-400" />
+                          <span className="text-emerald-400 font-bold">Copied</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-3 h-3" />
+                          <span>Copy</span>
+                        </>
+                      )}
+                    </button>
                   </div>
                 )}
               </div>
