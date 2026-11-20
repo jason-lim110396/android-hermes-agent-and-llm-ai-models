@@ -23,6 +23,8 @@ import {
   Compass,
   ShieldCheck,
   SlidersHorizontal,
+  AlertTriangle,
+  Bell,
 } from 'lucide-react';
 import { useAppStore } from '@/appStore';
 import { AVAILABLE_MODELS } from '@/models';
@@ -51,6 +53,13 @@ export default function DeviceDiagnostics() {
   const [orientation, setOrientation] = useState<{ alpha: number; beta: number; gamma: number }>({ alpha: 0, beta: 0, gamma: 0 });
   const [governorMode, setGovernorMode] = useState<'adaptive' | 'performance' | 'cool'>('adaptive');
 
+  // Battery & SoC Thermal Auto-Throttling Guard State
+  const [warnTempThreshold, setWarnTempThreshold] = useState<number>(41.5);
+  const [criticalTempThreshold, setCriticalTempThreshold] = useState<number>(45.0);
+  const [autoThrottleEnabled, setAutoThrottleEnabled] = useState<boolean>(true);
+  const [hapticAlertEnabled, setHapticAlertEnabled] = useState<boolean>(true);
+  const [isSimulatingSpike, setIsSimulatingSpike] = useState<boolean>(false);
+
   useEffect(() => {
     const handleOrientation = (e: DeviceOrientationEvent) => {
       if (e.beta !== null && e.gamma !== null) {
@@ -68,11 +77,19 @@ export default function DeviceDiagnostics() {
 
     const thermalTimer = setInterval(() => {
       setThermalTemp((prev) => {
+        if (isSimulatingSpike) return prev;
         const delta = (Math.random() - 0.5) * 0.4;
         const newTemp = +(prev + delta).toFixed(1);
-        if (newTemp > 44) setThermalState('throttled');
-        else if (newTemp > 40) setThermalState('warm');
-        else setThermalState('nominal');
+        if (newTemp >= criticalTempThreshold) {
+          setThermalState('throttled');
+          if (hapticAlertEnabled && typeof navigator !== 'undefined' && navigator.vibrate) {
+            navigator.vibrate([100, 50, 100]);
+          }
+        } else if (newTemp >= warnTempThreshold) {
+          setThermalState('warm');
+        } else {
+          setThermalState('nominal');
+        }
         return newTemp;
       });
     }, 3000);
@@ -83,7 +100,25 @@ export default function DeviceDiagnostics() {
       }
       clearInterval(thermalTimer);
     };
-  }, []);
+  }, [isSimulatingSpike, warnTempThreshold, criticalTempThreshold, hapticAlertEnabled]);
+
+  const handleToggleThermalSimulation = () => {
+    if (!isSimulatingSpike) {
+      setIsSimulatingSpike(true);
+      setThermalTemp(45.6);
+      setThermalState('throttled');
+      if (hapticAlertEnabled && typeof navigator !== 'undefined' && navigator.vibrate) {
+        navigator.vibrate([150, 50, 150]);
+      }
+    } else {
+      setIsSimulatingSpike(false);
+      setThermalTemp(36.4);
+      setThermalState('nominal');
+      if (typeof navigator !== 'undefined' && navigator.vibrate) {
+        navigator.vibrate(30);
+      }
+    }
+  };
 
   // Read battery if supported
   useEffect(() => {
@@ -390,6 +425,127 @@ export default function DeviceDiagnostics() {
             className="px-2 py-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-[10px] font-sans text-zinc-300 cursor-pointer"
           >
             Test Haptic
+          </button>
+        </div>
+      </div>
+
+      {/* Battery & SoC Thermal Auto-Throttling Guard */}
+      <div className="rounded-2xl bg-zinc-900/60 border border-zinc-800 p-4 mb-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <ShieldAlert className={`w-4 h-4 ${thermalState === 'throttled' ? 'text-rose-400 animate-pulse' : thermalState === 'warm' ? 'text-amber-400' : 'text-emerald-400'}`} />
+            <h3 className="text-xs font-bold text-white uppercase tracking-wider">
+              Battery Thermal Guard & Auto-Throttling
+            </h3>
+          </div>
+          <span
+            className={`text-[10px] px-2 py-0.5 rounded-full font-bold font-mono border ${
+              thermalState === 'throttled'
+                ? 'bg-rose-500/20 text-rose-300 border-rose-500/50 animate-pulse'
+                : thermalState === 'warm'
+                ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+            }`}
+          >
+            {thermalState === 'throttled' ? 'ACTIVE THROTTLING' : thermalState === 'warm' ? 'THERMAL CAUTION' : 'GUARD OPTIMAL'}
+          </span>
+        </div>
+
+        {/* Live Status Description */}
+        <div className="p-3 rounded-xl bg-zinc-950 border border-zinc-800/80 text-xs space-y-1.5">
+          <div className="flex items-center justify-between text-zinc-300">
+            <span className="flex items-center gap-1.5">
+              <Flame className="w-3.5 h-3.5 text-amber-400" />
+              <span>Current SoC / Battery Core:</span>
+            </span>
+            <span className="font-mono font-bold text-white text-sm">{thermalTemp}°C</span>
+          </div>
+
+          {thermalState === 'throttled' && (
+            <div className="text-[11px] text-rose-300 font-sans bg-rose-950/40 p-2 rounded-lg border border-rose-900/50 space-y-1">
+              <div className="font-bold flex items-center gap-1">
+                <AlertTriangle className="w-3.5 h-3.5" />
+                <span>Auto-Throttle Guard Active: Safeguarding Battery Lifespan</span>
+              </div>
+              <ul className="list-disc list-inside text-rose-300/80 text-[10px] space-y-0.5">
+                <li>WebGPU inference batch size clamped from 32 to 8 tokens</li>
+                <li>Injected 35ms thread yield sleep per attention layer</li>
+                <li>Background vector re-indexing tasks temporarily suspended</li>
+              </ul>
+            </div>
+          )}
+        </div>
+
+        {/* Sliders and Toggles */}
+        <div className="grid grid-cols-2 gap-3 text-xs pt-1">
+          <div className="space-y-1">
+            <div className="flex justify-between text-zinc-400 text-[11px]">
+              <span>Warning Threshold</span>
+              <span className="text-amber-400 font-mono font-bold">{warnTempThreshold}°C</span>
+            </div>
+            <input
+              type="range"
+              min="38"
+              max="44"
+              step="0.5"
+              value={warnTempThreshold}
+              onChange={(e) => setWarnTempThreshold(parseFloat(e.target.value))}
+              className="w-full accent-amber-500 cursor-pointer"
+            />
+          </div>
+
+          <div className="space-y-1">
+            <div className="flex justify-between text-zinc-400 text-[11px]">
+              <span>Throttle Cutoff</span>
+              <span className="text-rose-400 font-mono font-bold">{criticalTempThreshold}°C</span>
+            </div>
+            <input
+              type="range"
+              min="43"
+              max="50"
+              step="0.5"
+              value={criticalTempThreshold}
+              onChange={(e) => setCriticalTempThreshold(parseFloat(e.target.value))}
+              className="w-full accent-rose-500 cursor-pointer"
+            />
+          </div>
+        </div>
+
+        {/* Toggles and Simulation Action */}
+        <div className="flex items-center justify-between pt-2 border-t border-zinc-800/80">
+          <div className="flex items-center gap-3">
+            <label className="flex items-center gap-1.5 text-xs text-zinc-300 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={autoThrottleEnabled}
+                onChange={(e) => setAutoThrottleEnabled(e.target.checked)}
+                className="rounded accent-cyan-500"
+              />
+              <span>Auto-Throttle</span>
+            </label>
+            <label className="flex items-center gap-1.5 text-xs text-zinc-300 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={hapticAlertEnabled}
+                onChange={(e) => setHapticAlertEnabled(e.target.checked)}
+                className="rounded accent-cyan-500"
+              />
+              <span className="flex items-center gap-1">
+                <Bell className="w-3 h-3 text-amber-400" />
+                <span>Haptic Alarm</span>
+              </span>
+            </label>
+          </div>
+
+          <button
+            onClick={handleToggleThermalSimulation}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
+              isSimulatingSpike
+                ? 'bg-rose-500/20 text-rose-300 border-rose-500/50 hover:bg-rose-500/30'
+                : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border-zinc-700'
+            }`}
+          >
+            {isSimulatingSpike ? 'Reset Normal Temp' : 'Simulate Spike (45.6°C)'}
           </button>
         </div>
       </div>
