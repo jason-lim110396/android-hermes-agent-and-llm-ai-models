@@ -557,15 +557,52 @@ export default function ChatView() {
   const [activeAudioPlayingId, setActiveAudioPlayingId] = useState<string | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
+  // Incremented on every cancel/send/unmount. A getUserMedia promise that
+  // resolves after any of those must release its stream instead of recording.
+  const voiceRequestIdRef = useRef(0);
+  const isVoiceMountedRef = useRef(true);
+  const isFinalizingVoiceRef = useRef(false);
   const voiceTimerRef = useRef<any>(null);
   const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
   const currentTranscriptRef = useRef<string>('');
 
 
 
+  // Release every voice-capture resource when this view goes away, including a
+  // getUserMedia request that is still pending at unmount time.
+  React.useEffect(() => {
+    isVoiceMountedRef.current = true;
+    return () => {
+      isVoiceMountedRef.current = false;
+      voiceRequestIdRef.current++;
+      if (voiceTimerRef.current) clearInterval(voiceTimerRef.current);
+      if (recognitionRef.current) {
+        try { recognitionRef.current.stop(); } catch (_) {}
+        recognitionRef.current = null;
+      }
+      const recorder = mediaRecorderRef.current;
+      if (recorder) {
+        // A send already waiting for onstop owns the recorder; stopping it here
+        // would discard the final chunk. Its own finish() releases the tracks.
+        if (!isFinalizingVoiceRef.current) {
+          try { if (recorder.state !== 'inactive') recorder.stop(); } catch (_) {}
+          try { recorder.stream.getTracks().forEach((t) => t.stop()); } catch (_) {}
+          mediaRecorderRef.current = null;
+        }
+      }
+      if (!isFinalizingVoiceRef.current) audioChunksRef.current = [];
+    };
+  }, []);
+
   // Start WhatsApp-Style Voice Recording
   const startWhatsAppVoiceRecording = async () => {
     if (typeof window === 'undefined') return;
+
+    const requestId = ++voiceRequestIdRef.current;
+    const isCurrent = () => isVoiceMountedRef.current && voiceRequestIdRef.current === requestId;
+    const releaseStream = (stream: MediaStream) => {
+      try { stream.getTracks().forEach((t) => t.stop()); } catch (_) {}
+    };
 
     audioChunksRef.current = [];
     currentTranscriptRef.current = '';
@@ -622,6 +659,17 @@ export default function ChatView() {
 
         const stream = await Promise.race([mediaStreamPromise, timeoutPromise]) as MediaStream | null;
         if (stream) {
+          // The user may have cancelled, sent, or navigated away while the
+          // permission prompt was open. Never start a recorder with that stale
+          // stream: the microphone track would stay live in the background.
+          if (!isCurrent()) {
+            releaseStream(stream);
+            if (recognitionRef.current) {
+              try { recognitionRef.current.stop(); } catch (_) {}
+              recognitionRef.current = null;
+            }
+            return;
+          }
           hasAudioStream = true;
           const mediaRecorder = new MediaRecorder(stream);
           mediaRecorderRef.current = mediaRecorder;
@@ -659,6 +707,7 @@ export default function ChatView() {
 
   // Cancel recording without sending (WhatsApp trash / slide to cancel)
   const cancelVoiceRecording = () => {
+    voiceRequestIdRef.current++;
     if (voiceTimerRef.current) clearInterval(voiceTimerRef.current);
     if (recognitionRef.current) {
       try { recognitionRef.current.stop(); } catch (_) {}
@@ -680,6 +729,7 @@ export default function ChatView() {
 
   // Finish recording and send directly to LLM with audio voice note attachment!
   const finishVoiceRecordingAndSend = async () => {
+    voiceRequestIdRef.current++;
     if (voiceTimerRef.current) clearInterval(voiceTimerRef.current);
     const duration = recordDurationSec;
 
@@ -694,18 +744,25 @@ export default function ChatView() {
 
     // Stop the recorder and wait for its final ondataavailable + stop event
     // before building the blob; building it earlier truncates the recording.
+    isFinalizingVoiceRef.current = true;
     const recorder = mediaRecorderRef.current;
     if (recorder && recorder.state !== 'inactive') {
       audioBlob = await new Promise<Blob | null>((resolve) => {
         let settled = false;
         let stopTimeout: ReturnType<typeof setTimeout> | undefined;
+        let finished = false;
         const finish = () => {
           if (settled) return;
           settled = true;
           clearTimeout(stopTimeout);
-          try {
-            recorder.stream.getTracks().forEach((t) => t.stop());
-          } catch (_) {}
+          // Always release the hardware here, even if unmount happened mid-send:
+          // the blob has been baked from the chunks collected so far.
+          if (!finished) {
+            finished = true;
+            try {
+              recorder.stream.getTracks().forEach((t) => t.stop());
+            } catch (_) {}
+          }
           resolve(audioChunksRef.current.length > 0
             ? new Blob(audioChunksRef.current, { type: 'audio/webm' })
             : null);
@@ -723,6 +780,7 @@ export default function ChatView() {
       audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
     }
     mediaRecorderRef.current = null;
+    isFinalizingVoiceRef.current = false;
 
     // Chunks are baked into the blob now; clear them so the next voice note
     // never mixes in fragments of this recording.
