@@ -158,15 +158,22 @@ export default class ErrorBoundary extends React.Component<ErrorBoundaryProps, E
             {/* Runtime fault details in a small mono block */}
             <div className="w-full rounded-xl bg-zinc-900/80 border border-zinc-800/80 px-3 py-2 text-left">
               <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1">Runtime Fault</p>
-              <code className="block text-[11px] font-mono text-rose-300 break-all leading-relaxed">
+              <code className="block max-h-32 overflow-y-auto text-[11px] font-mono text-rose-300 break-all leading-relaxed">
                 {this.state.errorMessage || 'Unknown error'}
               </code>
             </div>
 
-            <div className="flex flex-wrap items-center justify-center gap-2 mt-1">
+            {this.state.isRepeatCrash && (
+              <p className="text-[11px] text-zinc-500 leading-relaxed">
+                The identical fault repeated shortly after recovery. Try a full reload to reset the
+                session state.
+              </p>
+            )}
+
+            <div className="flex w-full flex-col items-stretch gap-2 mt-1">
               <button
                 onClick={this.handleRecovery}
-                className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white text-xs font-black transition-all cursor-pointer shadow-md ring-1 ring-white/20 active:scale-95"
+                className="flex min-h-12 w-full items-center justify-center gap-1.5 px-4 py-3 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white text-xs font-black transition-all cursor-pointer shadow-md ring-1 ring-white/20 active:scale-95"
               >
                 <RefreshCw className="w-4 h-4" />
                 <span>Recovery</span>
@@ -176,20 +183,13 @@ export default class ErrorBoundary extends React.Component<ErrorBoundaryProps, E
                 <button
                   onClick={this.handleFullReload}
                   title="The exact same fault resurfaced within 30 seconds of recovery, reload the full session"
-                  className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-black transition-all cursor-pointer shadow-md shadow-rose-600/40 active:scale-95"
+                  className="flex min-h-12 w-full items-center justify-center gap-1.5 px-4 py-3 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-black transition-all cursor-pointer shadow-md shadow-rose-600/40 active:scale-95"
                 >
                   <RotateCcw className="w-4 h-4" />
                   <span>Full Reload</span>
                 </button>
               )}
             </div>
-
-            {this.state.isRepeatCrash && (
-              <p className="text-[11px] text-zinc-500 leading-relaxed">
-                The identical fault repeated shortly after recovery. Try a full reload to reset the
-                session state.
-              </p>
-            )}
           </div>
         </div>
       );
@@ -212,15 +212,21 @@ export default class ErrorBoundary extends React.Component<ErrorBoundaryProps, E
           {/* Runtime fault details in a small mono block */}
           <div className="w-full rounded-xl bg-zinc-900/80 border border-zinc-800/80 px-3 py-2 text-left">
             <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1">Runtime Fault</p>
-            <code className="block text-[11px] font-mono text-rose-300 break-all leading-relaxed">
+            <code className="block max-h-32 overflow-y-auto text-[11px] font-mono text-rose-300 break-all leading-relaxed">
               {this.state.errorMessage || 'Unknown error'}
             </code>
           </div>
 
-          <div className="flex flex-wrap items-center justify-center gap-2 mt-1">
+          {this.state.isRepeatCrash && (
+            <p className="text-[11px] text-zinc-500 leading-relaxed">
+              The identical fault repeated shortly after recovery. Try a full reload to reset the session state.
+            </p>
+          )}
+
+          <div className="flex w-full flex-col items-stretch gap-2 mt-1">
             <button
               onClick={this.handleRecovery}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white text-xs font-black transition-all cursor-pointer shadow-md ring-1 ring-white/20 active:scale-95"
+              className="flex min-h-12 w-full items-center justify-center gap-1.5 px-4 py-3 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white text-xs font-black transition-all cursor-pointer shadow-md ring-1 ring-white/20 active:scale-95"
             >
               <RefreshCw className="w-4 h-4" />
               <span>Recovery</span>
@@ -230,19 +236,13 @@ export default class ErrorBoundary extends React.Component<ErrorBoundaryProps, E
               <button
                 onClick={this.handleFullReload}
                 title="The exact same fault resurfaced within 30 seconds of recovery, reload the full session"
-                className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-black transition-all cursor-pointer shadow-md shadow-rose-600/40 active:scale-95"
+                className="flex min-h-12 w-full items-center justify-center gap-1.5 px-4 py-3 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-black transition-all cursor-pointer shadow-md shadow-rose-600/40 active:scale-95"
               >
                 <RotateCcw className="w-4 h-4" />
                 <span>Full Reload</span>
               </button>
             )}
           </div>
-
-          {this.state.isRepeatCrash && (
-            <p className="text-[11px] text-zinc-500 leading-relaxed">
-              The identical fault repeated shortly after recovery. Try a full reload to reset the session state.
-            </p>
-          )}
         </div>
       </div>
     );
