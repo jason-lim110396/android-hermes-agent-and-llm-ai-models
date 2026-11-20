@@ -25,9 +25,11 @@ import {
   BatteryCharging,
   Flame,
   ShieldCheck,
+  Wrench,
 } from 'lucide-react';
 import { useAppStore } from '@/appStore';
 import { AGENT_TOOLS } from '@/agentTools';
+import StructuredToolTesterModal from './StructuredToolTesterModal';
 
 interface WorkflowTemplate {
   id: string;
@@ -133,6 +135,7 @@ export default function TaskWorkflowsStudio() {
   const [finalOutput, setFinalOutput] = useState<string | null>(null);
   const [generatedFile, setGeneratedFile] = useState<{ name: string; url: string; size: string } | null>(null);
   const [copied, setCopied] = useState(false);
+  const [isToolTesterOpen, setIsToolTesterOpen] = useState(false);
 
   const currentTemplate = PRESET_WORKFLOWS.find((w) => w.id === activeWorkflowId) || PRESET_WORKFLOWS[0];
 
@@ -519,6 +522,14 @@ export default function TaskWorkflowsStudio() {
         <p className="text-xs text-zinc-400 max-w-lg mt-1 leading-relaxed">
           Trigger real autonomous pipelines on your smartphone: scanning device receipts, compiling actual CSV expense sheets, synthesizing morning voice briefings, and triggering tactile haptics.
         </p>
+
+        <button
+          onClick={() => setIsToolTesterOpen(true)}
+          className="mt-3 px-3 py-1.5 rounded-xl bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/40 text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-all w-fit shadow-md"
+        >
+          <Wrench className="w-3.5 h-3.5" />
+          <span>Structured Tool & JSON Schema Playground</span>
+        </button>
       </div>
 
       {/* Preset Workflow Cards */}
@@ -698,6 +709,11 @@ export default function TaskWorkflowsStudio() {
           )}
         </div>
       )}
+      {/* Structured Tool Calling & JSON Schema Modal */}
+      <StructuredToolTesterModal
+        isOpen={isToolTesterOpen}
+        onClose={() => setIsToolTesterOpen(false)}
+      />
     </div>
   );
 }
