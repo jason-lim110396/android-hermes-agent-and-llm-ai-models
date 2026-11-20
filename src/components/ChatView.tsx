@@ -753,6 +753,9 @@ export default function ChatView() {
 
   // Finish recording and send directly to LLM with audio voice note attachment!
   const finishVoiceRecordingAndSend = async () => {
+    // Ignore overlapping Send taps: a second call would clear isFinalizingVoiceRef
+    // while the first call is still awaiting its final audio chunk.
+    if (isFinalizingVoiceRef.current) return;
     voiceRequestIdRef.current++;
     if (voiceTimerRef.current) clearInterval(voiceTimerRef.current);
     const duration = recordDurationSec;
