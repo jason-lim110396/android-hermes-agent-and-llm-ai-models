@@ -88,32 +88,32 @@ function mapTrimmed(
 }
 
 function tryWrite(payload: PersistedSessions): boolean {
-  // Escalating degradation, computed once up front: full -> no attachments ->
+  // Escalating degradation, computed lazily: full -> no attachments ->
   // progressively shorter histories. Each level keeps the most recent content
-  // possible; the no-attachment trees are shared by every trim level.
-  const noAttach: PersistedSessions = {
-    ...payload,
-    chatSessions: Object.fromEntries(
-      Object.entries(payload.chatSessions).map(([id, s]) => [id, { ...s, messages: stripAttachments(s.messages) }])
-    ),
-    agentSessions: Object.fromEntries(
-      Object.entries(payload.agentSessions).map(([id, s]) => [id, { ...s, messages: stripAttachments(s.messages) }])
-    ),
-  };
-  const levels: PersistedSessions[] = [
-    payload,
-    noAttach,
-    ...TRIM_MESSAGES_STEPS.map((keep) => ({
-      chatSessions: mapTrimmed(noAttach.chatSessions, keep),
-      agentSessions: mapTrimmed(noAttach.agentSessions, keep),
+  // possible; the no-attachment trees are computed once and shared by every
+  // trim level, and a successful write only ever pays for the level it used.
+  const levels: Array<() => PersistedSessions> = [
+    () => payload,
+    () => {
+      const noAttach: PersistedSessions = {
+        ...payload,
+        chatSessions: mapNoAttachments(payload.chatSessions),
+        agentSessions: mapNoAttachments(payload.agentSessions),
+      };
+      strippedTrees = noAttach;
+      return noAttach;
+    },
+    ...TRIM_MESSAGES_STEPS.map((keep) => () => ({
+      chatSessions: mapTrimmed(strippedTrees.chatSessions, keep),
+      agentSessions: mapTrimmed(strippedTrees.agentSessions, keep),
       activeChatSessionId: payload.activeChatSessionId,
       activeAgentSessionId: payload.activeAgentSessionId,
     })),
   ];
 
-  for (const level of levels) {
+  for (const build of levels) {
     try {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(level));
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(build()));
       return true;
     } catch (_) {
       // Quota exceeded: fall through to the next, smaller level.
@@ -121,6 +121,16 @@ function tryWrite(payload: PersistedSessions): boolean {
   }
   return false;
 }
+
+function mapNoAttachments(sessions: Record<string, ChatSession>): Record<string, ChatSession> {
+  return Object.fromEntries(
+    Object.entries(sessions).map(([id, s]) => [id, { ...s, messages: stripAttachments(s.messages) }])
+  );
+}
+
+// Memoized inside tryWrite for one degradation attempt: every trim level
+// reuses the same attachment-stripped trees instead of rebuilding them.
+let strippedTrees: PersistedSessions = null as unknown as PersistedSessions;
 
 /** Synchronous write of the most recent snapshot. Never throws. */
 function flushPersistNow(): void {
