@@ -122,7 +122,7 @@ const PRESET_WORKFLOWS: WorkflowTemplate[] = [
     id: 'git-diff-auditor',
     title: 'Git Diff & Code Patch Review Automator',
     category: 'Developer & Code Audit',
-    description: 'Paste a unified git diff into the goal box: file count, +/- line metrics, and a secret-pattern scan are computed from YOUR diff. No diff pasted means nothing is analyzed - no invented metrics.',
+    description: 'Paste a unified git diff into the goal box, then tap Execute on this card - or tap Run Task, which auto-detects pasted diffs. File count, +/- line metrics and a secret-pattern scan are computed from YOUR diff. No diff pasted means nothing is analyzed.',
     stepsCount: 4,
     icon: GitPullRequest,
     color: 'from-violet-500 to-indigo-600',
@@ -188,6 +188,16 @@ interface ExecutionLog {
   result?: string;
 }
 
+/** True when the text looks like a unified git diff (header or +/- hunk
+ * markers), so Run Task can route a pasted diff to the diff auditor. */
+function looksLikeUnifiedDiff(text: string): boolean {
+  const t = text.trim();
+  if (!t) return false;
+  if (t.startsWith('diff --git ')) return true;
+  const lines = t.split(/\r?\n/);
+  return lines.some((l) => l.startsWith('+++ ')) && lines.some((l) => l.startsWith('--- '));
+}
+
 export default function TaskWorkflowsStudio() {
   const speakText = useAppStore((s) => s.speakText);
 
@@ -222,6 +232,14 @@ export default function TaskWorkflowsStudio() {
     setGeneratedFile(null);
     setLogs([]);
 
+    // A pasted unified diff in the goal box routes to the diff auditor: Run
+    // Task auto-detects diff-looking text, and the auditor card's Execute
+    // passes the goal text, so the real diff parser is reachable from both
+    // entry points instead of being dead code behind a "custom" pipeline.
+    if (workflowId === 'custom' && looksLikeUnifiedDiff(customPrompt || '')) {
+      workflowId = 'git-diff-auditor';
+    }
+
     // Resolve the template from the workflowId argument, not from
     // currentTemplate: the Execute button can fire for a card whose
     // setActiveWorkflowId has not re-rendered yet, which previously ran the
@@ -231,13 +249,13 @@ export default function TaskWorkflowsStudio() {
 
     if (workflowId === 'expense-auditor') {
       // Step 1: Find Receipts
-      const step1: ExecutionLog = { step: 1, toolName: 'find_device_files', status: 'running', detail: 'Scanning phone storage (/DCIM/Camera) for receipt and invoice images...' };
+      const step1: ExecutionLog = { step: 1, toolName: 'find_device_files', status: 'running', detail: 'Searching app-local files for receipt and invoice notes (a WebView cannot read /DCIM)...' };
       setLogs([step1]);
       setCurrentStepIndex(1);
       await new Promise((r) => setTimeout(r, 600));
 
       const findTool = AGENT_TOOLS.find((t) => t.name === 'find_device_files');
-      const filesResult = findTool ? await findTool.execute({ query: 'store receipt invoice tax grocery', file_type: 'image' }) : 'Files located.';
+      const filesResult = findTool ? await findTool.execute({ query: 'store receipt invoice tax grocery', file_type: 'image' }) : 'App-local search unavailable.';
       step1.status = 'completed';
       step1.result = filesResult;
 
@@ -298,12 +316,13 @@ export default function TaskWorkflowsStudio() {
       await new Promise((r) => setTimeout(r, 700));
 
       const searchTool = AGENT_TOOLS.find((t) => t.name === 'web_search');
-      const searchResult = searchTool ? await searchTool.execute({ query: 'latest AI tech release updates' }) : 'Headlines retrieved.';
+      const searchResult = searchTool ? await searchTool.execute({ query: 'latest AI tech release updates' }) : 'Web search tool unavailable.';
       step2.status = 'completed';
       step2.result = searchResult;
 
-      // Step 3: Kokoro Neural Voice Synthesis
-      const step3: ExecutionLog = { step: 3, toolName: 'voice_studio (Kokoro TTS)', status: 'running', detail: 'Synthesizing conversational audio briefing with Kokoro TTS engine...' };
+      // Step 3: Voice briefing via the Web Speech API (what actually runs;
+      // there is no Kokoro engine behind this button).
+      const step3: ExecutionLog = { step: 3, toolName: 'voice_studio (Web Speech API)', status: 'running', detail: 'Handing the briefing text to the Web Speech API (it speaks only where this WebView provides speech synthesis)...' };
       setLogs([step1, step2, step3]);
       setCurrentStepIndex(3);
       await new Promise((r) => setTimeout(r, 600));
@@ -311,7 +330,7 @@ export default function TaskWorkflowsStudio() {
       const speechBrief = 'Good morning. Your device check has finished; measured battery, memory, storage and network values are listed in the briefing panel. Top tech headlines from the live web search are listed below as well.';
       speakText(speechBrief);
       step3.status = 'completed';
-      step3.result = `Audio briefing synthesized and currently playing through phone speaker.`;
+      step3.result = 'Briefing text handed to the Web Speech API. It plays aloud only if this WebView provides speech synthesis.';
 
       // Step 4: Schedule Reminder
       const step4: ExecutionLog = { step: 4, toolName: 'device_reminder', status: 'running', detail: 'Arming daily automated check reminder in local device storage...' };
@@ -1223,7 +1242,7 @@ export default function TaskWorkflowsStudio() {
         <div className="flex items-center gap-2 mb-1">
           <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400 text-[10px] font-bold uppercase tracking-wider">
             <Zap className="w-3 h-3" />
-            <span>Autonomous Mobile Workflows & Task Execution</span>
+            <span>Mobile Task Pipelines & Execution</span>
           </div>
         </div>
         <h1 className="text-xl font-black text-white tracking-tight">Mobile Task Pipelines</h1>
@@ -1276,7 +1295,9 @@ export default function TaskWorkflowsStudio() {
                   onClick={(e) => {
                     e.stopPropagation();
                     setActiveWorkflowId(wf.id);
-                    runWorkflow(wf.id);
+                    // The diff auditor parses the goal-box content: pass it
+                    // explicitly so the card's Execute is not dead code.
+                    runWorkflow(wf.id, wf.id === 'git-diff-auditor' ? customGoal.trim() || undefined : undefined);
                   }}
                   disabled={isRunning}
                   className="flex items-center gap-1.5 px-3 py-1 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-black font-extrabold text-xs shadow-md transition-all cursor-pointer disabled:opacity-50"
