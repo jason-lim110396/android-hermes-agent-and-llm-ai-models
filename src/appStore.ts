@@ -205,6 +205,109 @@ function resolveFallbackConfig(get: () => AppStore) {
   return { fallbacks, onFallback, onRemoteChainExhausted };
 }
 
+// UI-only text that was baked into assistant message content for the user.
+// It must never ride back into the LLM prompt as a fake assistant reply, so
+// both runtimes strip it when rebuilding conversation history.
+const PROMPT_NOTICE_PREFIXES = [
+  '> Remote model unavailable:',
+  '> All remote models unavailable:',
+  '> Privacy guard redacted ',
+];
+const STOPPED_MARKERS = ['*[Stopped by user]*', '*[Task stopped by user]*'];
+const FAILED_MARKER_RE = /^\*\[Generation failed: .*\]\*$/;
+
+/** Strips the blockquote fallback/privacy notices and the stopped/failed
+ * markers that were rendered into a past assistant reply. Returns the
+ * content unchanged when nothing was stripped. */
+export function stripPromptNotices(content: string): string {
+  if (!content) return content;
+  const lines = content.split('\n');
+  const kept = lines.filter((line) => {
+    const trimmed = line.trim();
+    if (STOPPED_MARKERS.includes(trimmed)) return false;
+    if (FAILED_MARKER_RE.test(trimmed)) return false;
+    return !PROMPT_NOTICE_PREFIXES.some((p) => trimmed.startsWith(p));
+  });
+  if (kept.length === lines.length) return content;
+  // Drop the blank separator line the notice was appended with.
+  while (kept.length > 0 && kept[kept.length - 1].trim() === '') kept.pop();
+  return kept.join('\n');
+}
+
+/** Leading UI announcements the runtimes prepend to a stored reply
+ * (attachment receipt / multimodal-visual notice). */
+const ANNOUNCEMENT_PREFIX_RES = [
+  /^\*Received \d+ attachment\(s\)[^\n]*\*\n+/,
+  /^### 👁️ Multimodal Visual Context Ingested\n[^\n]*\n+/,
+];
+
+/** True when the whole message is an on-device error display, not a real
+ * model reply, so it must not enter the conversation history the next
+ * request is built from. A turn with attachments stores the error display
+ * behind the announcement prefix, so look past it before testing. */
+export function isErrorDisplayMessage(content: string): boolean {
+  let trimmed = (content || '').trim();
+  let stripped = true;
+  while (stripped) {
+    stripped = false;
+    for (const re of ANNOUNCEMENT_PREFIX_RES) {
+      const next = trimmed.replace(re, '');
+      if (next !== trimmed) {
+        trimmed = next.trim();
+        stripped = true;
+      }
+    }
+  }
+  return (
+    trimmed.startsWith('⚠️ **On-Device LLM Inference Error**') ||
+    trimmed.startsWith('⚠️ **CPU (WASM) Inference Error**')
+  );
+}
+
+/** Short "answered by" label for the message header. */
+function answeredByLabel(info: { label: string; model?: string }): string {
+  if (info.model && (!info.label || info.label === 'primary endpoint')) return info.model;
+  return info.label;
+}
+
+/** Pins the "answered by" label onto the assistant message after the turn,
+ * in the session that owns the stream (captured at send time, like every
+ * other streaming write). */
+function setMsgModelUsed(
+  id: string,
+  modelUsed: string,
+  mode: 'chat' | 'agent',
+  sessionId: string,
+  set: any,
+  get: any
+) {
+  if (mode === 'agent') {
+    const sess = get().agentSessions[sessionId];
+    if (!sess) return;
+    set({
+      agentSessions: {
+        ...get().agentSessions,
+        [sessionId]: {
+          ...sess,
+          messages: sess.messages.map((m: ChatMessage) => (m.id === id ? { ...m, modelUsed } : m)),
+        },
+      },
+    });
+  } else {
+    const sess = get().chatSessions[sessionId];
+    if (!sess) return;
+    set({
+      chatSessions: {
+        ...get().chatSessions,
+        [sessionId]: {
+          ...sess,
+          messages: sess.messages.map((m: ChatMessage) => (m.id === id ? { ...m, modelUsed } : m)),
+        },
+      },
+    });
+  }
+}
+
 export const useAppStore = create<AppStore>((set, get) => ({
   currentTab: 'chat',
   setCurrentTab: (tab) => set({ currentTab: tab }),
@@ -1104,26 +1207,42 @@ export const useAppStore = create<AppStore>((set, get) => ({
       }
     } catch (err: any) {
       console.warn('Execution stopped or encountered error:', err?.message || err);
-      // Ensure streaming message shows stopped notice if aborted. Look the
-      // message up in the session captured at send time, not the currently
-      // active one (the user may have switched sessions mid-stream), and
-      // branch on the mode captured at SEND time: get().operatingMode is the
-      // CURRENT mode, so a user who started a chat reply, switched to Agent
-      // mode, then hit Stop left the real streaming message stuck with
-      // isStreaming true and a spinner that never cleared.
+      // Only the known stop signature (the user pressed Stop / the run was
+      // aborted) is a user stop. Any other error while the message is still
+      // streaming is a real failure and must be named, not mislabeled as
+      // "stopped by user".
+      const isUserStop =
+        err?.name === 'AbortError' ||
+        err?.name === 'WllamaAbortError' ||
+        (typeof err?.message === 'string' && /stopped by user|abort/i.test(err.message));
+      const failureReason = String(err?.message || err || 'unknown error')
+        .replace(/[\r\n]+/g, ' ')
+        .replace(/`/g, "'")
+        // One line only: a multi-line reason would break the single-line
+        // marker that stripPromptNotices must match on the next turn.
+        .slice(0, 200);
+      const stoppedSuffix = isUserStop ? '*[Stopped by user]*' : `*[Generation failed: ${failureReason}]*`;
+      const emptyStopped = isUserStop ? '*[Task stopped by user]*' : `*[Generation failed: ${failureReason}]*`;
+      // Look the message up in the session captured at send time, not the
+      // currently active one (the user may have switched sessions
+      // mid-stream), and branch on the mode captured at SEND time:
+      // get().operatingMode is the CURRENT mode, so a user who started a
+      // chat reply, switched to Agent mode, then hit Stop left the real
+      // streaming message stuck with isStreaming true and a spinner that
+      // never cleared.
       const activeAgentId = owningAgentSessionId;
       const activeChatId = owningChatSessionId;
       if (operatingMode === 'agent') {
         const sess = get().agentSessions[activeAgentId];
         const target = sess?.messages.find((m) => m.id === assistantMsgId);
         if (target && target.isStreaming) {
-          updateMsg(assistantMsgId, target.agentSteps || [], target.content ? `${target.content}\n\n*[Stopped by user]*` : '*[Task stopped by user]*', false, set, get, 'agent', activeAgentId);
+          updateMsg(assistantMsgId, target.agentSteps || [], target.content ? `${target.content}\n\n${stoppedSuffix}` : emptyStopped, false, set, get, 'agent', activeAgentId);
         }
       } else {
         const sess = get().chatSessions[activeChatId];
         const target = sess?.messages.find((m) => m.id === assistantMsgId);
         if (target && target.isStreaming) {
-          updateMsg(assistantMsgId, [], target.content ? `${target.content}\n\n*[Stopped by user]*` : '*[Task stopped by user]*', false, set, get, 'chat', activeChatId);
+          updateMsg(assistantMsgId, [], target.content ? `${target.content}\n\n${stoppedSuffix}` : emptyStopped, false, set, get, 'chat', activeChatId);
         }
       }
     } finally {
@@ -1380,12 +1499,15 @@ async function executeHermesAgent(
   const maxTurnsToKeep = isLive ? 4 : 10;
   
   const priorMessages = (currentAgentSess?.messages || [])
-    .filter((m: ChatMessage) => m.id !== assistantMsgId && m.content)
+    .filter((m: ChatMessage) => m.id !== assistantMsgId && m.content && !isErrorDisplayMessage(m.content))
     .slice(-maxTurnsToKeep)
     .map((m: ChatMessage) => ({
       role: m.role,
-      content: m.content,
-    }));
+      // Strip UI notices (fallback switch / privacy / stopped / failed) so
+      // they are not sent to the model as if the assistant had said them.
+      content: m.role === 'assistant' ? stripPromptNotices(m.content) : m.content,
+    }))
+    .filter((m: { role: string; content: string }) => m.content.trim() && !isErrorDisplayMessage(m.content));
 
   // Ensure conversation history includes all previous turns plus current contextPrompt as the final user message
   const messagesToSend = priorMessages.length > 0 && priorMessages[priorMessages.length - 1]?.role === 'user'
@@ -1404,6 +1526,9 @@ async function executeHermesAgent(
 
   let agentStreamLastFlush = 0;
   const noticeIdBeforeAgent = get().fallbackNoticeId;
+  // Set when a remote endpoint actually answers; the message header is
+  // relabeled from it after the turn instead of the send-time selection.
+  let answeredBy: { label: string; model?: string } | null = null;
   const fullResult = await callRealLLMInference({
     messages: messagesToSend,
     modelId,
@@ -1417,6 +1542,9 @@ async function executeHermesAgent(
       apiKey,
       customModelName: get().customModelName || undefined,
       ...resolveFallbackConfig(get),
+      onAnsweredModel: (info: { label: string; model?: string }) => {
+        answeredBy = info;
+      },
       onPrivacyRedaction: (count: number) => {
         get().setFallbackNotice(`Privacy guard redacted ${count} high-confidence secret value${count === 1 ? '' : 's'} before the remote request.`);
       },
@@ -1449,6 +1577,12 @@ async function executeHermesAgent(
   const agentNotice = get().fallbackNotice;
   const displayText = finalText + (agentNotice && get().fallbackNoticeId !== noticeIdBeforeAgent ? `\n\n> ${agentNotice}` : '');
   updateMsg(assistantMsgId, steps, displayText, false, set, get, 'agent', sessionId);
+
+  // Label the reply with the endpoint that actually answered (primary or
+  // fallback). With no remote answer the send-time on-device label stands.
+  if (answeredBy) {
+    setMsgModelUsed(assistantMsgId, answeredByLabel(answeredBy), 'agent', sessionId, set, get);
+  }
 
   // Trigger optional speech readout
   if ((get().isVoiceOutputEnabled || get().operatingMode === 'voice') && displayText) {
@@ -1486,12 +1620,15 @@ async function executeDirectChat(
   const maxTurnsToKeep = isLive ? 4 : 10;
 
   const priorMessages = (currentChatSess?.messages || [])
-    .filter((m: ChatMessage) => m.id !== assistantMsgId && m.content)
+    .filter((m: ChatMessage) => m.id !== assistantMsgId && m.content && !isErrorDisplayMessage(m.content))
     .slice(-maxTurnsToKeep)
     .map((m: ChatMessage) => ({
       role: m.role,
-      content: m.content,
-    }));
+      // Strip UI notices (fallback switch / privacy / stopped / failed) so
+      // they are not sent to the model as if the assistant had said them.
+      content: m.role === 'assistant' ? stripPromptNotices(m.content) : m.content,
+    }))
+    .filter((m: { role: string; content: string }) => m.content.trim() && !isErrorDisplayMessage(m.content));
 
   // Maximum model usage: inject attached document text, code, and image descriptions directly into prompt
   let fullPrompt = userText;
@@ -1530,6 +1667,9 @@ async function executeDirectChat(
 
   let chatStreamLastFlush = 0;
   const noticeIdBeforeChat = get().fallbackNoticeId;
+  // Set when a remote endpoint actually answers; the message header is
+  // relabeled from it after the turn instead of the send-time selection.
+  let answeredBy: { label: string; model?: string } | null = null;
   const fullResult = await callRealLLMInference({
     messages: messagesToSend,
     modelId,
@@ -1543,6 +1683,9 @@ async function executeDirectChat(
       apiKey,
       customModelName: get().customModelName || undefined,
       ...resolveFallbackConfig(get),
+      onAnsweredModel: (info: { label: string; model?: string }) => {
+        answeredBy = info;
+      },
     },
     onProgress: (statusText, pct) => {
       updateMsg(assistantMsgId, [], `${attachPrefix}*[Loading On-Device Model Weights: ${pct}% - ${statusText}]*`, true, set, get, 'chat', sessionId);
@@ -1578,6 +1721,12 @@ async function executeDirectChat(
   const chatNotice = get().fallbackNotice;
   const displayText = finalText + (chatNotice && get().fallbackNoticeId !== noticeIdBeforeChat ? `\n\n> ${chatNotice}` : '');
   updateMsg(assistantMsgId, [], displayText, false, set, get, 'chat', sessionId);
+
+  // Label the reply with the endpoint that actually answered (primary or
+  // fallback). With no remote answer the send-time on-device label stands.
+  if (answeredBy) {
+    setMsgModelUsed(assistantMsgId, answeredByLabel(answeredBy), 'chat', sessionId, set, get);
+  }
 
   // Trigger spoken readout if in voice synthesis mode or voice output is enabled
   const opMode = get().operatingMode;
