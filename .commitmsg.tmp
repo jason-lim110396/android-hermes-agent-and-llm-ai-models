@@ -1,7 +1,0 @@
-fix: gate remote fallback retries on genuine quota failures
-
-The free-first chain existed but isUsageLimitFailure() was dead code: the retry loop forwarded the prompt to every remaining endpoint on any non-401 error, burning the whole free chain on a 404/400/malformed response and hiding the real error. Now HTTP errors that are not usage limits (429/402/quota/limit) stop the chain; network errors still try the next endpoint. Reuses the existing helper and describeLimitFailure for the reason.
-
-Verification: npx tsc --noEmit passed; npm run build 4/4 pages 0 TS errors; git diff --check clean.
-
-Co-authored-by: OpenBot <335604065+openbotgit[bot]@users.noreply.github.com>
