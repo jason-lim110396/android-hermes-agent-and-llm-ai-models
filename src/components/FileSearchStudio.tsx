@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Search,
   FileText,
@@ -139,6 +139,35 @@ const SAMPLE_DEVICE_FILES: IndexedFile[] = [
   },
 ];
 
+const KB_STORAGE_KEY = 'hermes_vector_kb_docs_v1';
+
+function isValidKnowledgeDoc(d: unknown): d is KnowledgeDoc {
+  if (!d || typeof d !== 'object') return false;
+  const doc = d as Partial<KnowledgeDoc>;
+  return (
+    typeof doc.id === 'string' &&
+    typeof doc.title === 'string' &&
+    typeof doc.category === 'string' &&
+    typeof doc.lastUpdated === 'string' &&
+    typeof doc.content === 'string'
+  );
+}
+
+/** Restore the persisted knowledge base, or the demo defaults if none/invalid. */
+function loadKnowledgeDocs(): KnowledgeDoc[] {
+  if (typeof window === 'undefined') return DEFAULT_KNOWLEDGE_DOCS;
+  try {
+    const raw = window.localStorage.getItem(KB_STORAGE_KEY);
+    if (!raw) return DEFAULT_KNOWLEDGE_DOCS;
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return DEFAULT_KNOWLEDGE_DOCS;
+    const docs = parsed.filter(isValidKnowledgeDoc);
+    return docs.length > 0 ? docs : DEFAULT_KNOWLEDGE_DOCS;
+  } catch (_) {
+    return DEFAULT_KNOWLEDGE_DOCS;
+  }
+}
+
 const DEFAULT_KNOWLEDGE_DOCS: KnowledgeDoc[] = [
   {
     id: 'doc-hermes-arch',
@@ -245,7 +274,12 @@ export default function FileSearchStudio() {
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   // Knowledge Base State
-  const [knowledgeDocs, setKnowledgeDocs] = useState<KnowledgeDoc[]>(DEFAULT_KNOWLEDGE_DOCS);
+  // Persisted: ingested notes used to live only in component state, so
+  // every tab switch (including the "Ask Hermes (RAG)" jump, which switches
+  // to the chat tab) unmounted this studio and silently destroyed the
+  // user's indexed documents back to the three demo defaults. The KB now
+  // survives remounts and process restarts via localStorage.
+  const [knowledgeDocs, setKnowledgeDocs] = useState<KnowledgeDoc[]>(loadKnowledgeDocs);
   const [kbQuery, setKbQuery] = useState('');
   const [chunkSize, setChunkSize] = useState<number>(50); // Words per chunk
   const [similarityThreshold, setSimilarityThreshold] = useState<number>(55);
@@ -253,6 +287,18 @@ export default function FileSearchStudio() {
   const [newDocTitle, setNewDocTitle] = useState('');
   const [newDocCategory, setNewDocCategory] = useState('Personal');
   const [newDocContent, setNewDocContent] = useState('');
+
+  // Save the knowledge base on every change so it survives tab switches,
+  // WebView reloads and Android process kills. Best-effort: a full or
+  // blocked store never breaks the live in-memory KB.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      window.localStorage.setItem(KB_STORAGE_KEY, JSON.stringify(knowledgeDocs));
+    } catch (_) {
+      // Storage full or blocked: keep working in memory.
+    }
+  }, [knowledgeDocs]);
 
   const embeddingModels = AVAILABLE_MODELS.filter((m) => m.category === 'embedding' || m.id.includes('embedding'));
   const currentModel = embeddingModels.find((m) => m.id === selectedModelId) || embeddingModels[0];
@@ -313,15 +359,18 @@ export default function FileSearchStudio() {
       .sort((a, b) => (b.similarity || 0) - (a.similarity || 0));
   }, [allChunks, kbQuery, similarityThreshold]);
 
-  // Files semantic search
-  const searchResults = SAMPLE_DEVICE_FILES.filter((file) => {
+  // Files semantic search. Memoized and deterministic: Math.random() used to
+  // run inside this map on every render, so any unrelated state change (copy
+  // button, chip toggle) reshuffled the list and rewrote each "% Match"
+  // badge, making the panel visibly jitter.
+  const searchResults = useMemo(() => SAMPLE_DEVICE_FILES.filter((file) => {
     if (selectedType !== 'all' && file.type !== selectedType) return false;
     return true;
   })
     .map((file) => {
       const q = query.trim().toLowerCase();
       if (!q) {
-        return { ...file, similarityScore: 92 + Math.floor(Math.random() * 6) };
+        return { ...file, similarityScore: 92 };
       }
       let score = 50;
       const terms = q.split(/\s+/);
@@ -335,7 +384,7 @@ export default function FileSearchStudio() {
         similarityScore: Math.min(99, Math.max(55, score)),
       };
     })
-    .sort((a, b) => (b.similarityScore || 0) - (a.similarityScore || 0));
+    .sort((a, b) => (b.similarityScore || 0) - (a.similarityScore || 0)), [query, selectedType]);
 
   const handleCopyPath = (file: IndexedFile) => {
     navigator.clipboard.writeText(file.path);
