@@ -163,6 +163,7 @@ interface AppStore {
   modelFallbackChain: FallbackModelEntry[];
   setModelFallbackChain: (chain: FallbackModelEntry[]) => void;
   fallbackNotice: string | null;
+  fallbackNoticeId: number;
   setFallbackNotice: (n: string | null) => void;
   clearFallbackNotice: () => void;
   systemPrompt: string;
@@ -204,7 +205,10 @@ export const useAppStore = create<AppStore>((set, get) => ({
     set({ modelFallbackChain: chain });
   },
   fallbackNotice: null,
-  setFallbackNotice: (n) => set({ fallbackNotice: n }),
+  // Incremented on every switch so two consecutive switches to the same model
+  // still produce a visible notice (the text alone can be identical).
+  fallbackNoticeId: 0,
+  setFallbackNotice: (n) => set({ fallbackNotice: n, fallbackNoticeId: get().fallbackNoticeId + 1 }),
   clearFallbackNotice: () => set({ fallbackNotice: null }),
 
   operatingMode: (() => {
@@ -1205,7 +1209,7 @@ async function executeHermesAgent(
     : (systemPrompt || model?.systemPromptPreset || 'You are Hermes 3, an expert autonomous agent.');
 
   let agentStreamLastFlush = 0;
-  const noticeBeforeAgent = get().fallbackNotice;
+  const noticeIdBeforeAgent = get().fallbackNoticeId;
   const fullResult = await callRealLLMInference({
     messages: messagesToSend,
     modelId,
@@ -1223,6 +1227,13 @@ async function executeHermesAgent(
       updateMsg(assistantMsgId, steps, `${visualPrefix}*[Autonomous Agent Reasoning: ${pct}% - ${statusText}]*`, true, set, get, 'agent', sessionId);
     },
     onStreamChunk: (chunkText) => {
+      // Endpoint switch: clear the failed endpoint's partial answer now.
+      // Throttling this write would leave stale text on screen during the retry.
+      if (chunkText === '') {
+        agentStreamLastFlush = 0;
+        updateMsg(assistantMsgId, steps, visualPrefix, true, set, get, 'agent', sessionId);
+        return;
+      }
       // Throttled store write: batch per-token updates into ~11fps UI refreshes.
       // The final write below uses the engine's return value (complete text or
       // error text), so any skipped tail is always recovered at the end.
@@ -1238,7 +1249,7 @@ async function executeHermesAgent(
   // (or the error display text on fallback paths), never the throttled tail.
   const finalText = visualPrefix + (typeof fullResult === 'string' ? fullResult : '');
   const agentNotice = get().fallbackNotice;
-  const displayText = finalText + (agentNotice && agentNotice !== noticeBeforeAgent ? `\n\n> ${agentNotice}` : '');
+  const displayText = finalText + (agentNotice && get().fallbackNoticeId !== noticeIdBeforeAgent ? `\n\n> ${agentNotice}` : '');
   updateMsg(assistantMsgId, steps, displayText, false, set, get, 'agent', sessionId);
 
   // Trigger optional speech readout
@@ -1320,7 +1331,7 @@ async function executeDirectChat(
     : (systemPrompt || model?.systemPromptPreset || 'You are an intelligent, helpful on-device assistant.');
 
   let chatStreamLastFlush = 0;
-  const noticeBeforeChat = get().fallbackNotice;
+  const noticeIdBeforeChat = get().fallbackNoticeId;
   const fullResult = await callRealLLMInference({
     messages: messagesToSend,
     modelId,
@@ -1338,6 +1349,13 @@ async function executeDirectChat(
       updateMsg(assistantMsgId, [], `${attachPrefix}*[Loading On-Device Model Weights: ${pct}% - ${statusText}]*`, true, set, get, 'chat', sessionId);
     },
     onStreamChunk: (chunkText) => {
+      // Endpoint switch: clear the failed endpoint's partial answer now,
+      // bypassing the throughput throttle used for normal token chunks.
+      if (chunkText === '') {
+        chatStreamLastFlush = 0;
+        updateMsg(assistantMsgId, [], attachPrefix, true, set, get, 'chat', sessionId);
+        return;
+      }
       tokenCount++;
       // Throttled store write: batch per-token updates into ~11fps UI refreshes.
       // The final write below uses the engine's return value (complete text or
@@ -1359,7 +1377,7 @@ async function executeDirectChat(
   // (or the error display text on fallback paths), never the throttled tail.
   const finalText = attachPrefix + (typeof fullResult === 'string' ? fullResult : '');
   const chatNotice = get().fallbackNotice;
-  const displayText = finalText + (chatNotice && chatNotice !== noticeBeforeChat ? `\n\n> ${chatNotice}` : '');
+  const displayText = finalText + (chatNotice && get().fallbackNoticeId !== noticeIdBeforeChat ? `\n\n> ${chatNotice}` : '');
   updateMsg(assistantMsgId, [], displayText, false, set, get, 'chat', sessionId);
 
   // Trigger spoken readout if in voice synthesis mode or voice output is enabled

@@ -1,6 +1,6 @@
 import type { MLCEngine, InitProgressReport } from '@mlc-ai/web-llm';
 import { AVAILABLE_MODELS, ModelSpec } from './models';
-import { describeLimitFailure } from './utils/modelFallback';
+import { describeLimitFailure, isUsageLimitFailure } from './utils/modelFallback';
 import {
   isCpuModelCached,
   downloadCpuModelWeights,
@@ -492,23 +492,34 @@ export async function callRealLLMInference({
             onStreamChunk
           );
           if (text) {
-            if (i > 0) {
-              const reason = lastFailure instanceof RemoteEndpointError
-                ? describeLimitFailure(lastFailure.status, lastFailure.detail)
-                : 'unavailable';
+            if (i > 0 && lastFailure instanceof RemoteEndpointError) {
+              const reason = describeLimitFailure(lastFailure.status, lastFailure.detail);
               try {
                 config.onFallback?.({ from: candidates[0].label, to: candidate.label, reason });
               } catch (_) {}
             }
             return text;
           }
+          // A 200 with no streamed content is not a limit - do not send the
+          // same prompt to another provider.
+          break;
         } catch (err: unknown) {
           if (signal.aborted) throw err;
           lastFailure = err as Error;
           // A half-streamed answer from the failed endpoint must not be mixed
-          // with the next endpoint's output.
+          // with the next endpoint's output. The store callbacks must honour
+          // this empty write without throttling it.
           try { onStreamChunk(''); } catch (_) {}
-          console.warn(`Inference endpoint "${candidate.label}" failed, trying next in chain:`, err);
+          const isLimit = lastFailure instanceof RemoteEndpointError &&
+            isUsageLimitFailure(lastFailure.status, lastFailure.detail);
+          if (!isLimit) {
+            console.warn(
+              `Inference endpoint "${candidate.label}" failed with a non-limit error; not sending the prompt to another provider:`,
+              err
+            );
+            break;
+          }
+          console.warn(`Inference endpoint "${candidate.label}" hit a usage limit, trying next in chain:`, err);
         }
       }
 
