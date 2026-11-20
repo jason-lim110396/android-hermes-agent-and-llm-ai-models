@@ -59,6 +59,7 @@ import {
   Compass,
   Clipboard,
   Globe,
+  Wifi,
 } from 'lucide-react';
 import { useAppStore, Attachment } from '@/appStore';
 import { AVAILABLE_MODELS, ModelSpec } from '@/models';
@@ -73,6 +74,7 @@ import ContextCompressorModal from './ContextCompressorModal';
 import ClipboardVaultModal from './ClipboardVaultModal';
 import OfflinePhraseBookModal from './OfflinePhraseBookModal';
 import SensorSpatialModal from './SensorSpatialModal';
+import NetworkSpeedModal from './NetworkSpeedModal';
 
 export default function ChatView() {
   const hardwareProfile = useAppStore((s) => s.hardwareProfile);
@@ -142,6 +144,7 @@ export default function ChatView() {
   const [isSensorModalOpen, setIsSensorModalOpen] = useState(false);
   const [isClipboardVaultOpen, setIsClipboardVaultOpen] = useState(false);
   const [isPhraseBookOpen, setIsPhraseBookOpen] = useState(false);
+  const [isNetworkSpeedOpen, setIsNetworkSpeedOpen] = useState(false);
 
   // AI Code Playground & Sandbox State
   const [isCodeSandboxOpen, setIsCodeSandboxOpen] = useState(false);
@@ -1254,6 +1257,16 @@ export default function ChatView() {
           >
             <Globe className="w-3.5 h-3.5 text-emerald-400" />
             <span>Phrases</span>
+          </button>
+
+          {/* Network Speed Analyzer */}
+          <button
+            onClick={() => setIsNetworkSpeedOpen(true)}
+            title="Network Speed Analyzer — Ping, Download, Upload & Jitter"
+            className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-cyan-300 hover:border-cyan-500/40 text-[10px] font-bold transition-all cursor-pointer"
+          >
+            <Wifi className="w-3.5 h-3.5 text-cyan-400" />
+            <span>SpeedTest</span>
           </button>
         </div>
       </div>
@@ -2555,6 +2568,13 @@ export default function ChatView() {
       <OfflinePhraseBookModal
         isOpen={isPhraseBookOpen}
         onClose={() => setIsPhraseBookOpen(false)}
+      />
+
+      {/* Network Speed Analyzer Modal */}
+      <NetworkSpeedModal
+        isOpen={isNetworkSpeedOpen}
+        onClose={() => setIsNetworkSpeedOpen(false)}
+        onAuditWithAgent={(prompt) => sendMessage(prompt)}
       />
     </div>
   );
