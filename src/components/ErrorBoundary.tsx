@@ -37,6 +37,21 @@ export function registerGlobalCrashHandlers() {
   globalHandlersRegistered = true;
 
   window.addEventListener('error', (event: ErrorEvent) => {
+    // Resource-load failures (script/img/link/svg) arrive with the failing element as
+    // the event target and an empty message, instead of a script error on window
+    const target = event.target as EventTarget | null;
+    const isResourceLoadFailure =
+      (target !== null && target !== window) ||
+      (!event.message && (target instanceof HTMLElement || target instanceof SVGElement));
+    if (isResourceLoadFailure) {
+      const element = target as HTMLElement | SVGElement;
+      const url = (element as HTMLImageElement).src || (element as HTMLLinkElement).href || '';
+      recordError(
+        `Failed to load <${element.tagName.toLowerCase()}>${url ? `: ${url}` : ''}`,
+        'resource-load'
+      );
+      return;
+    }
     recordError(event.message || 'Unknown script error', 'window.onerror');
   });
 
@@ -53,6 +68,8 @@ if (typeof window !== 'undefined') {
 
 interface ErrorBoundaryProps {
   children: React.ReactNode;
+  /** 'fullscreen' covers the whole app as a last resort; 'tab' renders a compact recovery panel inside one studio tab */
+  variant?: 'fullscreen' | 'tab';
 }
 
 interface ErrorBoundaryState {
@@ -61,6 +78,12 @@ interface ErrorBoundaryState {
   isRepeatCrash: boolean;
   recoveredAt: number | null;
 }
+
+// Snapshot of the most recent recovery. getDerivedStateFromError is static and cannot
+// read instance state, so this mirror lets it detect repeat crashes atomically while
+// the fallback is still being derived, before anything paints.
+let lastRecoveryAt: number | null = null;
+let lastRecoveredFingerprint = '';
 
 export default class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
   constructor(props: ErrorBoundaryProps) {
@@ -74,26 +97,34 @@ export default class ErrorBoundary extends React.Component<ErrorBoundaryProps, E
   }
 
   static getDerivedStateFromError(error: Error): Partial<ErrorBoundaryState> {
+    const message = error.message || String(error);
+    // Computed during the render phase so a repeat crash paints the Full Reload button
+    // immediately with no one-render flash. Only the exact same fault (matching
+    // message) resurfacing within the window after a recovery counts as a repeat.
+    const isRepeatCrash =
+      lastRecoveryAt !== null &&
+      Date.now() - lastRecoveryAt < REPEAT_CRASH_WINDOW_MS &&
+      message === lastRecoveredFingerprint;
     return {
       hasError: true,
-      errorMessage: error.message || String(error),
+      errorMessage: message,
+      isRepeatCrash,
     };
   }
 
   componentDidCatch(error: Error) {
     recordError(error.message || String(error), 'ErrorBoundary');
-    // If the same fault resurfaces shortly after a recovery, offer a full reload instead
-    const isRepeatCrash =
-      this.state.recoveredAt !== null && Date.now() - this.state.recoveredAt < REPEAT_CRASH_WINDOW_MS;
-    this.setState({ isRepeatCrash });
   }
 
   handleRecovery = () => {
+    // Remember the fault this boundary just recovered from so a matching resurface is a repeat
+    lastRecoveryAt = Date.now();
+    lastRecoveredFingerprint = this.state.errorMessage;
     this.setState({
       hasError: false,
       errorMessage: '',
       isRepeatCrash: false,
-      recoveredAt: Date.now(),
+      recoveredAt: lastRecoveryAt,
     });
   };
 
@@ -106,6 +137,62 @@ export default class ErrorBoundary extends React.Component<ErrorBoundaryProps, E
       return this.props.children;
     }
 
+    // Compact in-tab fallback: the header and tab navigation stay alive around it
+    if (this.props.variant === 'tab') {
+      return (
+        <div className="w-full h-full bg-zinc-950 text-white flex flex-col items-center justify-center gap-4 px-6 py-8 font-sans select-none overflow-y-auto">
+          <div className="flex flex-col items-center gap-3 text-center max-w-sm w-full">
+            <div className="flex items-center justify-center w-11 h-11 rounded-2xl bg-amber-950/80 border border-amber-500/40 shadow-md">
+              <AlertTriangle className="w-5 h-5 text-amber-400" />
+            </div>
+
+            <h2 className="text-base font-bold text-zinc-100">This tab tripped a neural circuit</h2>
+            <p className="text-xs text-zinc-400 leading-relaxed">
+              An unexpected error interrupted this tab. Everything stays on-device, nothing was lost
+              or sent anywhere.
+            </p>
+
+            {/* Runtime fault details in a small mono block */}
+            <div className="w-full rounded-xl bg-zinc-900/80 border border-zinc-800/80 px-3 py-2 text-left">
+              <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1">Runtime Fault</p>
+              <code className="block text-[11px] font-mono text-rose-300 break-all leading-relaxed">
+                {this.state.errorMessage || 'Unknown error'}
+              </code>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-center gap-2 mt-1">
+              <button
+                onClick={this.handleRecovery}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white text-xs font-black transition-all cursor-pointer shadow-md ring-1 ring-white/20 active:scale-95"
+              >
+                <RefreshCw className="w-4 h-4" />
+                <span>Recovery</span>
+              </button>
+
+              {this.state.isRepeatCrash && (
+                <button
+                  onClick={this.handleFullReload}
+                  title="The exact same fault resurfaced within 30 seconds of recovery, reload the full session"
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-black transition-all cursor-pointer shadow-md shadow-rose-600/40 active:scale-95"
+                >
+                  <RotateCcw className="w-4 h-4" />
+                  <span>Full Reload</span>
+                </button>
+              )}
+            </div>
+
+            {this.state.isRepeatCrash && (
+              <p className="text-[11px] text-zinc-500 leading-relaxed">
+                The identical fault repeated shortly after recovery. Try a full reload to reset the
+                session state.
+              </p>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    // Fullscreen fallback of last resort for the whole-app boundary
     return (
       <div className="fixed inset-0 w-full h-full bg-zinc-950 text-white flex flex-col items-center justify-center gap-5 px-6 py-8 font-sans select-none overflow-y-auto">
         <div className="flex flex-col items-center gap-3 text-center max-w-md w-full">
@@ -139,7 +226,7 @@ export default class ErrorBoundary extends React.Component<ErrorBoundaryProps, E
             {this.state.isRepeatCrash && (
               <button
                 onClick={this.handleFullReload}
-                title="The same fault resurfaced shortly after recovery, reload the full session"
+                title="The exact same fault resurfaced within 30 seconds of recovery, reload the full session"
                 className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-black transition-all cursor-pointer shadow-md shadow-rose-600/40 active:scale-95"
               >
                 <RotateCcw className="w-4 h-4" />
@@ -150,7 +237,7 @@ export default class ErrorBoundary extends React.Component<ErrorBoundaryProps, E
 
           {this.state.isRepeatCrash && (
             <p className="text-[11px] text-zinc-500 leading-relaxed">
-              This fault repeated shortly after recovery. Try a full reload to reset the session state.
+              The identical fault repeated shortly after recovery. Try a full reload to reset the session state.
             </p>
           )}
         </div>
