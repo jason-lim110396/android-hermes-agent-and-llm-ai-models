@@ -1,4 +1,5 @@
 import { AVAILABLE_MODELS } from './models';
+import { loadKnowledgeDocs } from '@/utils/knowledgeBase';
 import type { Wllama } from '@wllama/wllama/esm/index.js';
 
 // Pure CPU (WebAssembly) inference backend via @wllama/wllama v3 (llama.cpp compiled to WASM).
@@ -243,6 +244,89 @@ async function getOrInitWllamaEngine(
   }
 }
 
+// Honest on-device knowledge search for embedding-model queries.
+//
+// The old version of this path fabricated a phone file index (hardcoded
+// VID_/IMG_/PDF names that were never on the device), invented 768-d
+// "cosine similarity" scores, and streamed them as if a model had scanned
+// the user's storage - while never running the embedding model at all.
+//
+// This version searches the one real corpus the app actually has: the
+// documents the user ingested in the File Search studio's knowledge base
+// (persisted locally, shared via utils/knowledgeBase). Ranking is a
+// deterministic term-overlap score, and the response says exactly that:
+// nothing pretends to be an embedding computation or a storage scan.
+function searchKnowledgeBaseResponse(userQuery: string, modelName: string): string {
+  const docs = loadKnowledgeDocs();
+  const header =
+    `📚 **Local Knowledge Base Search**\n\n` +
+    `Searched **${docs.length}** document${docs.length === 1 ? '' : 's'} ingested in your File Search knowledge base` +
+    (userQuery.trim() ? ` for: *"${userQuery}"*.\n` : '.\n');
+
+  if (!userQuery.trim()) {
+    return (
+      header +
+      `\nAsk a question with some keywords and I will rank your ingested documents against it. ` +
+      `(Deterministic keyword ranking - ${modelName} weights are not run for this search.)`
+    );
+  }
+
+  const terms = Array.from(new Set(userQuery.toLowerCase().split(/\s+/).filter((t) => t.length > 2)));
+
+  const scored = docs
+    .map((doc) => {
+      const titleLower = doc.title.toLowerCase();
+      const contentLower = doc.content.toLowerCase();
+      const matched: string[] = [];
+      let score = 0;
+      for (const term of terms) {
+        const inTitle = titleLower.includes(term);
+        const inContent = contentLower.includes(term);
+        if (!inTitle && !inContent) continue;
+        matched.push(term);
+        score += (inTitle ? 2 : 0) + (inContent ? 1 : 0);
+        if (inContent) {
+          // A doc that mentions a term several times outranks one that
+          // mentions it once; cap the bonus so one spammy doc cannot dominate.
+          const occurrences = contentLower.split(term).length - 1;
+          if (occurrences > 1) score += Math.min(occurrences - 1, 3);
+        }
+      }
+      return { doc, matched, score };
+    })
+    .filter((s) => s.score > 0)
+    .sort((a, b) => b.score - a.score);
+
+  if (scored.length === 0) {
+    return (
+      header +
+      `\nNo ingested document matched any keyword of the query. Ingest more text in the ` +
+      `**File Search → Knowledge Base** tab and ask again.`
+    );
+  }
+
+  let body = '';
+  scored.slice(0, 3).forEach(({ doc, matched, score }, idx) => {
+    // Best excerpt: the first content line containing a matched term.
+    const excerptLine =
+      doc.content.split('\n').find((line) => matched.some((t) => line.toLowerCase().includes(t))) ||
+      doc.content.split('\n')[0] ||
+      '';
+    const trimmed = excerptLine.length > 240 ? excerptLine.slice(0, 240) + '…' : excerptLine;
+    body +=
+      `\n### ${idx + 1}. ${doc.title}\n` +
+      `- **Category**: ${doc.category} • **Updated**: ${doc.lastUpdated}\n` +
+      `- **Matched keywords**: ${matched.map((t) => `\`${t}\``).join(', ')} (${score} term hits)\n` +
+      `> ${trimmed}\n`;
+  });
+
+  return (
+    header +
+    body +
+    `\n*(Deterministic keyword ranking over your locally stored documents - ${modelName} weights are not run for this search; no phone storage scan and no vector embeddings are involved.)*`
+  );
+}
+
 export async function callCpuLLMInference({
   messages,
   modelId,
@@ -264,6 +348,20 @@ export async function callCpuLLMInference({
   cpuInferenceAborted = false;
 
   try {
+    // Knowledge-search requests (embedding models) never touch the LLM
+    // weights: answer them from the real, locally ingested knowledge base
+    // before any engine load. The old path downloaded and mounted the GGUF
+    // weights first - hundreds of MB and long startup - and then never used
+    // them, because its "search" was a hardcoded fake file list.
+    if (spec?.category === 'embedding' || modelId.includes('embeddinggemma')) {
+      if (onProgress) onProgress('Searching the local knowledge base...', 30);
+      const userQuery = messages[messages.length - 1]?.content || '';
+      const resultText = searchKnowledgeBaseResponse(userQuery, spec?.name || modelId);
+      if (cpuInferenceAborted) throw new Error('Task stopped by user');
+      onStreamChunk(resultText);
+      return resultText;
+    }
+
     if (onProgress) onProgress('Loading model weights into memory...', 10);
 
     const wllama = await getOrInitWllamaEngine(modelId, (report) => {
@@ -293,64 +391,6 @@ export async function callCpuLLMInference({
         content: m.content,
       })),
     ];
-    // Special handling for EmbeddingGemma 2: Semantic File & Media Search Engine
-    if (spec?.category === 'embedding' || modelId.includes('embeddinggemma')) {
-      const userQuery = messages[messages.length - 1]?.content || '';
-      const q = userQuery.toLowerCase();
-
-      // Check if user specified a file filter (e.g. "video", "photo", "document", "music", "code")
-      let targetType: 'all' | 'video' | 'image' | 'document' | 'code' | 'audio' = 'all';
-      if (/video|mp4|mov|clip|movie/i.test(q)) targetType = 'video';
-      else if (/image|photo|pic|screenshot|camera|png|jpg/i.test(q)) targetType = 'image';
-      else if (/doc|pdf|word|report|sheet|text/i.test(q)) targetType = 'document';
-      else if (/audio|voice|mp3|m4a|sound|music|recording/i.test(q)) targetType = 'audio';
-      else if (/code|script|ts|js|py|source/i.test(q)) targetType = 'code';
-
-      const indexedFiles = [
-        { name: 'VID_20261012_FamilyVacation.mp4', path: '/storage/emulated/0/DCIM/Camera/VID_20261012_FamilyVacation.mp4', type: 'video', size: '142 MB', date: '2026-10-12', tags: ['travel', 'beach', 'family', 'vacation', 'trip'] },
-        { name: 'ScreenRecording_GameDemo_2026.mp4', path: '/storage/emulated/0/Movies/Screenrecord/ScreenRecording_GameDemo_2026.mp4', type: 'video', size: '88 MB', date: '2026-10-15', tags: ['gameplay', 'screen record', 'demo', 'tutorial'] },
-        { name: 'IMG_20261018_Receipt_Store.jpg', path: '/storage/emulated/0/DCIM/Camera/IMG_20261018_Receipt_Store.jpg', type: 'image', size: '3.4 MB', date: '2026-10-18', tags: ['receipt', 'tax', 'shopping', 'invoice', 'store'] },
-        { name: 'Portrait_Sunset_Beach.png', path: '/storage/emulated/0/Pictures/Portraits/Portrait_Sunset_Beach.png', type: 'image', size: '5.2 MB', date: '2026-10-14', tags: ['sunset', 'beach', 'portrait', 'camera', 'photo'] },
-        { name: 'Financial_Quarterly_Report_2026.pdf', path: '/storage/emulated/0/Documents/Financial_Quarterly_Report_2026.pdf', type: 'document', size: '1.8 MB', date: '2026-10-10', tags: ['finance', 'budget', 'quarterly', 'pdf', 'report', 'earnings'] },
-        { name: 'AndroidLLM_Architecture_Design.docx', path: '/storage/emulated/0/Documents/AndroidLLM_Architecture_Design.docx', type: 'document', size: '720 KB', date: '2026-10-17', tags: ['design', 'architecture', 'hermes', 'agent', 'specs'] },
-        { name: 'VoiceMemo_Meeting_Notes.m4a', path: '/storage/emulated/0/Recordings/VoiceMemo_Meeting_Notes.m4a', type: 'audio', size: '12 MB', date: '2026-10-16', tags: ['voice memo', 'meeting', 'interview', 'speech', 'notes'] },
-        { name: 'AppStore_Engine_Logic.ts', path: '/storage/emulated/0/Projects/AndroidLLM/src/appStore.ts', type: 'code', size: '39 KB', date: '2026-10-18', tags: ['code', 'typescript', 'zustand', 'state', 'inference'] },
-      ];
-
-      const filtered = targetType === 'all'
-        ? indexedFiles
-        : indexedFiles.filter((f) => f.type === targetType);
-
-      // Score files based on cosine vector similarity simulation with user query
-      const scored = filtered.map((file) => {
-        let score = 0.58;
-        const textToSearch = `${file.name} ${file.path} ${file.tags.join(' ')} ${file.type}`.toLowerCase();
-        const terms = q.split(/\s+/).filter((t) => t.length > 2);
-        for (const term of terms) {
-          if (textToSearch.includes(term)) score += 0.22;
-        }
-        if (q.includes(file.type)) score += 0.15;
-        return { file, score: Math.min(0.99, +score.toFixed(3)) };
-      }).sort((a, b) => b.score - a.score);
-
-      let responseText = `🔍 **EmbeddingGemma 2 Multimodal File Search**\n\n` +
-        `Mapped query: *" ${userQuery} "* into 768-dimensional multimodal vector space.\n` +
-        `**Active Filter**: \`${targetType.toUpperCase()}\` • **Indexed Files Scanned**: ${indexedFiles.length}\n\n`;
-
-      scored.slice(0, 5).forEach(({ file, score }, idx) => {
-        const icon = file.type === 'video' ? '🎬' : file.type === 'image' ? '🖼️' : file.type === 'document' ? '📄' : file.type === 'audio' ? '🎵' : '💻';
-        responseText += `### ${idx + 1}. ${icon} ${file.name}\n`;
-        responseText += `- **Relevance Score**: ${(score * 100).toFixed(1)}% (Cosine Similarity)\n`;
-        responseText += `- **Path**: \`${file.path}\`\n`;
-        responseText += `- **Category**: ${file.type.toUpperCase()} • **Size**: ${file.size} • **Modified**: ${file.date}\n`;
-        responseText += `- **Matched Tags**: ${file.tags.map((t) => `\`#${t}\``).join(' ')}\n\n`;
-      });
-
-      responseText += `*(Embeddings generated completely on-device with EmbeddingGemma 2. Zero cloud latency or telemetry.)*`;
-      onStreamChunk(responseText);
-      return responseText;
-    }
-
     let fullGenerated = '';
 
     // Use createChatCompletion with stream:true and onData callback for true streaming
