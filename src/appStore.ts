@@ -1119,6 +1119,7 @@ async function executeHermesAgent(
     ? 'You are a real-time conversational voice assistant. Reply naturally, conversationally, and concisely (1-3 sentences). Match the exact language the user speaks (English, Chinese, Cantonese, Spanish, etc.).'
     : (systemPrompt || model?.systemPromptPreset || 'You are Hermes 3, an expert autonomous agent.');
 
+  let agentStreamLastFlush = 0;
   await callRealLLMInference({
     messages: messagesToSend,
     modelId,
@@ -1135,7 +1136,13 @@ async function executeHermesAgent(
       updateMsg(assistantMsgId, steps, `${visualPrefix}*[Autonomous Agent Reasoning: ${pct}% - ${statusText}]*`, true, set, get, 'agent');
     },
     onStreamChunk: (chunkText) => {
-      updateMsg(assistantMsgId, steps, visualPrefix + chunkText, true, set, get, 'agent');
+      // Throttled store write: batch per-token updates into ~11fps UI refreshes.
+      // The final updateMsg after the inference loop always lands the full text.
+      const now = performance.now();
+      if (now - agentStreamLastFlush >= STREAM_FLUSH_MS) {
+        agentStreamLastFlush = now;
+        updateMsg(assistantMsgId, steps, visualPrefix + chunkText, true, set, get, 'agent');
+      }
     },
   });
 
@@ -1219,6 +1226,7 @@ async function executeDirectChat(
     ? 'You are a real-time conversational voice assistant. Reply naturally, conversationally, and concisely (1-3 sentences). Match the exact language the user speaks (English, Chinese, Cantonese, Spanish, etc.).'
     : (systemPrompt || model?.systemPromptPreset || 'You are an intelligent, helpful on-device assistant.');
 
+  let chatStreamLastFlush = 0;
   await callRealLLMInference({
     messages: messagesToSend,
     modelId,
@@ -1242,7 +1250,13 @@ async function executeDirectChat(
         const currentTps = Math.round((tokenCount / elapsedSec) * 10) / 10;
         set({ liveTps: currentTps });
       }
-      updateMsg(assistantMsgId, [], attachPrefix + chunkText, true, set, get, 'chat');
+      // Throttled store write: batch per-token updates into ~11fps UI refreshes.
+      // The final updateMsg after the inference loop always lands the full text.
+      const now = performance.now();
+      if (now - chatStreamLastFlush >= STREAM_FLUSH_MS) {
+        chatStreamLastFlush = now;
+        updateMsg(assistantMsgId, [], attachPrefix + chunkText, true, set, get, 'chat');
+      }
     },
   });
 
@@ -1256,6 +1270,11 @@ async function executeDirectChat(
     get().speakText(finalText);
   }
 }
+
+// Maximum frequency for streaming store writes. Batching per-token writes into
+// ~11fps UI refreshes removes the main source of chat lag on low-end Android:
+// each write previously cloned the whole session tree and re-rendered every message.
+const STREAM_FLUSH_MS = 90;
 
 function updateMsg(
   id: string,

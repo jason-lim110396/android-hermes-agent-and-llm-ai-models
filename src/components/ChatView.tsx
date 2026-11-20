@@ -79,6 +79,82 @@ import NetworkSpeedModal from './NetworkSpeedModal';
 import MarkdownNotepadModal from './MarkdownNotepadModal';
 import QRCodeStudioModal from './QRCodeStudioModal';
 
+// Isolated real-time hardware ticker: owns its 1.5s interval and the liveTps
+// store subscription, so the full ChatView tree no longer re-renders on every
+// tick or streamed token - only this small bar does.
+const HardwareTickerBar = React.memo(function HardwareTickerBar({
+  isGenerating,
+  engineLabel,
+  accelLabel,
+  estimatedRamGB,
+  cpuCores,
+}: {
+  isGenerating: boolean;
+  engineLabel: string;
+  accelLabel: string;
+  estimatedRamGB: number;
+  cpuCores: number;
+}) {
+  const liveTps = useAppStore((s) => s.liveTps);
+  const [realtimeCpuLoad, setRealtimeCpuLoad] = useState<number>(14);
+  const [realtimeRamUsedMB, setRealtimeRamUsedMB] = useState<number>(1240);
+
+  React.useEffect(() => {
+    const timer = setInterval(() => {
+      if (isGenerating) {
+        setRealtimeCpuLoad(Math.round(45 + Math.random() * 25));
+        setRealtimeRamUsedMB(Math.round(1800 + Math.random() * 250));
+      } else {
+        setRealtimeCpuLoad(Math.round(8 + Math.random() * 12));
+        setRealtimeRamUsedMB(Math.round(1180 + Math.random() * 80));
+      }
+    }, 1500);
+    return () => clearInterval(timer);
+  }, [isGenerating]);
+
+  return (
+    <div className="px-3 py-1.5 bg-zinc-900/95 border-b border-zinc-800/80 backdrop-blur-md flex items-center justify-between text-[10px] font-mono z-10 select-none">
+      {/* RAM Usage */}
+      <div className="flex items-center gap-1.5 text-zinc-300">
+        <Cpu className="w-3 h-3 text-cyan-400 shrink-0" />
+        <span className="text-zinc-400">RAM:</span>
+        <span className="text-cyan-300 font-bold">
+          {(realtimeRamUsedMB / 1024).toFixed(2)} GB
+        </span>
+        <span className="text-[9px] text-zinc-500">
+          / {estimatedRamGB} GB
+        </span>
+      </div>
+
+      {/* CPU Load */}
+      <div className="flex items-center gap-1.5 text-zinc-300">
+        <Gauge className="w-3 h-3 text-emerald-400 shrink-0" />
+        <span className="text-zinc-400">CPU:</span>
+        <span className={`font-bold ${realtimeCpuLoad > 50 ? 'text-amber-400' : 'text-emerald-300'}`}>
+          {realtimeCpuLoad}%
+        </span>
+        <span className="text-[9px] text-zinc-500">
+          ({cpuCores}C)
+        </span>
+      </div>
+
+      {/* Acceleration Engine & Real Speed */}
+      <div className="flex items-center gap-1.5 text-zinc-300">
+        <Zap className="w-3 h-3 text-amber-400 shrink-0" />
+        <span className="text-zinc-400">{engineLabel}</span>
+        <span className="text-amber-300 font-bold">
+          {isGenerating
+            ? (liveTps > 0 ? `${liveTps.toFixed(1)} t/s` : 'generating...')
+            : accelLabel}
+        </span>
+        {isGenerating && (
+          <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping shrink-0" />
+        )}
+      </div>
+    </div>
+  );
+});
+
 export default function ChatView() {
   const hardwareProfile = useAppStore((s) => s.hardwareProfile);
   const operatingMode = useAppStore((s) => s.operatingMode);
@@ -87,7 +163,6 @@ export default function ChatView() {
   const setChatTabMode = useAppStore((s) => s.setChatTabMode);
   const selectedModelId = useAppStore((s) => s.selectedModelId);
   const setSelectedModelId = useAppStore((s) => s.setSelectedModelId);
-  const liveTps = useAppStore((s) => s.liveTps);
   const downloads = useAppStore((s) => s.downloads);
   const startDownloadModel = useAppStore((s) => s.startDownloadModel);
   const setCurrentTab = useAppStore((s) => s.setCurrentTab);
@@ -363,6 +438,13 @@ export default function ChatView() {
   const messages = currentSession?.messages || [];
   const currentModel = AVAILABLE_MODELS.find((m) => m.id === selectedModelId);
 
+  // Hoisted last-assistant lookup: previously an O(n) messages.filter ran inside
+  // the per-message render map, making every streaming re-render O(n^2).
+  const lastAssistantId = React.useMemo(
+    () => messages.filter((m) => m.role === 'assistant' && !m.isStreaming).at(-1)?.id,
+    [messages]
+  );
+
   const visibleMessages = searchQuery.trim()
     ? messages.filter((m) => m.content.toLowerCase().includes(searchQuery.toLowerCase()) || m.role.toLowerCase().includes(searchQuery.toLowerCase()))
     : messages;
@@ -397,23 +479,6 @@ export default function ChatView() {
     if (operatingMode === 'agent') return m.capabilities.includes('tools') || m.capabilities.includes('agent') || m.category === 'text';
     return m.category === modeCategory;
   });
-
-  const [realtimeCpuLoad, setRealtimeCpuLoad] = useState<number>(14);
-  const [realtimeRamUsedMB, setRealtimeRamUsedMB] = useState<number>(1240);
-
-  // Real-time hardware load & memory ticker
-  React.useEffect(() => {
-    const timer = setInterval(() => {
-      if (isGenerating) {
-        setRealtimeCpuLoad(Math.round(45 + Math.random() * 25));
-        setRealtimeRamUsedMB(Math.round(1800 + Math.random() * 250));
-      } else {
-        setRealtimeCpuLoad(Math.round(8 + Math.random() * 12));
-        setRealtimeRamUsedMB(Math.round(1180 + Math.random() * 80));
-      }
-    }, 1500);
-    return () => clearInterval(timer);
-  }, [isGenerating]);
 
   React.useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -1296,46 +1361,15 @@ export default function ChatView() {
         </div>
       </div>
 
-      {/* Row 2: Real-time Hardware Usage Ticker Bar */}
-      <div className="px-3 py-1.5 bg-zinc-900/95 border-b border-zinc-800/80 backdrop-blur-md flex items-center justify-between text-[10px] font-mono z-10 select-none">
-        {/* RAM Usage */}
-        <div className="flex items-center gap-1.5 text-zinc-300">
-          <Cpu className="w-3 h-3 text-cyan-400 shrink-0" />
-          <span className="text-zinc-400">RAM:</span>
-          <span className="text-cyan-300 font-bold">
-            {(realtimeRamUsedMB / 1024).toFixed(2)} GB
-          </span>
-          <span className="text-[9px] text-zinc-500">
-            / {hardwareProfile?.estimatedRamGB || 4} GB
-          </span>
-        </div>
-
-        {/* CPU Load */}
-        <div className="flex items-center gap-1.5 text-zinc-300">
-          <Gauge className="w-3 h-3 text-emerald-400 shrink-0" />
-          <span className="text-zinc-400">CPU:</span>
-          <span className={`font-bold ${realtimeCpuLoad > 50 ? 'text-amber-400' : 'text-emerald-300'}`}>
-            {realtimeCpuLoad}%
-          </span>
-          <span className="text-[9px] text-zinc-500">
-            ({hardwareProfile?.cpuCores || 8}C)
-          </span>
-        </div>
-
-        {/* Acceleration Engine & Real Speed */}
-        <div className="flex items-center gap-1.5 text-zinc-300">
-          <Zap className="w-3 h-3 text-amber-400 shrink-0" />
-          <span className="text-zinc-400">{currentModel?.engine === 'cpu-wasm' ? 'CPU:' : 'GPU:'}</span>
-          <span className="text-amber-300 font-bold">
-            {isGenerating
-              ? (liveTps > 0 ? `${liveTps.toFixed(1)} t/s` : 'generating...')
-              : (currentModel?.engine === 'cpu-wasm' ? 'WASM CPU' : (hardwareProfile?.hasWebGpu ? 'WebGPU' : 'WebGL2'))}
-          </span>
-          {isGenerating && (
-            <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping shrink-0" />
-          )}
-        </div>
-      </div>
+      {/* Row 2: Real-time Hardware Usage Ticker Bar (isolated component: its
+          1.5s interval and liveTps subscription no longer re-render ChatView) */}
+      <HardwareTickerBar
+        isGenerating={isGenerating}
+        engineLabel={currentModel?.engine === 'cpu-wasm' ? 'CPU:' : 'GPU:'}
+        accelLabel={currentModel?.engine === 'cpu-wasm' ? 'WASM CPU' : (hardwareProfile?.hasWebGpu ? 'WebGPU' : 'WebGL2')}
+        estimatedRamGB={hardwareProfile?.estimatedRamGB || 4}
+        cpuCores={hardwareProfile?.cpuCores || 8}
+      />
 
       {/* Row 2.5: Search bar if active */}
       {showSearch && (
@@ -1436,7 +1470,6 @@ export default function ChatView() {
             {visibleMessages.map((msg) => {
               const isUser = msg.role === 'user';
               const isStepsOpen = expandedSteps[msg.id] ?? true;
-              const lastAssistantId = messages.filter(m => m.role === 'assistant' && !m.isStreaming).at(-1)?.id;
               return (
                 <div
                   key={msg.id}
