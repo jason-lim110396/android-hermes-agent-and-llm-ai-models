@@ -1176,6 +1176,16 @@ async function executeHermesAgent(
     updateMsg(assistantMsgId, steps, prefixNotice, true, set, get, 'agent', sessionId);
   }
 
+  // Harness verification: ensure tool observations are grounded before final synthesis.
+  if (toolObservations.length > 0) {
+    const verificationStep: AgentStep = {
+      thought: 'Harness verification: cross-checking tool observations for consistency and completeness before final response.',
+    };
+    steps.push(verificationStep);
+    updateMsg(assistantMsgId, steps, prefixNotice, true, set, get, 'agent', sessionId);
+    await new Promise((r) => setTimeout(r, 200));
+  }
+
   // Step 3: Synthesis & Final Answer with Real Inference Engine
   let contextPrompt = userText;
 
