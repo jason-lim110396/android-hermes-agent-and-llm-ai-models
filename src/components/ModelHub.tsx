@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import {
   Download,
   Check,
+  CheckCircle2,
   Cpu,
   HardDrive,
   Bot,
@@ -19,6 +20,7 @@ import {
   ShieldAlert,
   MessageSquare,
   Image as ImageIcon,
+  X,
 } from 'lucide-react';
 import { AVAILABLE_MODELS, ModelSpec } from '@/models';
 import { useAppStore } from '@/appStore';
@@ -56,8 +58,9 @@ export default function ModelHub() {
   };
   const checkCacheStatus = useAppStore((s) => s.checkCacheStatus);
 
-  const [selectedFamily, setSelectedFamily] = useState<'all' | 'recommended' | 'text' | 'vision' | 'image' | 'voice' | 'embedding'>('all');
+  const [selectedFamily, setSelectedFamily] = useState<'all' | 'downloaded' | 'recommended' | 'text' | 'vision' | 'image' | 'voice' | 'embedding'>('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const [showCompareModal, setShowCompareModal] = useState(false);
 
   React.useEffect(() => {
     checkCacheStatus();
@@ -66,7 +69,9 @@ export default function ModelHub() {
   // Filter and sort models by category (text, vision, image, voice, embedding)
   const filteredModels = AVAILABLE_MODELS
     .filter((m) => {
-      if (selectedFamily === 'recommended') {
+      if (selectedFamily === 'downloaded') {
+        if (!downloads[m.id]?.isReady) return false;
+      } else if (selectedFamily === 'recommended') {
         const isRec = m.isRecommended || hardwareProfile?.recommendedModelId === m.id;
         if (!isRec) return false;
       } else if (selectedFamily !== 'all') {
@@ -99,9 +104,14 @@ export default function ModelHub() {
       return a.sizeMB - b.sizeMB;
     });
 
-  // Calculate counts for categories
+  // Calculate counts for categories & storage cache
+  const totalCachedMB = AVAILABLE_MODELS
+    .filter((m) => downloads[m.id]?.isReady)
+    .reduce((acc, m) => acc + m.sizeMB, 0);
+
   const categoryCounts = {
     all: AVAILABLE_MODELS.length,
+    downloaded: AVAILABLE_MODELS.filter((m) => downloads[m.id]?.isReady).length,
     recommended: AVAILABLE_MODELS.filter((m) => m.isRecommended || hardwareProfile?.recommendedModelId === m.id).length,
     embedding: AVAILABLE_MODELS.filter((m) => m.category === 'embedding').length,
     vision: AVAILABLE_MODELS.filter((m) => m.category === 'vision').length,
@@ -126,17 +136,27 @@ export default function ModelHub() {
             </p>
           </div>
 
-          {/* Global Stop All Button in ModelHub */}
-          {Object.values(downloads).some((d) => d.isDownloading) && (
+          <div className="flex items-center gap-2">
             <button
-              onClick={stopAllRunningTasks}
-              title="Stop all active downloads"
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-500/20 border border-rose-500/50 text-rose-300 hover:bg-rose-500/30 text-xs font-bold transition-all cursor-pointer shadow-lg animate-pulse"
+              onClick={() => setShowCompareModal(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-cyan-950/70 border border-cyan-500/40 text-cyan-300 hover:text-white hover:border-cyan-400 text-xs font-bold transition-all cursor-pointer shadow-md"
             >
-              <Octagon className="w-3.5 h-3.5 text-rose-400 fill-rose-500/20" />
-              <span>Stop All Downloads</span>
+              <Layers className="w-3.5 h-3.5" />
+              <span>Compare Specs</span>
             </button>
-          )}
+
+            {/* Global Stop All Button in ModelHub */}
+            {Object.values(downloads).some((d) => d.isDownloading) && (
+              <button
+                onClick={stopAllRunningTasks}
+                title="Stop all active downloads"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-500/20 border border-rose-500/50 text-rose-300 hover:bg-rose-500/30 text-xs font-bold transition-all cursor-pointer shadow-lg animate-pulse"
+              >
+                <Octagon className="w-3.5 h-3.5 text-rose-400 fill-rose-500/20" />
+                <span>Stop All</span>
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Device Hardware Spec Bar */}
@@ -148,7 +168,7 @@ export default function ModelHub() {
             </div>
             <div className="flex items-center gap-1.5 text-zinc-300">
               <HardDrive className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Storage Free: {hardwareProfile.storageEstimateGB.available} GB</span>
+              <span>Free: {hardwareProfile.storageEstimateGB.available} GB ({totalCachedMB > 0 ? `${(totalCachedMB / 1024).toFixed(1)} GB cached` : '0 cached'})</span>
             </div>
             <div className="flex items-center gap-1.5 text-zinc-300">
               <Zap className="w-3.5 h-3.5 text-amber-400" />
@@ -190,6 +210,7 @@ export default function ModelHub() {
           </span>
           {[
             { id: 'all', label: 'All Models', count: categoryCounts.all },
+            { id: 'downloaded', label: '💾 Downloaded', count: categoryCounts.downloaded },
             { id: 'recommended', label: '★ Recommended', count: categoryCounts.recommended },
             { id: 'embedding', label: '🔍 Embedding & Files', count: categoryCounts.embedding },
             { id: 'vision', label: '👁️ Vision (MiniCPM-V)', count: categoryCounts.vision },
@@ -424,6 +445,103 @@ export default function ModelHub() {
           );
         })}
       </div>
+
+      {/* Model Specs Comparison Modal */}
+      {showCompareModal && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 animate-in fade-in">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl w-full max-w-4xl max-h-[85vh] flex flex-col shadow-2xl overflow-hidden">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between p-4 border-b border-zinc-800 bg-zinc-950/80">
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 rounded-lg bg-cyan-500/20 text-cyan-400">
+                  <Layers className="w-4 h-4" />
+                </div>
+                <div>
+                  <h2 className="text-base font-black text-white">Full AI Model Architecture & Spec Matrix</h2>
+                  <p className="text-xs text-zinc-400">Side-by-side comparison of local model weights, quantizations, and hardware engines</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowCompareModal(false)}
+                className="p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition-all cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body: Table */}
+            <div className="flex-1 overflow-x-auto overflow-y-auto p-4">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="border-b border-zinc-800 text-zinc-400 font-mono uppercase text-[10px]">
+                    <th className="py-2.5 px-3">Model Name</th>
+                    <th className="py-2.5 px-3">Parameters</th>
+                    <th className="py-2.5 px-3">Quant</th>
+                    <th className="py-2.5 px-3">Size</th>
+                    <th className="py-2.5 px-3">Min RAM</th>
+                    <th className="py-2.5 px-3">Engine</th>
+                    <th className="py-2.5 px-3">Purpose</th>
+                    <th className="py-2.5 px-3 text-right">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-800/60 font-mono">
+                  {AVAILABLE_MODELS.map((m) => {
+                    const isDownloaded = downloads[m.id]?.isReady;
+                    return (
+                      <tr key={m.id} className="hover:bg-zinc-800/40 transition-colors">
+                        <td className="py-2.5 px-3 font-sans font-bold text-white flex items-center gap-1.5">
+                          {m.name}
+                        </td>
+                        <td className="py-2.5 px-3 text-cyan-400">{m.parameters}</td>
+                        <td className="py-2.5 px-3 text-zinc-300">{m.quantization}</td>
+                        <td className="py-2.5 px-3 text-zinc-300">{(m.sizeMB / 1024).toFixed(1)} GB</td>
+                        <td className="py-2.5 px-3 text-zinc-300">{m.minRamGB} GB</td>
+                        <td className="py-2.5 px-3">
+                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                            m.engine === 'cpu-wasm' ? 'bg-teal-950 text-teal-300 border border-teal-500/30' : 'bg-amber-950 text-amber-300 border border-amber-500/30'
+                          }`}>
+                            {m.engine === 'cpu-wasm' ? 'CPU WASM' : 'WebGPU'}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3 font-sans capitalize text-zinc-400">{m.category}</td>
+                        <td className="py-2.5 px-3 text-right">
+                          {isDownloaded ? (
+                            <span className="inline-flex items-center gap-1 text-emerald-400 text-[11px] font-bold">
+                              <CheckCircle2 className="w-3.5 h-3.5" />
+                              <span>Ready</span>
+                            </span>
+                          ) : (
+                            <button
+                              onClick={() => {
+                                setShowCompareModal(false);
+                                startDownloadModel(m.id);
+                              }}
+                              className="text-cyan-400 hover:text-cyan-300 underline text-[11px] cursor-pointer"
+                            >
+                              Get
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-3 border-t border-zinc-800 bg-zinc-950 flex items-center justify-between text-xs text-zinc-400">
+              <span>{AVAILABLE_MODELS.length} verified on-device models</span>
+              <button
+                onClick={() => setShowCompareModal(false)}
+                className="px-4 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white font-medium cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
