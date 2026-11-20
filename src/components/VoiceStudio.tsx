@@ -39,6 +39,7 @@ import {
 import { useAppStore } from '@/appStore';
 import { AVAILABLE_MODELS } from '@/models';
 import { speakGuarded } from '@/utils/speechGuard';
+import { attachGuardedRecognition } from '@/utils/voiceSession';
 import { startVisibleInterval } from '@/utils/visibleInterval';
 
 interface VoicePreset {
@@ -306,6 +307,10 @@ export default function VoiceStudio() {
   const [saveSuccessMsg, setSaveSuccessMsg] = useState<string | null>(null);
 
   const recognitionRef = useRef<any>(null);
+  // Incremented on every start/stop/unmount. A stopped recognition can still
+  // deliver a late onstart/onresult/onend; only the matching token may mutate
+  // the recording UI or the transcript.
+  const recognitionRequestIdRef = useRef(0);
   const timerRef = useRef<(() => void) | null>(null);
   const recordingStartedAtRef = useRef<number | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -350,8 +355,16 @@ export default function VoiceStudio() {
 
   // The cloner spectrum rAF loop only stops itself when speech ends; leaving
   // the tab mid-speech left it drawing to a detached canvas. Cancel it on
-  // unmount alongside the main visualizer.
+  // unmount alongside the main visualizer, and stop any live dictation:
+  // otherwise the microphone keeps recording into a dead component after a
+  // tab switch (no stop call existed for it).
   useEffect(() => () => {
+    recognitionRequestIdRef.current++;
+    const recognition = recognitionRef.current;
+    recognitionRef.current = null;
+    if (recognition) {
+      try { recognition.stop(); } catch (_) {}
+    }
     if (clonerAnimFrameRef.current) {
       cancelAnimationFrame(clonerAnimFrameRef.current);
       clonerAnimFrameRef.current = null;
@@ -533,8 +546,15 @@ export default function VoiceStudio() {
 
   const handleToggleRecord = () => {
     if (isRecording) {
-      if (recognitionRef.current) {
-        recognitionRef.current.stop();
+      // Invalidate this session before stopping it: WebViews can deliver the
+      // stopped recognition's onend after a new recording has started, and
+      // the old unguarded handler flipped isRecording false while the new
+      // microphone session was still live.
+      recognitionRequestIdRef.current++;
+      const stopped = recognitionRef.current;
+      recognitionRef.current = null;
+      if (stopped) {
+        try { stopped.stop(); } catch (_) {}
       }
       setIsRecording(false);
       if (navigator.vibrate) navigator.vibrate([30]);
@@ -542,6 +562,16 @@ export default function VoiceStudio() {
     }
 
     if (typeof window === 'undefined') return;
+
+    // A previous recognition that never announced onstart (isRecording stayed
+    // false) would otherwise keep the microphone live alongside the new one.
+    // Invalidate and stop it before a second session starts.
+    if (recognitionRef.current) {
+      recognitionRequestIdRef.current++;
+      const previous = recognitionRef.current;
+      recognitionRef.current = null;
+      try { previous.stop(); } catch (_) {}
+    }
 
     const SpeechRecognition =
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -558,23 +588,36 @@ export default function VoiceStudio() {
       recognition.interimResults = true;
       recognition.lang = 'en-US';
 
-      recognition.onstart = () => setIsRecording(true);
-      recognition.onend = () => setIsRecording(false);
-      recognition.onerror = () => setIsRecording(false);
+      const requestId = ++recognitionRequestIdRef.current;
+      const isCurrent = () =>
+        recognitionRequestIdRef.current === requestId && recognitionRef.current === recognition;
 
-      recognition.onresult = (event: any) => {
-        let finalTranscript = '';
-        for (let i = event.resultIndex; i < event.results.length; ++i) {
-          finalTranscript += event.results[i][0].transcript;
-        }
-        if (finalTranscript) {
-          setTranscribedText((prev) => (prev ? `${prev} ${finalTranscript}` : finalTranscript));
-        }
-      };
+      attachGuardedRecognition(recognition, isCurrent, {
+        onStart: () => setIsRecording(true),
+        // Only the current recognition may end the current recording UI.
+        onEnd: () => {
+          recognitionRef.current = null;
+          setIsRecording(false);
+        },
+        onError: () => {
+          recognitionRef.current = null;
+          setIsRecording(false);
+        },
+        onResult: (event) => {
+          let finalTranscript = '';
+          for (let i = event.resultIndex; i < event.results.length; ++i) {
+            finalTranscript += event.results[i][0].transcript;
+          }
+          if (finalTranscript) {
+            setTranscribedText((prev) => (prev ? `${prev} ${finalTranscript}` : finalTranscript));
+          }
+        },
+      });
 
       recognitionRef.current = recognition;
       recognition.start();
     } catch (_) {
+      recognitionRef.current = null;
       setIsRecording(false);
     }
   };

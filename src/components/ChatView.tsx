@@ -79,6 +79,7 @@ import OfflinePhraseBookModal from './OfflinePhraseBookModal';
 import SensorSpatialModal from './SensorSpatialModal';
 import NetworkSpeedModal from './NetworkSpeedModal';
 import { abortAllInference } from '@/inferenceEngine';
+import { attachGuardedRecognition, voiceChunkBelongsToCurrentNote } from '@/utils/voiceSession';
 import MarkdownNotepadModal from './MarkdownNotepadModal';
 import QRCodeStudioModal from './QRCodeStudioModal';
 
@@ -673,17 +674,22 @@ export default function ChatView() {
         rec.lang = 'en-US';
         rec.continuous = true;
         rec.interimResults = true;
-        rec.onresult = (event: any) => {
-          const transcript = Array.from(event.results)
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            .map((res: any) => res[0].transcript)
-            .join(' ');
-          currentTranscriptRef.current = transcript;
-          setInputVal(transcript);
-        };
-        rec.onerror = (event: any) => {
-          console.warn('SpeechRecognition notice:', event?.error);
-        };
+        // Only this request's live session may write the composer. Stop/cancel/
+        // send/unmount all bump voiceRequestIdRef, so a late onresult from the
+        // previous recognition can no longer refill the input or overwrite a
+        // newer session's transcript.
+        attachGuardedRecognition(rec, isCurrent, {
+          onResult: (event) => {
+            const transcript = Array.from(event.results)
+              .map((res) => res[0].transcript)
+              .join(' ');
+            currentTranscriptRef.current = transcript;
+            setInputVal(transcript);
+          },
+          onError: (event) => {
+            console.warn('SpeechRecognition notice:', event?.error);
+          },
+        });
         rec.start();
       } catch (e) {
         console.warn('SpeechRecognition initialization notice:', e);
@@ -736,6 +742,17 @@ export default function ChatView() {
           mediaRecorderRef.current = mediaRecorder;
 
           mediaRecorder.ondataavailable = (event) => {
+            // A cancelled/finished recorder can deliver one last chunk after
+            // the buffer was cleared. Accept only chunks that still belong to
+            // this note (or its in-flight finalize), otherwise the next
+            // recording would gain the old note's audio.
+            const belongs = voiceChunkBelongsToCurrentNote({
+              chunkRequestId: requestId,
+              currentRequestId: voiceRequestIdRef.current,
+              finalizing: isFinalizingVoiceRef.current,
+              isActiveRecorder: mediaRecorderRef.current === mediaRecorder,
+            });
+            if (!belongs) return;
             if (event.data.size > 0) {
               audioChunksRef.current.push(event.data);
             }
@@ -749,10 +766,11 @@ export default function ChatView() {
       // Whatever failed, this request owns no recorder: stop its recognition
       // and get out. Falling through would show the recording bar with a null
       // MediaRecorder, and the user's entire note would be silently discarded
-      // on Send.
+      // on Send. The token bump ignores this attempt's late onresult as well.
       if (rec) {
         try { rec.stop(); } catch (_) {}
       }
+      voiceRequestIdRef.current++;
       if (err?.name === 'NotAllowedError' || err?.name === 'PermissionDeniedError') {
         alert('Microphone permission was denied. Please allow microphone access to record voice messages.');
       } else {
@@ -767,6 +785,7 @@ export default function ChatView() {
       if (rec) {
         try { rec.stop(); } catch (_) {}
       }
+      voiceRequestIdRef.current++;
       alert('Microphone unavailable. Voice note was not started.');
       return;
     }
