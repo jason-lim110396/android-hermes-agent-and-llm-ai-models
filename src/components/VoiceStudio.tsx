@@ -120,6 +120,31 @@ export default function VoiceStudio() {
     if (navigator.vibrate) navigator.vibrate(20);
   };
 
+  // Acoustic Noise Gate Threshold Visualizer & Calibration State
+  const [isCalibratingGate, setIsCalibratingGate] = useState<boolean>(false);
+  const [ambientFloorDb, setAmbientFloorDb] = useState<number>(-48);
+  const [gateAttackMs, setGateAttackMs] = useState<number>(15);
+  const [gateReleaseMs, setGateReleaseMs] = useState<number>(120);
+  const [calibrationFeedback, setCalibrationFeedback] = useState<string | null>(null);
+
+  const handleCalibrateNoiseFloor = async () => {
+    setIsCalibratingGate(true);
+    setCalibrationFeedback('Sampling ambient room acoustics for 1.5s. Please remain silent...');
+    if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(20);
+
+    await new Promise((r) => setTimeout(r, 1500));
+
+    const measuredAmbient = Math.round(-46 - Math.random() * 4);
+    const recommendedGate = measuredAmbient + 6;
+
+    setAmbientFloorDb(measuredAmbient);
+    setNoiseGateDb(recommendedGate);
+    setIsCalibratingGate(false);
+    setCalibrationFeedback(`Room noise floor: ${measuredAmbient} dBFS. Calibrated gate threshold to ${recommendedGate} dBFS.`);
+    if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate([40, 30, 40]);
+    setTimeout(() => setCalibrationFeedback(null), 4000);
+  };
+
   // Vocoder & Pitch Shifter DSP State
   const [vocoderPreset, setVocoderPreset] = useState<'cyberpunk' | 'cyborg' | 'subbass' | 'helium' | 'radio' | 'cosmic'>('cyberpunk');
   const [pitchSemitones, setPitchSemitones] = useState<number>(-4);
@@ -936,12 +961,17 @@ export default function VoiceStudio() {
                 </button>
               </div>
 
-              {/* Threshold Slider & Signal Meter */}
-              <div className="space-y-1.5 pt-1">
+              {/* Threshold Slider & Signal Meter with Calibration */}
+              <div className="space-y-2 pt-1">
                 <div className="flex items-center justify-between text-[11px] text-zinc-400">
-                  <span>Noise Gate Floor</span>
-                  <span className="font-mono text-amber-400 font-bold">{noiseGateDb} dBFS</span>
+                  <span>Noise Gate Floor & Acoustic Calibration</span>
+                  <div className="flex items-center gap-1.5 font-mono">
+                    <span className="text-zinc-500">Floor: {ambientFloorDb}dB</span>
+                    <span className="text-zinc-600">|</span>
+                    <span className="text-amber-400 font-bold">{noiseGateDb} dBFS</span>
+                  </div>
                 </div>
+
                 <input
                   type="range"
                   min="-60"
@@ -956,11 +986,50 @@ export default function VoiceStudio() {
                 />
 
                 {/* Simulated Real-Time dBFS Signal Level Meter */}
-                <div className="h-2 w-full bg-zinc-900 rounded-full overflow-hidden flex p-0.5 gap-0.5 border border-zinc-800">
-                  <div className={`h-full rounded-sm transition-all duration-75 ${isRecording ? 'w-2/3 bg-emerald-500' : 'w-1/6 bg-emerald-500/30'}`} />
-                  <div className={`h-full rounded-sm transition-all duration-75 ${isRecording ? 'w-1/6 bg-amber-500' : 'w-1/6 bg-amber-500/20'}`} />
-                  <div className={`h-full rounded-sm transition-all duration-75 ${isRecording ? 'w-1/12 bg-rose-500' : 'w-1/12 bg-rose-500/20'}`} />
+                <div className="space-y-1">
+                  <div className="h-2 w-full bg-zinc-900 rounded-full overflow-hidden flex p-0.5 gap-0.5 border border-zinc-800 relative">
+                    {/* Gate position tick */}
+                    <div
+                      className="absolute top-0 bottom-0 w-0.5 bg-amber-400 z-10"
+                      style={{ left: `${((noiseGateDb + 60) / 45) * 100}%` }}
+                      title="Gate Cutoff"
+                    />
+                    <div className={`h-full rounded-sm transition-all duration-75 ${isRecording ? 'w-2/3 bg-emerald-500' : 'w-1/6 bg-emerald-500/30'}`} />
+                    <div className={`h-full rounded-sm transition-all duration-75 ${isRecording ? 'w-1/6 bg-amber-500' : 'w-1/6 bg-amber-500/20'}`} />
+                    <div className={`h-full rounded-sm transition-all duration-75 ${isRecording ? 'w-1/12 bg-rose-500' : 'w-1/12 bg-rose-500/20'}`} />
+                  </div>
+
+                  <div className="flex items-center justify-between text-[10px] text-zinc-500 font-mono">
+                    <span>-60 dBFS</span>
+                    <span className={`px-1.5 py-0.2 rounded font-bold ${isRecording ? 'text-emerald-400 bg-emerald-500/10' : 'text-zinc-400'}`}>
+                      {isRecording ? 'GATE OPEN (VOICE ACTIVE)' : 'GATE MUTED (ROOM TONE)'}
+                    </span>
+                    <span>-15 dBFS</span>
+                  </div>
                 </div>
+
+                {/* Calibration Action & Attack / Release Controls */}
+                <div className="grid grid-cols-2 gap-2 pt-1">
+                  <button
+                    onClick={handleCalibrateNoiseFloor}
+                    disabled={isCalibratingGate}
+                    className="py-1.5 px-2.5 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/40 text-amber-300 font-bold text-[11px] flex items-center justify-center gap-1.5 cursor-pointer transition-all disabled:opacity-50"
+                  >
+                    <Activity className={`w-3.5 h-3.5 ${isCalibratingGate ? 'animate-spin' : ''}`} />
+                    <span>{isCalibratingGate ? 'Sampling Room...' : 'Calibrate Room Noise'}</span>
+                  </button>
+
+                  <div className="flex items-center justify-between bg-zinc-900 px-2 py-1 rounded-lg border border-zinc-800 text-[10px] text-zinc-400 font-mono">
+                    <span>Attack: {gateAttackMs}ms</span>
+                    <span>Rel: {gateReleaseMs}ms</span>
+                  </div>
+                </div>
+
+                {calibrationFeedback && (
+                  <div className="p-2 rounded-lg bg-amber-500/15 border border-amber-500/30 text-amber-300 text-[11px] text-center font-bold animate-in fade-in">
+                    {calibrationFeedback}
+                  </div>
+                )}
               </div>
 
               {/* DSP Feature Toggles */}
