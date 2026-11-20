@@ -44,6 +44,7 @@ export default function ChatHistoryModal({ isOpen, onClose }: ChatHistoryModalPr
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState('');
+  const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
 
   const downloadBlob = (content: string, filename: string, mimeType: string) => {
     const blob = new Blob([content], { type: mimeType });
@@ -174,14 +175,6 @@ export default function ChatHistoryModal({ isOpen, onClose }: ChatHistoryModalPr
           </div>
 
           <div className="flex items-center gap-1.5">
-            <button
-              onClick={handleExportAll}
-              title="Download a full JSON backup of all chat and agent conversations"
-              className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-bold transition-all cursor-pointer border border-zinc-700"
-            >
-              <FileJson className="w-3.5 h-3.5 text-cyan-400" />
-              <span>Export All</span>
-            </button>
             <button
               onClick={() => {
                 createNewSession();
@@ -347,11 +340,11 @@ export default function ChatHistoryModal({ isOpen, onClose }: ChatHistoryModalPr
                     </div>
 
                     {/* Actions: Pin, Export & Delete */}
-                    <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+                    <div className="flex flex-wrap items-center justify-end gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
                       <button
                         onClick={() => togglePinSession(s.id)}
                         title={s.pinned ? 'Unpin session' : 'Pin to top'}
-                        className={`p-1.5 rounded-lg border transition-all cursor-pointer ${
+                        className={`h-12 w-12 p-3 rounded-lg border transition-all cursor-pointer flex items-center justify-center ${
                           s.pinned
                             ? 'bg-amber-500/20 border-amber-500/40 text-amber-300'
                             : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-amber-400'
@@ -363,18 +356,29 @@ export default function ChatHistoryModal({ isOpen, onClose }: ChatHistoryModalPr
                       <button
                         onClick={(e) => handleExportSessionMarkdown(e, s)}
                         title="Export this conversation as a markdown transcript"
-                        className="p-1.5 rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-500 hover:text-cyan-400 hover:border-cyan-500/30 transition-all cursor-pointer"
+                        className="h-12 w-12 p-3 rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-500 hover:text-cyan-400 hover:border-cyan-500/30 transition-all cursor-pointer flex items-center justify-center"
                       >
                         <Download className="w-3.5 h-3.5" />
                       </button>
 
                       {sessionsList.length > 1 && (
                         <button
-                          onClick={() => deleteSession(s.id)}
-                          title="Delete session"
-                          className="p-1.5 rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-500 hover:text-rose-400 hover:border-rose-500/30 transition-all cursor-pointer"
+                          onClick={() => {
+                            if (confirmingDeleteId === s.id) {
+                              deleteSession(s.id);
+                              setConfirmingDeleteId(null);
+                            } else {
+                              setConfirmingDeleteId(s.id);
+                            }
+                          }}
+                          title={confirmingDeleteId === s.id ? 'Tap again to confirm session deletion' : 'Delete session'}
+                          className={`h-12 min-w-12 p-3 rounded-lg border transition-all cursor-pointer flex items-center justify-center text-xs font-bold whitespace-nowrap ${
+                            confirmingDeleteId === s.id
+                              ? 'bg-rose-500/10 border-rose-500/40 text-rose-300'
+                              : 'w-12 bg-zinc-900 border-zinc-800 text-zinc-500 hover:text-rose-400 hover:border-rose-500/30'
+                          }`}
                         >
-                          <Trash2 className="w-3.5 h-3.5" />
+                          {confirmingDeleteId === s.id ? <span>Delete?</span> : <Trash2 className="w-3.5 h-3.5" />}
                         </button>
                       )}
                     </div>
@@ -389,6 +393,18 @@ export default function ChatHistoryModal({ isOpen, onClose }: ChatHistoryModalPr
               <p className="text-[11px] text-zinc-600">Try changing the category or clearing the search query.</p>
             </div>
           )}
+        </div>
+
+        {/* Export All Footer */}
+        <div className="p-3 border-t border-zinc-800 bg-zinc-950/60">
+          <button
+            onClick={handleExportAll}
+            title="Download a full JSON backup of all chat and agent conversations"
+            className="w-full min-h-12 flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-bold transition-all cursor-pointer border border-zinc-700"
+          >
+            <FileJson className="w-3.5 h-3.5 text-cyan-400" />
+            <span>Export All</span>
+          </button>
         </div>
       </div>
     </div>
