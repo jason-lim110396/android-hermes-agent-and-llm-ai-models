@@ -286,4 +286,30 @@ export const AVAILABLE_MODELS: ModelSpec[] = [
     author: 'TinyLlama',
     systemPromptPreset: 'You are TinyLlama, a concise helpful on-device assistant.'
   }
+  ,
+  {
+    id: 'phi3-mini-3.8b-cpu',
+    ggufUrl: 'https://huggingface.co/microsoft/Phi-3-mini-4k-instruct-gguf/resolve/main/Phi-3-mini-4k-instruct-q4.gguf',
+    name: 'Phi-3 Mini 3.8B (Reasoning)',
+    category: 'text',
+    family: 'chat',
+    purposeTitle: 'Deep Reasoning',
+    purposeIcon: 'reasoning',
+    tagline: 'Compact 3.8B reasoning model 2.2GB',
+    sizeMB: 2200,
+    parameters: '3.8B',
+    quantization: 'Q4 (GGUF)',
+    contextWindow: 4096,
+    minRamGB: 4,
+    recommendedRamGB: 6,
+    engine: 'cpu-wasm',
+    requiresWebGpu: false,
+    isRecommended: false,
+    capabilities: ['text','code','tools','agent'],
+    inputTypes: ['text','file'],
+    outputTypes: ['text','code'],
+    description: 'Microsoft Phi-3 Mini reasoning model for complex logic and coding on capable Android devices.',
+    author: 'Microsoft',
+    systemPromptPreset: 'You are Phi-3, a helpful reasoning assistant.'
+  }
 ];
