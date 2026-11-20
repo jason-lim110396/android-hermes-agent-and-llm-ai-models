@@ -17,6 +17,7 @@ import {
   Gauge,
 } from 'lucide-react';
 import { useAppStore, NavigationTab } from '@/appStore';
+import { holdWakeLock, releaseWakeLock } from '@/utils/wakeLock';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import ChatView from '@/components/ChatView';
 import ModelHub from '@/components/ModelHub';
@@ -43,6 +44,16 @@ export default function Home() {
 
   const isDownloadingAny = Object.values(downloads).some((d) => d.isDownloading);
   const hasRunningTasks = isGenerating || isSpeaking || isDownloadingAny;
+
+  // Screen wake lock during heavy work: keeps Android from sleeping the
+  // screen (and suspending WebView JS) mid-generation or mid-download.
+  React.useEffect(() => {
+    if (hasRunningTasks) {
+      holdWakeLock();
+    } else {
+      releaseWakeLock();
+    }
+  }, [hasRunningTasks]);
 
   // Run hardware detection and check cached models automatically on mount
   const [isOnline, setIsOnline] = React.useState(true);
