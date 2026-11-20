@@ -25,6 +25,11 @@ import {
   Sun,
   Moon,
   Palette,
+  Bell,
+  BellRing,
+  AlarmClock,
+  Volume2,
+  CheckCircle2,
 } from 'lucide-react';
 import { useAppStore } from '@/appStore';
 
@@ -182,6 +187,107 @@ export default function SettingsView() {
         setTimeout(() => setClearCacheSuccess(false), 2500);
       } catch (_) {}
     }
+  };
+
+  // Notification & Scheduled Alarm State
+  const [notifPermission, setNotifPermission] = useState<string>(() => {
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      return Notification.permission;
+    }
+    return 'default';
+  });
+  const [notifyOnInference, setNotifyOnInference] = useState(true);
+  const [notifyOnDownload, setNotifyOnDownload] = useState(true);
+  const [hapticAlerts, setHapticAlerts] = useState(true);
+  const [alarmTitle, setAlarmTitle] = useState('');
+  const [alarmMinutes, setAlarmMinutes] = useState(5);
+  const [activeAlarms, setActiveAlarms] = useState<{ id: string; title: string; fireAt: number; formattedTime: string }[]>([]);
+  const [notifHistory, setNotifHistory] = useState<{ id: string; title: string; time: string }[]>([]);
+  const [testNotifSuccess, setTestNotifSuccess] = useState<string | null>(null);
+
+  React.useEffect(() => {
+    const timer = setInterval(() => {
+      const now = Date.now();
+      setActiveAlarms((prev) => {
+        const remaining: typeof prev = [];
+        prev.forEach((a) => {
+          if (a.fireAt <= now) {
+            if (hapticAlerts && navigator.vibrate) {
+              navigator.vibrate([150, 100, 150, 100, 250]);
+            }
+            if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+              new Notification('⏰ Hermes AI Wake Reminder', {
+                body: a.title,
+                icon: '/icon.png',
+              });
+            }
+            setNotifHistory((hist) => [
+              { id: a.id, title: a.title, time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) },
+              ...hist,
+            ]);
+          } else {
+            remaining.push(a);
+          }
+        });
+        return remaining;
+      });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [hapticAlerts]);
+
+  const handleRequestPermission = async () => {
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      try {
+        const res = await Notification.requestPermission();
+        setNotifPermission(res);
+        if (res === 'granted') {
+          setTestNotifSuccess('System notification permission granted!');
+          if (navigator.vibrate) navigator.vibrate([40, 30, 40]);
+          setTimeout(() => setTestNotifSuccess(null), 3000);
+        }
+      } catch (_) {}
+    }
+  };
+
+  const handleTestInstantNotification = () => {
+    if (hapticAlerts && navigator.vibrate) {
+      navigator.vibrate([100, 50, 100]);
+    }
+    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+      new Notification('🔔 Hermes Notification Chime', {
+        body: 'On-device notification system is fully operational.',
+        icon: '/icon.png',
+      });
+    }
+    const newEntry = {
+      id: `notif-${Date.now()}`,
+      title: 'Hermes System Diagnostic Alert',
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    };
+    setNotifHistory((prev) => [newEntry, ...prev]);
+    setTestNotifSuccess('Test notification dispatched!');
+    setTimeout(() => setTestNotifSuccess(null), 3000);
+  };
+
+  const handleScheduleAlarm = () => {
+    if (!alarmTitle.trim()) return;
+    const fireTime = Date.now() + alarmMinutes * 60 * 1000;
+    const formatted = new Date(fireTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const newAlarm = {
+      id: `alarm-${Date.now()}`,
+      title: alarmTitle.trim(),
+      fireAt: fireTime,
+      formattedTime: formatted,
+    };
+    setActiveAlarms((prev) => [...prev, newAlarm]);
+    setAlarmTitle('');
+    setTestNotifSuccess(`Alarm set for ${formatted} (+${alarmMinutes}m)`);
+    if (navigator.vibrate) navigator.vibrate(30);
+    setTimeout(() => setTestNotifSuccess(null), 3000);
+  };
+
+  const handleCancelAlarm = (id: string) => {
+    setActiveAlarms((prev) => prev.filter((a) => a.id !== id));
   };
 
   return (
@@ -381,6 +487,152 @@ export default function SettingsView() {
                 </span>
               )}
             </div>
+          </div>
+        </div>
+
+        {/* SYSTEM NOTIFICATION TRAY & BACKGROUND WAKE ALARMS */}
+        <div className="bg-zinc-900/80 border border-zinc-800 rounded-2xl p-3.5 shadow-xl space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="w-7 h-7 rounded-lg bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400">
+                <BellRing className="w-4 h-4" />
+              </div>
+              <div>
+                <h4 className="text-xs font-bold text-white">System Notification Tray & Alarms</h4>
+                <p className="text-[10px] text-zinc-400">Background task completion chimes & scheduled wake reminders</p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              <span
+                className={`text-[9px] font-mono font-bold px-2 py-0.5 rounded-full border ${
+                  notifPermission === 'granted'
+                    ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+                    : 'bg-amber-500/10 border-amber-500/30 text-amber-300'
+                }`}
+              >
+                {notifPermission === 'granted' ? 'Allowed' : 'Not Allowed'}
+              </span>
+              {notifPermission !== 'granted' && (
+                <button
+                  onClick={handleRequestPermission}
+                  className="px-2 py-0.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-[10px] font-bold cursor-pointer"
+                >
+                  Enable
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Toggle Preferences */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1 border-t border-zinc-800/80 text-[11px]">
+            <label className="flex items-center gap-2 p-2 rounded-xl bg-zinc-950/60 border border-zinc-800/60 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={notifyOnInference}
+                onChange={(e) => setNotifyOnInference(e.target.checked)}
+                className="accent-cyan-500 rounded"
+              />
+              <span className="text-zinc-300 text-[10px]">Notify on LLM Finish</span>
+            </label>
+
+            <label className="flex items-center gap-2 p-2 rounded-xl bg-zinc-950/60 border border-zinc-800/60 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={notifyOnDownload}
+                onChange={(e) => setNotifyOnDownload(e.target.checked)}
+                className="accent-cyan-500 rounded"
+              />
+              <span className="text-zinc-300 text-[10px]">Notify on Download</span>
+            </label>
+
+            <label className="flex items-center gap-2 p-2 rounded-xl bg-zinc-950/60 border border-zinc-800/60 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={hapticAlerts}
+                onChange={(e) => setHapticAlerts(e.target.checked)}
+                className="accent-cyan-500 rounded"
+              />
+              <span className="text-zinc-300 text-[10px]">Haptic Vibrations</span>
+            </label>
+          </div>
+
+          {/* Scheduled Wake Alarm Dispatcher */}
+          <div className="p-2.5 rounded-xl bg-zinc-950/80 border border-zinc-800 space-y-2">
+            <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">
+              Schedule Local Wake Alarm
+            </span>
+            <div className="flex items-center gap-1.5">
+              <input
+                type="text"
+                placeholder="Reminder note (e.g. 'Review meeting minutes')..."
+                value={alarmTitle}
+                onChange={(e) => setAlarmTitle(e.target.value)}
+                className="flex-1 bg-zinc-900 border border-zinc-800 rounded-xl px-2.5 py-1.5 text-xs text-white placeholder-zinc-500 outline-none focus:border-cyan-500"
+              />
+              <select
+                aria-label="Alarm duration delay"
+                value={alarmMinutes}
+                onChange={(e) => setAlarmMinutes(Number(e.target.value))}
+                className="bg-zinc-900 border border-zinc-800 text-zinc-300 text-xs rounded-xl px-2 py-1.5 outline-none cursor-pointer"
+              >
+                <option value={1}>+1 min</option>
+                <option value={5}>+5 min</option>
+                <option value={15}>+15 min</option>
+                <option value={30}>+30 min</option>
+                <option value={60}>+1 hr</option>
+              </select>
+              <button
+                onClick={handleScheduleAlarm}
+                disabled={!alarmTitle.trim()}
+                className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 disabled:opacity-40 text-white text-xs font-bold transition-all cursor-pointer shadow-md"
+              >
+                <AlarmClock className="w-3.5 h-3.5" />
+                <span>Set Alarm</span>
+              </button>
+            </div>
+
+            {/* Active Alarms List */}
+            {activeAlarms.length > 0 && (
+              <div className="space-y-1.5 pt-1">
+                <span className="text-[9px] text-zinc-500 font-mono">Pending Alarms:</span>
+                {activeAlarms.map((a) => (
+                  <div
+                    key={a.id}
+                    className="flex items-center justify-between p-1.5 rounded-lg bg-zinc-900 border border-zinc-800 text-[10px]"
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <AlarmClock className="w-3 h-3 text-cyan-400" />
+                      <span className="text-zinc-200 font-bold">{a.title}</span>
+                      <span className="text-zinc-500 font-mono">({a.formattedTime})</span>
+                    </div>
+                    <button
+                      onClick={() => handleCancelAlarm(a.id)}
+                      className="text-zinc-500 hover:text-rose-400 font-bold cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Test Instant Chime & Notification Feedback */}
+          <div className="flex items-center justify-between pt-1">
+            <button
+              onClick={handleTestInstantNotification}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white text-xs font-bold transition-all cursor-pointer border border-zinc-700/80"
+            >
+              <Volume2 className="w-3.5 h-3.5 text-cyan-400" />
+              <span>Test Instant Chime & Haptic</span>
+            </button>
+
+            {testNotifSuccess && (
+              <span className="text-[10px] text-emerald-400 font-mono font-bold animate-fadeIn">
+                {testNotifSuccess}
+              </span>
+            )}
           </div>
         </div>
 
