@@ -358,6 +358,10 @@ export default function ChatView() {
   useBackButtonClose(modelPromptDownload !== null, () => setModelPromptDownload(null));
   useBackButtonClose(showBookmarksDrawer, () => setShowBookmarksDrawer(false));
   useBackButtonClose(showSnippetsDrawer, () => setShowSnippetsDrawer(false));
+  // The two full-screen dropdown backdrops (model picker, mode menu) count
+  // as overlays too: back dismisses them instead of exiting the app.
+  useBackButtonClose(showModelPicker, () => setShowModelPicker(false));
+  useBackButtonClose(showModeMenu, () => setShowModeMenu(false));
 
   const [customSnippets, setCustomSnippets] = useState<PromptSnippet[]>(() => {
     if (typeof window !== 'undefined') {
