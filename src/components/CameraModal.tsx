@@ -33,6 +33,7 @@ interface CameraModalProps {
 export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [capturedUrl, setCapturedUrl] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -103,6 +104,7 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
         audio: false,
       });
       setStream(mediaStream);
+      streamRef.current = mediaStream;
       if (videoRef.current) {
         videoRef.current.srcObject = mediaStream;
       }
@@ -141,8 +143,10 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
   };
 
   const stopCamera = () => {
-    if (stream) {
-      stream.getTracks().forEach((t) => t.stop());
+    const activeStream = streamRef.current;
+    if (activeStream) {
+      activeStream.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
       setStream(null);
     }
   };
