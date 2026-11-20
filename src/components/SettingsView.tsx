@@ -18,6 +18,10 @@ import {
   Wifi,
   Wand2,
   Sparkles,
+  Download,
+  Upload,
+  FileJson,
+  Radio,
 } from 'lucide-react';
 import { useAppStore } from '@/appStore';
 
@@ -58,10 +62,61 @@ export default function SettingsView() {
   const performanceMode = useAppStore((s) => s.performanceMode);
   const setPerformanceMode = useAppStore((s) => s.setPerformanceMode);
   const hardwareProfile = useAppStore((s) => s.hardwareProfile);
+  const chatSessions = useAppStore((s) => s.chatSessions);
+  const agentSessions = useAppStore((s) => s.agentSessions);
 
   const [isTestingEndpoint, setIsTestingEndpoint] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [clearCacheSuccess, setClearCacheSuccess] = useState(false);
+  const [backupStatus, setBackupStatus] = useState<string | null>(null);
+
+  const handleExportBackup = () => {
+    const backupData = {
+      version: '1.0',
+      exportedAt: new Date().toISOString(),
+      systemPrompt,
+      temperature,
+      maxTokens,
+      performanceMode,
+      chatSessions,
+      agentSessions,
+    };
+    const jsonStr = JSON.stringify(backupData, null, 2);
+    const blob = new Blob([jsonStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `hermes_ai_backup_${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    setBackupStatus('Exported successfully!');
+    setTimeout(() => setBackupStatus(null), 3000);
+  };
+
+  const handleImportBackup = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const parsed = JSON.parse(event.target?.result as string);
+        if (parsed.chatSessions) {
+          useAppStore.setState({
+            chatSessions: parsed.chatSessions,
+            agentSessions: parsed.agentSessions || {},
+            systemPrompt: parsed.systemPrompt || systemPrompt,
+          });
+          setBackupStatus('Backup restored successfully!');
+          setTimeout(() => setBackupStatus(null), 3000);
+        } else {
+          setBackupStatus('Invalid backup format.');
+        }
+      } catch (_) {
+        setBackupStatus('Failed to parse JSON backup.');
+      }
+    };
+    reader.readAsText(file);
+  };
 
   const handleTestConnection = async () => {
     if (!apiEndpoint.trim()) return;
@@ -346,6 +401,43 @@ export default function SettingsView() {
             {clearCacheSuccess ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Trash2 className="w-3.5 h-3.5" />}
             <span>{clearCacheSuccess ? 'Cleared!' : 'Clear Cache'}</span>
           </button>
+        </div>
+
+        {/* Full Session Backup & Restore (.json) */}
+        <div className="bg-zinc-900/60 border border-zinc-800 rounded-2xl p-3.5 space-y-2.5">
+          <div className="flex items-center justify-between">
+            <div>
+              <h4 className="text-xs font-bold text-zinc-200 flex items-center gap-1.5">
+                <FileJson className="w-3.5 h-3.5 text-cyan-400" />
+                <span>Full System Backup & Restore</span>
+              </h4>
+              <p className="text-[10px] text-zinc-400">Export or restore all on-device conversation histories, personas, and scratchpads in JSON format.</p>
+            </div>
+            {backupStatus && (
+              <span className="text-[10px] text-emerald-400 font-bold font-mono">{backupStatus}</span>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2 pt-1">
+            <button
+              onClick={handleExportBackup}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold transition-all cursor-pointer shadow-md"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Export Backup (.json)</span>
+            </button>
+
+            <label className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-bold transition-all cursor-pointer border border-zinc-700/80">
+              <Upload className="w-3.5 h-3.5 text-amber-400" />
+              <span>Restore Backup</span>
+              <input
+                type="file"
+                accept=".json"
+                className="hidden"
+                onChange={handleImportBackup}
+              />
+            </label>
+          </div>
         </div>
 
         {/* Privacy Note */}
