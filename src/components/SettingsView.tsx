@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Sliders,
   Shield,
@@ -194,6 +194,18 @@ export default function SettingsView() {
 
   const [providerModels, setProviderModels] = useState<string[]>([]);
   const [isFetchingModels, setIsFetchingModels] = useState(false);
+  // Pinned provider model: written to the store's customModelName so inference
+  // requests it as the model. Never allowed to overwrite the endpoint URL.
+  const setCustomModelName = useAppStore((s) => s.setCustomModelName);
+  const [selectedProviderModel, setSelectedProviderModel] = useState<string>('');
+  useEffect(() => {
+    setCustomModelName(selectedProviderModel);
+  }, [selectedProviderModel, setCustomModelName]);
+  // A fetched list belongs to one endpoint; a different endpoint invalidates it.
+  useEffect(() => {
+    setProviderModels([]);
+    setSelectedProviderModel('');
+  }, [apiEndpoint]);
   const handleFetchProviderModels = async () => {
     if (!apiEndpoint.trim()) return;
     setIsFetchingModels(true);
@@ -394,19 +406,6 @@ export default function SettingsView() {
                 {performanceMode === 'eco' && (
                   <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
                 )}
-            <div className='flex items-center gap-2 pt-1'>
-              <button onClick={handleFetchProviderModels} disabled={!apiEndpoint.trim() || isFetchingModels} className='flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-bold transition-all cursor-pointer disabled:opacity-40'>
-                <span>{isFetchingModels ? 'Fetching...' : 'Fetch Provider Models'}</span>
-              </button>
-              {providerModels.length > 0 && (
-                <select className='flex-1 bg-zinc-950 border border-zinc-800 rounded-xl px-2 py-1.5 text-xs text-zinc-200' onChange={(e) => setApiEndpoint(e.target.value)}>
-                  <option value=''>Select a model</option>
-                  {providerModels.map((m) => (
-                    <option key={m} value={m}>{m}</option>
-                  ))}
-                </select>
-              )}
-            </div>
               </div>
               <p className="text-[10px] text-zinc-400 leading-tight">
                 Slow output pacing, lowest battery drain, zero overheating. Perfect for prolonged sessions.
@@ -548,6 +547,14 @@ export default function SettingsView() {
                 <span>{isTestingEndpoint ? 'Testing...' : 'Test Connection'}</span>
               </button>
 
+              <button
+                onClick={handleFetchProviderModels}
+                disabled={!apiEndpoint.trim() || isFetchingModels}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-bold transition-all cursor-pointer disabled:opacity-40"
+              >
+                <span>{isFetchingModels ? 'Fetching...' : 'Fetch Provider Models'}</span>
+              </button>
+
               {testResult && (
                 <span
                   className={`text-[10px] font-mono px-2 py-0.5 rounded-lg border ${
@@ -560,6 +567,25 @@ export default function SettingsView() {
                 </span>
               )}
             </div>
+
+            {providerModels.length > 0 && (
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-zinc-300 block">Provider models (sets the requested model, not the endpoint)</label>
+                <select
+                  className='w-full bg-zinc-950 border border-zinc-800 rounded-xl px-2 py-1.5 text-xs text-zinc-200'
+                  value={selectedProviderModel}
+                  onChange={(e) => setSelectedProviderModel(e.target.value)}
+                >
+                  <option value=''>Auto (provider default)</option>
+                  {providerModels.map((m) => (
+                    <option key={m} value={m}>{m}</option>
+                  ))}
+                </select>
+                <p className="text-[10px] text-zinc-500 leading-snug">
+                  {selectedProviderModel ? `Requests to ${apiEndpoint.trim()} will ask for model "${selectedProviderModel}".` : 'Pick a fetched model to pin it for every request to this endpoint.'}
+                </p>
+              </div>
+            )}
           </div>
         </div>
 

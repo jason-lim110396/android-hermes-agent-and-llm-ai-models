@@ -163,6 +163,10 @@ interface AppStore {
   setApiEndpoint: (ep: string) => void;
   apiKey: string;
   setApiKey: (k: string) => void;
+  // Explicit model name to request from the primary remote endpoint.
+  // Set from the fetched provider-model picker; must never overwrite apiEndpoint.
+  customModelName: string;
+  setCustomModelName: (m: string) => void;
   // Free-first model fallback chain
   modelFallbackEnabled: boolean;
   setModelFallbackEnabled: (v: boolean) => void;
@@ -208,6 +212,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
   setApiEndpoint: (ep) => set({ apiEndpoint: ep }),
   apiKey: '',
   setApiKey: (k) => set({ apiKey: k }),
+  customModelName: '',
+  setCustomModelName: (m) => set({ customModelName: m }),
   modelFallbackEnabled: loadFallbackSettings().enabled,
   setModelFallbackEnabled: (v) => {
     saveFallbackSettings({ enabled: v, chain: get().modelFallbackChain });
@@ -1313,6 +1319,7 @@ async function executeHermesAgent(
       backendType: apiEndpoint ? 'api' : 'webllm',
       apiEndpoint,
       apiKey,
+      customModelName: get().customModelName || undefined,
       ...resolveFallbackConfig(get),
       onPrivacyRedaction: (count: number) => {
         get().setFallbackNotice(`Privacy guard redacted ${count} high-confidence secret value${count === 1 ? '' : 's'} before the remote request.`);
@@ -1438,6 +1445,7 @@ async function executeDirectChat(
       backendType: apiEndpoint ? 'api' : 'webllm',
       apiEndpoint,
       apiKey,
+      customModelName: get().customModelName || undefined,
       ...resolveFallbackConfig(get),
     },
     onProgress: (statusText, pct) => {
