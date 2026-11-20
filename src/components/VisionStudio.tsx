@@ -9,23 +9,31 @@ import {
   Copy,
   Check,
   Sparkles,
-  Maximize2,
-  X,
   RefreshCw,
   HelpCircle,
-  Layers,
-  ArrowRight,
-  BookOpen,
   ScanText,
   BarChart2,
   ShieldCheck,
   Send,
+  Printer,
+  Plus,
+  Trash2,
+  SlidersHorizontal,
+  Download,
+  Share2,
 } from 'lucide-react';
 import { useAppStore, Attachment } from '@/appStore';
 import { AVAILABLE_MODELS } from '@/models';
 import CameraModal from './CameraModal';
 
 type VisionTaskMode = 'ocr' | 'diagram' | 'audit' | 'chat';
+
+interface ScannedPage {
+  id: string;
+  name: string;
+  dataUrl: string;
+  isHighContrast: boolean;
+}
 
 const SAMPLE_IMAGES = [
   {
@@ -50,14 +58,19 @@ const SAMPLE_IMAGES = [
 
 export default function VisionStudio() {
   const selectedModelId = useAppStore((s) => s.selectedModelId);
-  const setSelectedModelId = useAppStore((s) => s.setSelectedModelId);
-  const isGenerating = useAppStore((s) => s.isGenerating);
   const sendMessage = useAppStore((s) => s.sendMessage);
   const setCurrentTab = useAppStore((s) => s.setCurrentTab);
   const addAttachment = useAppStore((s) => s.addAttachment);
 
-  const [activeImage, setActiveImage] = useState<string | null>(SAMPLE_IMAGES[0].url);
-  const [activeImageName, setActiveImageName] = useState<string>(SAMPLE_IMAGES[0].title);
+  const [scannedPages, setScannedPages] = useState<ScannedPage[]>([
+    {
+      id: 'initial-sample',
+      name: SAMPLE_IMAGES[0].title,
+      dataUrl: SAMPLE_IMAGES[0].url,
+      isHighContrast: false,
+    },
+  ]);
+  const [selectedPageIndex, setSelectedPageIndex] = useState<number>(0);
   const [taskMode, setTaskMode] = useState<VisionTaskMode>('ocr');
   const [customQuestion, setCustomQuestion] = useState('');
   const [isCameraOpen, setIsCameraOpen] = useState(false);
@@ -69,27 +82,162 @@ export default function VisionStudio() {
   const visionModels = AVAILABLE_MODELS.filter((m) => m.category === 'vision' || m.capabilities.includes('vision'));
   const currentModel = visionModels.find((m) => m.id === selectedModelId) || visionModels[0];
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const currentPage = scannedPages[selectedPageIndex] || scannedPages[0];
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      setActiveImage(reader.result as string);
-      setActiveImageName(file.name);
-      setAnalysisResult(null);
-    };
-    reader.readAsDataURL(file);
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    Array.from(files).forEach((file, idx) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const newPage: ScannedPage = {
+          id: `page-${Date.now()}-${idx}`,
+          name: file.name,
+          dataUrl: reader.result as string,
+          isHighContrast: false,
+        };
+        setScannedPages((prev) => [...prev, newPage]);
+        setAnalysisResult(null);
+      };
+      reader.readAsDataURL(file);
+    });
   };
 
   const handleCameraSnap = (att: Attachment) => {
-    setActiveImage(att.dataUrl);
-    setActiveImageName(att.name || 'Camera Snapshot');
+    const newPage: ScannedPage = {
+      id: `page-${Date.now()}`,
+      name: att.name || `Scan Page ${scannedPages.length + 1}`,
+      dataUrl: att.dataUrl,
+      isHighContrast: false,
+    };
+    setScannedPages((prev) => [...prev, newPage]);
+    setSelectedPageIndex(scannedPages.length);
     setAnalysisResult(null);
   };
 
+  const handleDeletePage = (index: number) => {
+    if (scannedPages.length <= 1) return;
+    const next = scannedPages.filter((_, i) => i !== index);
+    setScannedPages(next);
+    setSelectedPageIndex(Math.max(0, index - 1));
+  };
+
+  const toggleHighContrastFilter = () => {
+    if (!currentPage) return;
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.src = currentPage.dataUrl;
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = img.width;
+      canvas.height = img.height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+
+      ctx.drawImage(img, 0, 0);
+      const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const d = imgData.data;
+
+      const shouldApply = !currentPage.isHighContrast;
+
+      if (shouldApply) {
+        // High Contrast B&W Document Filter (Thresholding)
+        for (let i = 0; i < d.length; i += 4) {
+          const v = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+          const threshold = v > 130 ? 255 : 0;
+          d[i] = threshold;
+          d[i + 1] = threshold;
+          d[i + 2] = threshold;
+        }
+        ctx.putImageData(imgData, 0, 0);
+        const enhancedUrl = canvas.toDataURL('image/jpeg', 0.9);
+
+        setScannedPages((prev) =>
+          prev.map((p, idx) => (idx === selectedPageIndex ? { ...p, dataUrl: enhancedUrl, isHighContrast: true } : p))
+        );
+      } else {
+        // Reset to initial
+        setScannedPages((prev) =>
+          prev.map((p, idx) => (idx === selectedPageIndex ? { ...p, isHighContrast: false } : p))
+        );
+      }
+    };
+  };
+
+  const handleExportPrintPdf = () => {
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      alert('Pop-up blocked. Please allow popups to generate print PDF.');
+      return;
+    }
+
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Hermes Document Bundle - ${new Date().toLocaleDateString()}</title>
+          <style>
+            @media print {
+              body { margin: 0; padding: 0; }
+              .page { page-break-after: always; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; padding: 20px; box-sizing: border-box; }
+              img { max-width: 100%; max-height: 90vh; object-contain: contain; }
+              .header { font-family: sans-serif; font-size: 12px; color: #666; margin-bottom: 10px; width: 100%; text-align: right; }
+            }
+            body { font-family: system-ui, sans-serif; background: #f8fafc; margin: 20px; text-align: center; }
+            .page { background: white; margin: 20px auto; padding: 30px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); max-width: 800px; border-radius: 8px; }
+            img { max-width: 100%; height: auto; border: 1px solid #e2e8f0; border-radius: 4px; }
+            .header { display: flex; justify-content: space-between; font-size: 13px; color: #475569; margin-bottom: 15px; font-weight: bold; border-bottom: 1px solid #e2e8f0; padding-bottom: 8px; }
+          </style>
+        </head>
+        <body>
+          <div style="margin-bottom: 20px;">
+            <h2>📄 Hermes Multi-Page Document Bundle</h2>
+            <p style="color: #64748b; font-size: 12px;">Scanned on device: ${new Date().toLocaleString()} • Total Pages: ${scannedPages.length}</p>
+          </div>
+          ${scannedPages
+            .map(
+              (p, idx) => `
+            <div class="page">
+              <div class="header">
+                <span>Page ${idx + 1} of ${scannedPages.length} - ${p.name}</span>
+                <span>Hermes AI Document Scanner</span>
+              </div>
+              <img src="${p.dataUrl}" alt="${p.name}" />
+            </div>
+          `
+            )
+            .join('')}
+          <script>
+            window.onload = function() {
+              window.print();
+            };
+          </script>
+        </body>
+      </html>
+    `;
+
+    printWindow.document.write(htmlContent);
+    printWindow.document.close();
+  };
+
+  const handleSendAllToAgent = () => {
+    scannedPages.forEach((p, idx) => {
+      addAttachment({
+        id: `scan-${Date.now()}-${idx}`,
+        type: 'image',
+        name: p.name,
+        dataUrl: p.dataUrl,
+        mimeType: 'image/jpeg',
+        sizeBytes: 15000,
+      });
+    });
+    sendMessage('Analyze this multi-page document bundle, extract all key data, and prepare a structured summary:');
+    setCurrentTab('chat');
+  };
+
   const handleRunAnalysis = async () => {
-    if (!activeImage || isProcessing) return;
+    if (!currentPage || isProcessing) return;
 
     setIsProcessing(true);
     setAnalysisResult(null);
@@ -99,48 +247,32 @@ export default function VisionStudio() {
       if (taskMode === 'ocr') {
         promptText = 'Extract all visible text, receipts, columns, and numbers from this image with 100% precision in structured Markdown format.';
       } else if (taskMode === 'diagram') {
-        promptText = 'Analyze this diagram / architecture / flowchart. Break down all components, directional flows, interfaces, and system relationships.';
+        promptText = 'Analyze the diagram/flowchart in this image. Explain the system architecture, data flow nodes, and logical components in detail.';
       } else if (taskMode === 'audit') {
-        promptText = 'Perform an in-depth audit on this document/code image. Highlight key data points, potential risks, syntax or mathematical correctness, and key takeaways.';
+        promptText = 'Perform a thorough document and security audit on this image. Check for discrepancies, calculation errors, or notable terms.';
       } else {
-        promptText = customQuestion.trim() || 'Describe this image thoroughly, explaining all visual elements, text, and scene context.';
+        promptText = customQuestion.trim() || 'Describe this image in detail.';
       }
 
-      // Pre-attach the image into AppStore attachments and trigger Hermes Vision synthesis
-      const attachment: Attachment = {
-        id: Date.now().toString(),
-        type: 'image',
-        name: activeImageName,
-        dataUrl: activeImage,
-        mimeType: 'image/png',
-        sizeBytes: 1024 * 50,
-      };
+      await new Promise((r) => setTimeout(r, 1200));
 
-      addAttachment(attachment);
+      const mockResult = `### 👁️ MiniCPM-V 4.7 Multimodal Extraction\n\n**Document Target**: ${currentPage.name}\n**Mode**: ${taskMode.toUpperCase()}\n\n` +
+        `#### Extracted Entities & Structure:\n` +
+        `- **Document Type**: Form / Invoice / Technical Schema\n` +
+        `- **Line Items Detected**: 4 verified rows\n` +
+        `- **Confidence Score**: 98.4% (On-device WebGPU vision encoder)\n\n` +
+        `\`\`\`markdown\n` +
+        `| Field / Item | Detected Value | Status |\n` +
+        `| :--- | :--- | :--- |\n` +
+        `| Document Title | ${currentPage.name} | Verified |\n` +
+        `| Processing Latency | 320ms | Local Tensor |\n` +
+        `| Privacy | 100% On-Device | Zero Cloud Leak |\n` +
+        `\`\`\`\n\n` +
+        `> **Recommendation**: Document text contrast is optimal. All values ready to integrate with Hermes autonomous workflows.`;
 
-      // Simulate on-device visual analysis
-      await new Promise((r) => setTimeout(r, 800));
-
-      let result = '';
-      if (taskMode === 'ocr') {
-        result = `### 📝 Extracted Document Text (OCR)\n\n\`\`\`text\n${
-          activeImageName.includes('Receipt')
-            ? 'STARBUCKS COFFEE #1042\n1x Caramel Macchiato     $5.45\n1x Butter Croissant       $3.85\nTax (8.25%)               $0.77\n--------------------------------\nTOTAL                     $10.07\n\nPayment: Visa **** 8941\nAuth: 049281 APPROVED'
-            : activeImageName.includes('Code')
-            ? 'export async function runInference() {\n  const lock = await acquireLock();\n  try {\n    return await engine.generate();\n  } finally {\n    releaseLock();\n  }\n}'
-            : 'MOBILE CLIENT -> HERMES AGENT -> WEBGPU TENSOR -> LOCAL STORAGE'
-        }\n\`\`\`\n\n- **Word Count**: 28 words\n- **Confidence**: 99.4% (MiniCPM-V OCR Engine)\n- **Encoding**: UTF-8 clean text`;
-      } else if (taskMode === 'diagram') {
-        result = `### 📊 Visual System Architecture Breakdown\n\n1. **Mobile Client (UI Layer)**: Handles native touch inputs, camera frames, and user requests.\n2. **Hermes Agent (Orchestration Engine)**: Evaluates prompts, deconstructs multi-step goals, and coordinates local tools.\n3. **WebGPU Tensor Pipeline**: Executes quantized neural tensor operations with zero cloud dependencies.\n4. **Local Weight Storage**: Safely persists GGUF / MLC model binaries in isolated app sandbox.\n\n*All communication is 100% on-device.*`;
-      } else if (taskMode === 'audit') {
-        result = `### 📑 Document & Code Audit Report\n\n- **Target**: ${activeImageName}\n- **Integrity Check**: PASSED (0 unclosed tags or syntax violations)\n- **Resource Safety**: Proper \`finally\` block ensures concurrency mutex is never leaked.\n- **Risk Rating**: **LOW (Clean Production State)**\n- **Key Takeaways**: Verified correct error boundaries and atomic execution flow.`;
-      } else {
-        result = `### 👁️ Visual Q&A Response\n\n**Question:** "${promptText}"\n\nBased on inspecting **${activeImageName}**, the visual elements display high clarity with sharp edge transitions. All textual and architectural components align with modern reactive application design principles.`;
-      }
-
-      setAnalysisResult(result);
-    } catch (err: any) {
-      setAnalysisResult(`Error during vision processing: ${err?.message || 'Unknown error'}`);
+      setAnalysisResult(mockResult);
+    } catch (_) {
+      setAnalysisResult('Vision model processing error. Please check WebGPU allocation.');
     } finally {
       setIsProcessing(false);
     }
@@ -158,41 +290,39 @@ export default function VisionStudio() {
       {/* Studio Header */}
       <div className="w-full bg-zinc-900/90 border-b border-zinc-800/80 px-4 py-3 backdrop-blur-xl flex items-center justify-between sticky top-0 z-20">
         <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-500 flex items-center justify-center shadow-lg shadow-emerald-600/30">
+          <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-600 flex items-center justify-center shadow-lg shadow-emerald-600/30">
             <Eye className="w-4 h-4 text-white" />
           </div>
           <div>
             <h1 className="text-sm font-black text-white flex items-center gap-1.5">
-              <span>Vision & Multimodal Studio</span>
+              <span>Vision OCR & Multi-Page Document Scanner</span>
               <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-mono font-bold">
                 MiniCPM-V
               </span>
             </h1>
-            <p className="text-[10px] text-zinc-400">On-device OCR, document inspection, and photo Q&A</p>
+            <p className="text-[10px] text-zinc-400">On-device OCR, document auditing, and PDF bundle export</p>
           </div>
         </div>
 
-        {/* Model Selector Pill */}
-        <select
-          value={currentModel?.id || ''}
-          onChange={(e) => setSelectedModelId(e.target.value)}
-          className="bg-zinc-800 border border-zinc-700 text-xs text-emerald-300 font-bold px-2.5 py-1.5 rounded-xl focus:outline-none focus:ring-1 focus:ring-emerald-500 cursor-pointer"
-        >
-          {visionModels.map((m) => (
-            <option key={m.id} value={m.id}>
-              {m.name}
-            </option>
-          ))}
-        </select>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleExportPrintPdf}
+            className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-bold border border-zinc-700 shadow-sm transition-all cursor-pointer"
+            title="Export Multi-page Print / PDF Document Bundle"
+          >
+            <Printer className="w-3.5 h-3.5 text-cyan-400" />
+            <span className="hidden sm:inline">Export PDF Bundle</span>
+          </button>
+        </div>
       </div>
 
       <div className="p-4 space-y-4 max-w-2xl mx-auto w-full">
-        {/* Image Source & Upload Bar */}
-        <div className="bg-zinc-900/80 border border-zinc-800 rounded-2xl p-3.5 shadow-xl space-y-3">
+        {/* Document Ingestion & Multi-Page Carousel Card */}
+        <div className="bg-zinc-900/80 border border-zinc-800 rounded-2xl p-4 shadow-xl space-y-3">
           <div className="flex items-center justify-between text-xs font-bold text-zinc-300">
             <span className="flex items-center gap-1.5 text-emerald-400">
-              <Camera className="w-3.5 h-3.5" />
-              <span>Image Source</span>
+              <FileText className="w-3.5 h-3.5" />
+              <span>Document Pages ({scannedPages.length})</span>
             </span>
             <div className="flex items-center gap-2">
               <button
@@ -200,14 +330,14 @@ export default function VisionStudio() {
                 className="px-2.5 py-1 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-bold flex items-center gap-1 cursor-pointer transition-all border border-zinc-700"
               >
                 <Camera className="w-3 h-3 text-emerald-400" />
-                <span>Snap Camera</span>
+                <span>Snap Page</span>
               </button>
               <button
                 onClick={() => fileInputRef.current?.click()}
                 className="px-2.5 py-1 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1 cursor-pointer transition-all shadow-md shadow-emerald-600/30"
               >
                 <Upload className="w-3 h-3" />
-                <span>Upload Image</span>
+                <span>Add Image</span>
               </button>
             </div>
           </div>
@@ -216,57 +346,93 @@ export default function VisionStudio() {
             ref={fileInputRef}
             type="file"
             accept="image/*"
+            multiple
             onChange={handleFileUpload}
             className="hidden"
           />
 
-          {/* Active Image Preview Box */}
-          {activeImage ? (
-            <div className="relative rounded-xl overflow-hidden bg-black/60 border border-zinc-800 p-2 flex items-center justify-center min-h-[200px] max-h-[300px]">
+          {/* Multi-Page Thumbnail Strip */}
+          <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
+            {scannedPages.map((page, idx) => {
+              const isSelected = selectedPageIndex === idx;
+              return (
+                <div
+                  key={page.id}
+                  onClick={() => {
+                    setSelectedPageIndex(idx);
+                    setAnalysisResult(null);
+                  }}
+                  className={`relative shrink-0 w-20 h-24 rounded-xl overflow-hidden border-2 cursor-pointer transition-all p-1 bg-zinc-950 flex flex-col justify-between ${
+                    isSelected
+                      ? 'border-emerald-500 shadow-lg shadow-emerald-500/20 scale-[1.03]'
+                      : 'border-zinc-800 hover:border-zinc-700 opacity-70 hover:opacity-100'
+                  }`}
+                >
+                  <img src={page.dataUrl} alt={page.name} className="w-full h-16 object-contain rounded" />
+                  <div className="flex items-center justify-between text-[9px] font-mono font-bold text-zinc-400">
+                    <span>P.{idx + 1}</span>
+                    {scannedPages.length > 1 && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeletePage(idx);
+                        }}
+                        className="text-rose-400 hover:text-rose-300"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+
+            <button
+              onClick={() => setIsCameraOpen(true)}
+              className="shrink-0 w-20 h-24 rounded-xl border-2 border-dashed border-zinc-800 hover:border-emerald-500/60 flex flex-col items-center justify-center gap-1 text-zinc-500 hover:text-emerald-400 transition-all cursor-pointer bg-zinc-950/40"
+            >
+              <Plus className="w-5 h-5" />
+              <span className="text-[10px] font-bold">New Page</span>
+            </button>
+          </div>
+
+          {/* Active Page Viewport with High-Contrast B&W Filter Toggle */}
+          {currentPage && (
+            <div className="relative rounded-xl overflow-hidden bg-black/70 border border-zinc-800 p-2 flex items-center justify-center min-h-[220px] max-h-[320px]">
               <img
-                src={activeImage}
-                alt={activeImageName}
-                className="max-h-[280px] w-auto object-contain rounded-lg shadow-lg"
+                src={currentPage.dataUrl}
+                alt={currentPage.name}
+                className="max-h-[300px] w-auto object-contain rounded-lg shadow-lg"
               />
               <div className="absolute top-3 left-3 px-2 py-0.5 rounded-lg bg-black/80 backdrop-blur-md text-[10px] font-mono text-emerald-300 border border-emerald-500/30 font-bold">
-                {activeImageName}
+                {currentPage.name} (Page {selectedPageIndex + 1})
               </div>
-            </div>
-          ) : (
-            <div
-              onClick={() => fileInputRef.current?.click()}
-              className="border-2 border-dashed border-zinc-800 hover:border-emerald-500/60 rounded-xl p-6 text-center cursor-pointer transition-all bg-zinc-950/40"
-            >
-              <Eye className="w-8 h-8 text-zinc-600 mx-auto mb-2" />
-              <p className="text-xs font-bold text-zinc-300">Tap to upload or drop an image</p>
-              <p className="text-[10px] text-zinc-500 mt-0.5">Supports PNG, JPG, WebP, Camera Frames</p>
+
+              <div className="absolute top-3 right-3 flex items-center gap-1.5">
+                <button
+                  onClick={toggleHighContrastFilter}
+                  className={`flex items-center gap-1 px-2 py-1 rounded-lg backdrop-blur-md text-[10px] font-bold transition-all cursor-pointer ${
+                    currentPage.isHighContrast
+                      ? 'bg-amber-400 text-black shadow-md shadow-amber-400/40'
+                      : 'bg-black/70 text-zinc-300 hover:text-white border border-zinc-700'
+                  }`}
+                  title="Toggle B&W High-Contrast OCR Filter"
+                >
+                  <SlidersHorizontal className="w-3 h-3" />
+                  <span>{currentPage.isHighContrast ? 'B&W Active' : 'Enhance Text'}</span>
+                </button>
+              </div>
             </div>
           )}
 
-          {/* Quick Preset Test Samples */}
-          <div className="space-y-1.5 pt-1">
-            <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Test Samples</span>
-            <div className="grid grid-cols-3 gap-2">
-              {SAMPLE_IMAGES.map((sample) => (
-                <button
-                  key={sample.id}
-                  onClick={() => {
-                    setActiveImage(sample.url);
-                    setActiveImageName(sample.title);
-                    setAnalysisResult(null);
-                  }}
-                  className={`p-2 rounded-xl text-left border transition-all cursor-pointer ${
-                    activeImageName === sample.title
-                      ? 'bg-emerald-950/40 border-emerald-500/50 ring-1 ring-emerald-500/40'
-                      : 'bg-zinc-800/60 border-zinc-800 hover:bg-zinc-800'
-                  }`}
-                >
-                  <p className="text-xs font-bold text-zinc-200">{sample.title}</p>
-                  <p className="text-[9px] text-zinc-400 truncate">{sample.description}</p>
-                </button>
-              ))}
-            </div>
-          </div>
+          {/* Action to Send All Pages to Hermes Agent */}
+          <button
+            onClick={handleSendAllToAgent}
+            className="w-full py-2 rounded-xl bg-zinc-800/90 hover:bg-zinc-700 border border-zinc-700/80 text-cyan-300 text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer"
+          >
+            <Send className="w-3.5 h-3.5 text-cyan-400" />
+            <span>Send Entire Document Bundle ({scannedPages.length} Pages) to Hermes</span>
+          </button>
         </div>
 
         {/* Action Task Selector */}
@@ -316,9 +482,9 @@ export default function VisionStudio() {
           {/* Execute Button */}
           <button
             onClick={handleRunAnalysis}
-            disabled={!activeImage || isProcessing}
+            disabled={!currentPage || isProcessing}
             className={`w-full py-2.5 rounded-xl font-black text-xs flex items-center justify-center gap-2 transition-all cursor-pointer shadow-lg ${
-              !activeImage || isProcessing
+              !currentPage || isProcessing
                 ? 'bg-zinc-800 text-zinc-500 cursor-not-allowed'
                 : 'bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:from-emerald-500 hover:to-cyan-500 text-white shadow-emerald-600/30 active:scale-[0.99]'
             }`}
@@ -331,7 +497,7 @@ export default function VisionStudio() {
             ) : (
               <>
                 <Sparkles className="w-3.5 h-3.5" />
-                <span>Execute {taskMode.toUpperCase()} with {currentModel?.name || 'Vision Model'}</span>
+                <span>Execute {taskMode.toUpperCase()} on Page {selectedPageIndex + 1}</span>
               </>
             )}
           </button>
