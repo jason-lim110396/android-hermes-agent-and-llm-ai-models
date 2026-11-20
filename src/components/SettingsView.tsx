@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Sliders,
   Shield,
@@ -235,16 +235,27 @@ export default function SettingsView() {
   // Pinned provider model: written to the store's customModelName so inference
   // requests it as the model. Never allowed to overwrite the endpoint URL.
   const setCustomModelName = useAppStore((s) => s.setCustomModelName);
-  const [selectedProviderModel, setSelectedProviderModel] = useState<string>('');
+  const customModelName = useAppStore((s) => s.customModelName);
+  // Hydrate from the store: reopening the Settings tab remounts this view,
+  // and an effect that pushes the empty initial state would silently wipe
+  // the pin the user set earlier in this app run.
+  const [selectedProviderModel, setSelectedProviderModel] = useState<string>(customModelName);
   useEffect(() => {
-    setCustomModelName(selectedProviderModel);
+    if (selectedProviderModel) setCustomModelName(selectedProviderModel);
   }, [selectedProviderModel, setCustomModelName]);
-  // A fetched list belongs to one endpoint; a different endpoint invalidates it.
+  // A fetched list belongs to one endpoint; only an actual endpoint CHANGE
+  // (not this component mounting with the same endpoint) invalidates the list
+  // and the pin. The old pin is cleared from the store too: the new endpoint
+  // may not host that model at all.
+  const endpointAtMount = useRef(apiEndpoint);
   useEffect(() => {
+    if (endpointAtMount.current === apiEndpoint) return;
+    endpointAtMount.current = apiEndpoint;
     setProviderModels([]);
     setSelectedProviderModel('');
     setProviderModelsError(null);
-  }, [apiEndpoint]);
+    setCustomModelName('');
+  }, [apiEndpoint, setCustomModelName]);
   const handleFetchProviderModels = async () => {
     if (!apiEndpoint.trim()) return;
     setIsFetchingModels(true);
@@ -646,7 +657,16 @@ export default function SettingsView() {
                 <select
                   className='w-full bg-zinc-950 border border-zinc-800 rounded-xl px-2 py-1.5 text-xs text-zinc-200'
                   value={selectedProviderModel}
-                  onChange={(e) => setSelectedProviderModel(e.target.value)}
+                  onChange={(e) => {
+                    setSelectedProviderModel(e.target.value);
+                    // Choosing "Auto (provider default)" is the explicit
+                    // un-pin control: clear the store pin right here. The
+                    // write-back effect only fires for non-empty selections
+                    // (its mount run must not wipe the saved pin), so
+                    // without this line "Auto" would leave the old model
+                    // silently pinned in every request.
+                    if (!e.target.value) setCustomModelName('');
+                  }}
                 >
                   <option value=''>Auto (provider default)</option>
                   {providerModels.map((m) => (
