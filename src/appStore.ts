@@ -801,73 +801,102 @@ async function executeHermesAgent(
     (/\b(weather in|stock price of|crypto price|latest news|release date|net worth|founder of|history of)\b/i.test(q));
   const isFileSearchQuery = /\b(find\s+file|search\s+file|locate\s+file|find\s+video|find\s+photo|find\s+image|find\s+doc|find\s+pdf|on-device\s+file|storage\s+file|gemma\s+file)\b/i.test(q) ||
     /^(find|locate|search)\s+(my\s+)?(video|photo|picture|file|doc|pdf|code|recording|memo|receipt)s?\b/i.test(q);
-  const isMathQuery = /^(\d+\s*[\+\-\*\/\^%]|calculate\b|compute\b|solve\b|evaluate\b)/i.test(q);
+  const isDocQuery = /\b(summarize|audit|code\s+audit|extract\s+entities|document\s+analysis|review\s+doc|parse\s+file|check\s+syntax)\b/i.test(q) ||
+    attachments.some((a) => a.textContent || a.type === 'file');
+  const isMathQuery = /^(\d+\s*[\+\-\*\/\^%]|calculate\b|compute\b|solve\b|evaluate\b)/i.test(q) || /\b(calculate|compute|solve)\b/i.test(q);
   const isDiagQuery = /\b(battery level|battery percentage|device diagnostics|device stats|hardware spec|system info|memory usage|ram available)\b/i.test(q);
   const isImageGenQuery = /^(generate|draw|create|render|paint)\s+(an?\s+)?(image|picture|photo|artwork|illustration|logo|drawing)\b/i.test(q);
 
+  const toolsToCall: (typeof AGENT_TOOLS)[0][] = [];
   if (isFileSearchQuery) {
-    toolToCall = AGENT_TOOLS.find((t) => t.name === 'find_device_files') || null;
-    initialThought += 'Decided to call the on-device EmbeddingGemma 2 find_device_files tool to search phone storage.';
-  } else if (isSearchQuery) {
-    toolToCall = AGENT_TOOLS.find((t) => t.name === 'web_search') || null;
-    initialThought += 'Decided to call the live web_search tool to gather factual grounding and external facts.';
-  } else if (isMathQuery) {
-    toolToCall = AGENT_TOOLS.find((t) => t.name === 'code_interpreter') || null;
-    initialThought += 'Decided to call code_interpreter sandbox to run precise computation.';
-  } else if (isDiagQuery) {
-    toolToCall = AGENT_TOOLS.find((t) => t.name === 'device_diagnostics') || null;
-    initialThought += 'Decided to query device_diagnostics for local smartphone metrics.';
-  } else if (isImageGenQuery) {
-    toolToCall = AGENT_TOOLS.find((t) => t.name === 'create_image') || null;
-    initialThought += 'Decided to invoke create_image tool to synthesize diffusion art.';
+    const t = AGENT_TOOLS.find((tool) => tool.name === 'find_device_files');
+    if (t) toolsToCall.push(t);
+  }
+  if (isSearchQuery) {
+    const t = AGENT_TOOLS.find((tool) => tool.name === 'web_search');
+    if (t && !toolsToCall.includes(t)) toolsToCall.push(t);
+  }
+  if (isDocQuery) {
+    const t = AGENT_TOOLS.find((tool) => tool.name === 'document_analyzer');
+    if (t && !toolsToCall.includes(t)) toolsToCall.push(t);
+  }
+  if (isMathQuery) {
+    const t = AGENT_TOOLS.find((tool) => tool.name === 'code_interpreter');
+    if (t && !toolsToCall.includes(t)) toolsToCall.push(t);
+  }
+  if (isDiagQuery) {
+    const t = AGENT_TOOLS.find((tool) => tool.name === 'device_diagnostics');
+    if (t && !toolsToCall.includes(t)) toolsToCall.push(t);
+  }
+  if (isImageGenQuery) {
+    const t = AGENT_TOOLS.find((tool) => tool.name === 'create_image');
+    if (t && !toolsToCall.includes(t)) toolsToCall.push(t);
   }
 
-  if (toolToCall) {
-    initialThought += `Decided to invoke local tool \`${toolToCall.name}\`.`;
+  if (toolsToCall.length > 0) {
+    initialThought += `Formulated autonomous multi-step plan: [${toolsToCall.map((t) => t.name).join(' ➔ ')}].`;
   } else {
-    initialThought += 'No external tool required. Proceeding with direct reasoning and synthesis.';
+    initialThought += 'No external tools required. Proceeding with direct reasoning and synthesis.';
   }
 
-  const step1: AgentStep = {
+  const planStep: AgentStep = {
     thought: initialThought,
   };
-  steps.push(step1);
+  steps.push(planStep);
   updateMsg(assistantMsgId, steps, prefixNotice, true, set, get, 'agent');
 
-  // Step 2: Tool Execution (if required)
-  if (toolToCall) {
-    await new Promise((r) => setTimeout(r, 400));
-    step1.toolCall = {
-      name: toolToCall.name,
-      arguments: toolToCall.name === 'web_search'
-        ? { query: userText }
-        : toolToCall.name === 'create_image'
-        ? { prompt: userText }
-        : toolToCall.name === 'find_device_files'
-        ? {
-            query: userText,
-            file_type: /video|mp4|mov/i.test(q)
-              ? 'video'
-              : /image|photo|pic|screenshot/i.test(q)
-              ? 'image'
-              : /doc|pdf|word|report/i.test(q)
-              ? 'document'
-              : /code|script|ts|py/i.test(q)
-              ? 'code'
-              : /audio|voice|mp3/i.test(q)
-              ? 'audio'
-              : 'all',
-          }
-        : { code: userText },
+  // Multi-step Tool Execution
+  const toolObservations: string[] = [];
+  for (const tool of toolsToCall) {
+    await new Promise((r) => setTimeout(r, 350));
+    let args: Record<string, unknown> = {};
+    if (tool.name === 'web_search') {
+      args = { query: userText };
+    } else if (tool.name === 'create_image') {
+      args = { prompt: userText };
+    } else if (tool.name === 'find_device_files') {
+      args = {
+        query: userText,
+        file_type: /video|mp4|mov/i.test(q)
+          ? 'video'
+          : /image|photo|pic|screenshot/i.test(q)
+          ? 'image'
+          : /doc|pdf|word|report/i.test(q)
+          ? 'document'
+          : /code|script|ts|py/i.test(q)
+          ? 'code'
+          : /audio|voice|mp3/i.test(q)
+          ? 'audio'
+          : 'all',
+      };
+    } else if (tool.name === 'document_analyzer') {
+      const docAtt = attachments.find((a) => a.textContent || a.type === 'file');
+      args = {
+        action: /audit/i.test(q) ? 'code_audit' : /entities/i.test(q) ? 'extract_entities' : 'summarize',
+        text: docAtt?.textContent || userText,
+        filename: docAtt?.name || 'document.txt',
+      };
+    } else if (tool.name === 'device_diagnostics') {
+      args = { metric: 'all' };
+    } else {
+      args = { code: userText };
+    }
+
+    const currentStep: AgentStep = {
+      thought: `Executing step for local tool: \`${tool.name}\`...`,
+      toolCall: {
+        name: tool.name,
+        arguments: args,
+      },
     };
+    steps.push(currentStep);
     updateMsg(assistantMsgId, steps, prefixNotice, true, set, get, 'agent');
 
-    await new Promise((r) => setTimeout(r, 500));
-
-    let toolResult = await toolToCall.execute(step1.toolCall.arguments);
+    await new Promise((r) => setTimeout(r, 400));
+    let toolResult = await tool.execute(args);
 
     // If create_image, synthesize actual visual image dataUrl
-    if (toolToCall.name === 'create_image') {
+    if (tool.name === 'create_image') {
       try {
         const cleanArtPrompt = userText.replace(/^(generate|draw|create|render|paint|make)(\s+(an?\s+)?(image|picture|photo|artwork|illustration|drawing|art|logo))?(\s+(of|about|depicting|showing))?\s*/i, '').trim() || userText;
         const imgDataUrl = await generateOnDeviceAIImage(cleanArtPrompt, 'Hermes Diffusion Studio');
@@ -875,10 +904,9 @@ async function executeHermesAgent(
       } catch (_) {}
     }
 
-    step1.toolResult = toolResult;
+    currentStep.toolResult = toolResult;
+    toolObservations.push(`[Tool Observation from ${tool.name}]:\n${toolResult}`);
     updateMsg(assistantMsgId, steps, prefixNotice, true, set, get, 'agent');
-
-    await new Promise((r) => setTimeout(r, 400));
   }
 
   // Step 3: Synthesis & Final Answer with Real Inference Engine
@@ -901,8 +929,8 @@ async function executeHermesAgent(
     contextPrompt += attachmentDetails;
   }
 
-  if (toolToCall && step1.toolResult) {
-    contextPrompt += `\n\n[Tool Observation from ${toolToCall.name}]:\n${step1.toolResult}\n\nPlease synthesize the final answer taking into account the tool observation and any attached documents/images.`;
+  if (toolObservations.length > 0) {
+    contextPrompt += `\n\n${toolObservations.join('\n\n')}\n\nPlease synthesize the final answer taking into account all tool observations and any attached documents/images.`;
   }
 
   const { apiEndpoint, apiKey, systemPrompt, temperature, maxTokens, performanceMode } = get();
