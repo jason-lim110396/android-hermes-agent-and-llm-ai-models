@@ -33,6 +33,8 @@ interface CameraModalProps {
 export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const generationRef = useRef(0);
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [capturedUrl, setCapturedUrl] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -93,6 +95,7 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
 
   const startCamera = async (facing: 'environment' | 'user') => {
     stopCamera();
+    const token = ++generationRef.current;
     try {
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         setErrorMsg('Camera API not accessible on this device.');
@@ -102,7 +105,13 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
         video: { facingMode: facing, width: { ideal: 1920 }, height: { ideal: 1080 } },
         audio: false,
       });
+      if (token !== generationRef.current) {
+        // Superseded by a newer start or by modal close: release this stream inline.
+        mediaStream.getTracks().forEach((t) => t.stop());
+        return;
+      }
       setStream(mediaStream);
+      streamRef.current = mediaStream;
       if (videoRef.current) {
         videoRef.current.srcObject = mediaStream;
       }
@@ -141,9 +150,15 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
   };
 
   const stopCamera = () => {
-    if (stream) {
-      stream.getTracks().forEach((t) => t.stop());
+    generationRef.current += 1;
+    const activeStream = streamRef.current;
+    if (activeStream) {
+      activeStream.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
       setStream(null);
+    }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
     }
   };
 
@@ -183,6 +198,11 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
     const deltas = [0, 18, 36, 12];
 
     for (let i = 0; i < 4; i++) {
+      if (!streamRef.current) {
+        // Modal closed or camera released mid-burst: stop the wasted work.
+        setIsBurstCapturing(false);
+        return;
+      }
       setBurstCount(i + 1);
       ctx.drawImage(v, 0, 0, c.width, c.height);
       const url = c.toDataURL('image/jpeg', 0.85);
