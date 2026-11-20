@@ -91,6 +91,9 @@ export default function VoiceStudio() {
   const [isRecording, setIsRecording] = useState(false);
   const [recordingDuration, setRecordingDuration] = useState(0);
   const [transcribedText, setTranscribedText] = useState('');
+  // Live partial from the recognizer: shown as a transient preview while
+  // speaking, committed to transcribedText only when a result is final.
+  const [interimText, setInterimText] = useState('');
   const [copied, setCopied] = useState(false);
   const [targetLang, setTargetLang] = useState('Spanish');
 
@@ -371,31 +374,51 @@ export default function VoiceStudio() {
     }
   }, []);
 
-  const drawWaveform = () => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
+  // Leaving the Dictate sub-tab unmounts the recording panel but not this
+  // component: the recognition session kept the microphone live invisibly
+  // (Android mic indicator on, transcript accumulating in the background)
+  // and the waveform loop kept rAF-ing to a detached canvas, so the freshly
+  // remounted canvas never redrew. Stop the session when the tab changes.
+  useEffect(() => {
+    if (activeTab === 'stt') return;
+    recognitionRequestIdRef.current++;
+    const stopped = recognitionRef.current;
+    recognitionRef.current = null;
+    if (stopped) {
+      try { stopped.stop(); } catch (_) {}
+    }
+    setIsRecording(false);
+    setInterimText('');
+  }, [activeTab]);
 
+  const drawWaveform = () => {
     let step = 0;
     const render = () => {
-      step += 0.08;
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      const width = canvas.width;
-      const height = canvas.height;
-      const centerY = height / 2;
+      // Re-read the ref every frame: the Dictate panel can unmount and
+      // remount around this loop (tab switches), and a canvas captured
+      // once in this closure would stay detached forever, leaving the
+      // remounted canvas blank even while recording.
+      const canvas = canvasRef.current;
+      const ctx = canvas ? canvas.getContext('2d') : null;
+      if (canvas && ctx) {
+        step += 0.08;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        const width = canvas.width;
+        const height = canvas.height;
+        const centerY = height / 2;
 
-      ctx.beginPath();
-      ctx.lineWidth = 3;
-      ctx.strokeStyle = '#f59e0b'; // amber-500
+        ctx.beginPath();
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = '#f59e0b'; // amber-500
 
-      for (let x = 0; x < width; x += 4) {
-        const amplitude = 18 * Math.sin(x * 0.05 + step) * Math.cos(x * 0.02 + step * 0.5);
-        const y = centerY + amplitude;
-        if (x === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
+        for (let x = 0; x < width; x += 4) {
+          const amplitude = 18 * Math.sin(x * 0.05 + step) * Math.cos(x * 0.02 + step * 0.5);
+          const y = centerY + amplitude;
+          if (x === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
       }
-      ctx.stroke();
 
       animFrameRef.current = requestAnimationFrame(render);
     };
@@ -557,6 +580,7 @@ export default function VoiceStudio() {
         try { stopped.stop(); } catch (_) {}
       }
       setIsRecording(false);
+      setInterimText('');
       if (navigator.vibrate) navigator.vibrate([30]);
       return;
     }
@@ -604,13 +628,25 @@ export default function VoiceStudio() {
           setIsRecording(false);
         },
         onResult: (event) => {
-          let finalTranscript = '';
+          // Android speech engines fire onresult repeatedly with growing
+          // partials while interimResults is on; appending every firing
+          // duplicated each fragment into the transcript ("hell hello wor
+          // hello world"). Only final results are committed; the live
+          // partial is shown as a transient preview line instead.
+          let finalChunk = '';
+          let interimChunk = '';
           for (let i = event.resultIndex; i < event.results.length; ++i) {
-            finalTranscript += event.results[i][0].transcript;
+            const result = event.results[i];
+            const transcript = result?.[0]?.transcript || '';
+            if (!transcript) continue;
+            if (result.isFinal) finalChunk += transcript;
+            else interimChunk += transcript;
           }
-          if (finalTranscript) {
-            setTranscribedText((prev) => (prev ? `${prev} ${finalTranscript}` : finalTranscript));
+          if (finalChunk) {
+            const clean = finalChunk.trim();
+            setTranscribedText((prev) => (prev ? `${prev} ${clean}` : clean));
           }
+          setInterimText(interimChunk.trim());
         },
       });
 
@@ -1196,7 +1232,9 @@ export default function VoiceStudio() {
               </div>
 
               <div className="w-full min-h-[90px] p-3 bg-zinc-950/70 border border-zinc-800 rounded-xl text-xs text-zinc-300 font-mono whitespace-pre-wrap select-text leading-relaxed">
-                {transcribedText || <span className="text-zinc-600 italic">No audio recorded yet. Tap the microphone above to begin speech-to-text.</span>}
+                {transcribedText}
+                {interimText && <span className="text-zinc-500 italic">{transcribedText ? ` ${interimText}` : interimText}</span>}
+                {!transcribedText && !interimText && <span className="text-zinc-600 italic">No audio recorded yet. Tap the microphone above to begin speech-to-text.</span>}
               </div>
             </div>
 
