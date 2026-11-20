@@ -355,6 +355,36 @@ export const useAppStore = create<AppStore>((set, get) => ({
       return;
     }
 
+    // Refuse to start a download that cannot fit: a partial multi-GB download
+    // leaves broken weights behind and often fails on low-storage phones.
+    if (typeof navigator !== 'undefined' && navigator.storage?.estimate) {
+      try {
+        const { quota = 0, usage = 0 } = await navigator.storage.estimate();
+        const freeMB = Math.round((quota - usage) / (1024 * 1024));
+        const requiredMB = Math.ceil(spec.sizeMB * 1.1);
+        if (quota > 0 && freeMB < requiredMB) {
+          set((state) => ({
+            downloads: {
+              ...state.downloads,
+              [modelId]: {
+                modelId,
+                isDownloading: false,
+                progressPct: 0,
+                downloadedMB: 0,
+                totalMB: spec.sizeMB,
+                speedMBs: 0,
+                isReady: false,
+                errorMessage: `Not enough storage: ${freeMB} MB free, about ${requiredMB} MB needed.`,
+              },
+            },
+          }));
+          return;
+        }
+      } catch (_) {
+        // Storage estimate is best-effort; never block a download because it failed.
+      }
+    }
+
     set((state) => ({
       downloads: {
         ...state.downloads,
