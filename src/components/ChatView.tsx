@@ -52,12 +52,14 @@ import {
   Bookmark,
   BookOpen,
   FileSpreadsheet,
+  History,
 } from 'lucide-react';
 import { useAppStore, Attachment } from '@/appStore';
 import { AVAILABLE_MODELS, ModelSpec } from '@/models';
 import CameraModal from './CameraModal';
 import CodeSandboxModal from './CodeSandboxModal';
 import TableSpreadsheetModal from './TableSpreadsheetModal';
+import ChatHistoryModal from './ChatHistoryModal';
 
 export default function ChatView() {
   const hardwareProfile = useAppStore((s) => s.hardwareProfile);
@@ -121,6 +123,7 @@ export default function ChatView() {
     return [];
   });
   const [showBookmarksDrawer, setShowBookmarksDrawer] = useState(false);
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
 
   // AI Code Playground & Sandbox State
   const [isCodeSandboxOpen, setIsCodeSandboxOpen] = useState(false);
@@ -1112,6 +1115,16 @@ export default function ChatView() {
           >
             <Octagon className="w-3.5 h-3.5 fill-rose-500/20" />
             <span>Stop All</span>
+          </button>
+
+          {/* Sessions Archive Drawer */}
+          <button
+            onClick={() => setShowHistoryModal(true)}
+            title="Browse all past chat sessions and agent tasks"
+            className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-zinc-900 border border-zinc-800 hover:border-cyan-500/50 text-zinc-300 hover:text-white text-[10px] font-bold transition-all cursor-pointer"
+          >
+            <History className="w-3.5 h-3.5 text-cyan-400" />
+            <span>Threads ({Object.keys(operatingMode === 'agent' ? agentSessions : chatSessions).length})</span>
           </button>
 
           {/* Starred Bookmarks */}
@@ -2362,6 +2375,12 @@ export default function ChatView() {
         isOpen={isTableModalOpen}
         markdownContent={tableModalMarkdown}
         onClose={() => setIsTableModalOpen(false)}
+      />
+
+      {/* Chat & Agent History Drawer Modal */}
+      <ChatHistoryModal
+        isOpen={showHistoryModal}
+        onClose={() => setShowHistoryModal(false)}
       />
     </div>
   );

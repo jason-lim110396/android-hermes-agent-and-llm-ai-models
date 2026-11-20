@@ -56,6 +56,9 @@ export interface ChatSession {
   title: string;
   createdAt: number;
   messages: ChatMessage[];
+  pinned?: boolean;
+  category?: string;
+  tags?: string[];
 }
 
 export type NavigationTab =
@@ -109,6 +112,9 @@ interface AppStore {
   createNewSession: (mode?: 'chat' | 'agent') => void;
   switchSession: (sessionId: string, mode?: 'chat' | 'agent') => void;
   deleteSession: (sessionId: string, mode?: 'chat' | 'agent') => void;
+  togglePinSession: (sessionId: string, mode?: 'chat' | 'agent') => void;
+  updateSessionCategory: (sessionId: string, category: string, mode?: 'chat' | 'agent') => void;
+  updateSessionTitle: (sessionId: string, title: string, mode?: 'chat' | 'agent') => void;
   clearCurrentConversation: () => void;
 
   // Voice Interaction (STT / TTS)
@@ -473,6 +479,87 @@ export const useAppStore = create<AppStore>((set, get) => ({
         return {
           chatSessions: next,
           activeChatSessionId: state.activeChatSessionId === sessionId ? keys[0] : state.activeChatSessionId,
+        };
+      });
+    }
+  },
+
+  togglePinSession: (sessionId: string, targetMode?: 'chat' | 'agent') => {
+    const mode = targetMode || get().operatingMode;
+    if (mode === 'agent') {
+      set((state) => {
+        const session = state.agentSessions[sessionId];
+        if (!session) return state;
+        return {
+          agentSessions: {
+            ...state.agentSessions,
+            [sessionId]: { ...session, pinned: !session.pinned },
+          },
+        };
+      });
+    } else {
+      set((state) => {
+        const session = state.chatSessions[sessionId];
+        if (!session) return state;
+        return {
+          chatSessions: {
+            ...state.chatSessions,
+            [sessionId]: { ...session, pinned: !session.pinned },
+          },
+        };
+      });
+    }
+  },
+
+  updateSessionCategory: (sessionId: string, category: string, targetMode?: 'chat' | 'agent') => {
+    const mode = targetMode || get().operatingMode;
+    if (mode === 'agent') {
+      set((state) => {
+        const session = state.agentSessions[sessionId];
+        if (!session) return state;
+        return {
+          agentSessions: {
+            ...state.agentSessions,
+            [sessionId]: { ...session, category },
+          },
+        };
+      });
+    } else {
+      set((state) => {
+        const session = state.chatSessions[sessionId];
+        if (!session) return state;
+        return {
+          chatSessions: {
+            ...state.chatSessions,
+            [sessionId]: { ...session, category },
+          },
+        };
+      });
+    }
+  },
+
+  updateSessionTitle: (sessionId: string, title: string, targetMode?: 'chat' | 'agent') => {
+    const mode = targetMode || get().operatingMode;
+    if (mode === 'agent') {
+      set((state) => {
+        const session = state.agentSessions[sessionId];
+        if (!session) return state;
+        return {
+          agentSessions: {
+            ...state.agentSessions,
+            [sessionId]: { ...session, title: title.trim() || session.title },
+          },
+        };
+      });
+    } else {
+      set((state) => {
+        const session = state.chatSessions[sessionId];
+        if (!session) return state;
+        return {
+          chatSessions: {
+            ...state.chatSessions,
+            [sessionId]: { ...session, title: title.trim() || session.title },
+          },
         };
       });
     }
