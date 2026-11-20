@@ -152,6 +152,9 @@ interface AppStore {
   performanceMode: 'balanced' | 'eco' | 'performance';
   setPerformanceMode: (mode: 'balanced' | 'eco' | 'performance') => void;
 
+  // Network availability for offline-safe model downloads
+  isOnline: boolean;
+  setIsOnline: (online: boolean) => void;
   // Settings & Real LLM Endpoint
   apiEndpoint: string;
   setApiEndpoint: (ep: string) => void;
@@ -261,9 +264,13 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
     // Auto-download: if the newly selected model has not been downloaded and isn't already
     // downloading, kick off the download automatically so users don't have to manually press
-    // the Download button every time they pick a new model.
+    // the Download button every time they pick a new model. Skip this while offline.
+    const spec = AVAILABLE_MODELS.find((m) => m.id === id);
     const current = get().downloads[id];
-    if (!current?.isReady && !current?.isDownloading) {
+    const isOfflineReady = current?.isReady || spec?.family === 'image' || spec?.family === 'audio';
+    if (!get().isOnline && !isOfflineReady) {
+      console.warn('Offline: auto-download skipped for', id);
+    } else if (!current?.isReady && !current?.isDownloading) {
       // Fire-and-forget — errors are handled inside startDownloadModel
       get().startDownloadModel(id);
     }
@@ -318,6 +325,24 @@ export const useAppStore = create<AppStore>((set, get) => ({
   startDownloadModel: async (modelId: string) => {
     const spec = AVAILABLE_MODELS.find((m) => m.id === modelId);
     if (!spec) return;
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      set((state) => ({
+        downloads: {
+          ...state.downloads,
+          [modelId]: {
+            modelId,
+            isDownloading: false,
+            progressPct: 0,
+            downloadedMB: 0,
+            totalMB: spec.sizeMB,
+            speedMBs: 0,
+            isReady: false,
+            errorMessage: 'Offline: connect to the internet to download model weights.',
+          },
+        },
+      }));
+      return;
+    }
 
     set((state) => ({
       downloads: {
@@ -966,6 +991,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
   performanceMode: 'balanced',
   setPerformanceMode: (mode) => set({ performanceMode: mode }),
 
+  isOnline: typeof navigator !== 'undefined' ? navigator.onLine : true,
+  setIsOnline: (online) => set({ isOnline: online }),
   systemPrompt: 'You are Hermes AI Agent, a sovereign on-device intelligence. You reason thoroughly, plan autonomously, and utilize local tools with extreme precision.',
   setSystemPrompt: (prompt) => set({ systemPrompt: prompt }),
   temperature: 0.7,
@@ -1463,3 +1490,9 @@ useAppStore.subscribe((state, prev) => {
     activeAgentSessionId: state.activeAgentSessionId,
   });
 });
+
+if (typeof window !== 'undefined') {
+  const syncOnlineStatus = () => { useAppStore.setState({ isOnline: navigator.onLine }); };
+  window.addEventListener('online', syncOnlineStatus);
+  window.addEventListener('offline', syncOnlineStatus);
+}

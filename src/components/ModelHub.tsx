@@ -44,6 +44,7 @@ export default function ModelHub() {
   const pauseDownloadModel = useAppStore((s) => s.pauseDownloadModel);
   const stopAllRunningTasks = useAppStore((s) => s.stopAllRunningTasks);
   const deleteModel = useAppStore((s) => s.deleteModel);
+  const isOnline = useAppStore((s) => s.isOnline);
 
   const handleLaunchStudio = (model: ModelSpec) => {
     setSelectedModelId(model.id);
@@ -111,15 +112,9 @@ export default function ModelHub() {
     return false;
   });
   const [downloadSpeed, setDownloadSpeed] = useState<number>(0);
-  const [isOnline, setIsOnline] = useState<boolean>(true);
 
   React.useEffect(() => {
     if (typeof window === 'undefined') return;
-    setIsOnline(navigator.onLine);
-    const handleOnline = () => setIsOnline(true);
-    const handleOffline = () => setIsOnline(false);
-    window.addEventListener('online', handleOnline);
-    window.addEventListener('offline', handleOffline);
 
     const cancelInterval = startVisibleInterval(() => {
       const isAnyDownloading = Object.values(downloads).some((d) => d.isDownloading);
@@ -131,8 +126,6 @@ export default function ModelHub() {
     }, 1500);
 
     return () => {
-      window.removeEventListener('online', handleOnline);
-      window.removeEventListener('offline', handleOffline);
       cancelInterval();
     };
   }, [downloads]);
@@ -473,6 +466,17 @@ export default function ModelHub() {
                       <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-teal-500/20 border border-teal-500/40 text-teal-300 text-[9px] font-bold" title="Runs on pure CPU via WebAssembly — no WebGPU needed, works on any phone">
                         <ShieldCheck className="w-2.5 h-2.5" />
                         CPU Universal (Crash-Free)
+                      </span>
+                    )}
+                    {(downloads[model.id]?.isReady || model.family === 'image' || model.family === 'audio') ? (
+                      <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-[9px] font-bold" title="Runs without a network connection">
+                        <WifiOff className="w-2.5 h-2.5" />
+                        Offline Ready
+                      </span>
+                    ) : (
+                      <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300 text-[9px] font-bold" title="Model weights must be downloaded before offline use">
+                        <Download className="w-2.5 h-2.5" />
+                        Requires Download
                       </span>
                     )}
                   </div>
