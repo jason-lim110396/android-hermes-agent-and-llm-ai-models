@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   X,
   Play,
@@ -263,16 +263,27 @@ export default function CodeSandboxModal({
   useBackButtonClose(isOpen, onClose);
 
   const [code, setCode] = useState<string>(initialCode || TEMPLATES[0].code);
+  // Only the committed code reaches the iframe. Binding the editor state
+  // directly to srcDoc tore down and re-executed the whole sandbox document
+  // (scripts, rAF loops, console spew) on every single keystroke.
+  const [previewCode, setPreviewCode] = useState<string>(initialCode || TEMPLATES[0].code);
   const [activeTab, setActiveTab] = useState<'preview' | 'code' | 'console'>('preview');
   const [logs, setLogs] = useState<ConsoleEntry[]>([]);
   const [copied, setCopied] = useState(false);
-  const iframeRef = useRef<HTMLIFrameElement | null>(null);
 
+  // Fresh session on every open. The FAB opens the sandbox with an empty
+  // initialCode on purpose, but a falsy value used to be skipped by the old
+  // sync effect, so the previous session's edited code, console logs and
+  // active tab reappeared instead of a fresh template.
   useEffect(() => {
-    if (initialCode && initialCode.trim()) {
-      setCode(initialCode);
-    }
-  }, [initialCode]);
+    if (!isOpen) return;
+    const start = initialCode && initialCode.trim() ? initialCode : TEMPLATES[0].code;
+    setCode(start);
+    setPreviewCode(start);
+    setLogs([]);
+    setCopied(false);
+    setActiveTab('preview');
+  }, [isOpen, initialCode]);
 
   // Console message listener from iframe sandbox
   useEffect(() => {
@@ -285,7 +296,7 @@ export default function CodeSandboxModal({
             message: e.data.args ? e.data.args.join(' ') : String(e.data.message || ''),
             timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
           },
-        ]);
+        ].slice(-200));
       }
     };
     window.addEventListener('message', handleMessage);
@@ -330,13 +341,15 @@ export default function CodeSandboxModal({
 
   const handleRefresh = () => {
     setLogs([]);
-    if (iframeRef.current) {
-      iframeRef.current.srcdoc = getExecutableHTML(code);
-    }
+    setPreviewCode(code);
   };
 
   const handleCopyCode = async () => {
-    await navigator.clipboard.writeText(code);
+    try {
+      await navigator.clipboard.writeText(code);
+    } catch (_) {
+      return; // Android WebView clipboard writes can reject; no false feedback.
+    }
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
@@ -372,6 +385,7 @@ export default function CodeSandboxModal({
                 const tpl = TEMPLATES.find((t) => t.id === e.target.value);
                 if (tpl) {
                   setCode(tpl.code);
+                  setPreviewCode(tpl.code);
                   setLogs([]);
                   setActiveTab('preview');
                 }
@@ -388,6 +402,16 @@ export default function CodeSandboxModal({
           </div>
 
           <div className="flex items-center gap-1">
+            {code !== previewCode && (
+              <button
+                onClick={handleRefresh}
+                title="Run edited code"
+                className="flex items-center gap-1 px-2 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-[10px] font-bold transition-all cursor-pointer"
+              >
+                <Play className="w-3.5 h-3.5" />
+                <span>Run</span>
+              </button>
+            )}
             <button
               onClick={handleRefresh}
               title="Re-run code"
@@ -423,7 +447,12 @@ export default function CodeSandboxModal({
         <div className="flex items-center justify-between px-3 py-1.5 bg-zinc-900/60 border-b border-zinc-800/80 text-xs">
           <div className="flex items-center gap-1">
             <button
-              onClick={() => setActiveTab('preview')}
+              onClick={() => {
+                setActiveTab('preview');
+                // Tapping Live Preview with uncommitted edits runs them, the
+                // same as the Run button - but never mid-keystroke.
+                if (code !== previewCode) setPreviewCode(code);
+              }}
               className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
                 activeTab === 'preview'
                   ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
@@ -480,10 +509,9 @@ export default function CodeSandboxModal({
           {/* 1. Live Preview */}
           <div className={`w-full h-full ${activeTab === 'preview' ? 'block' : 'hidden'}`}>
             <iframe
-              ref={iframeRef}
               title="AI Code Runner Sandbox"
               sandbox="allow-scripts allow-modals"
-              srcDoc={getExecutableHTML(code)}
+              srcDoc={getExecutableHTML(previewCode)}
               className="w-full h-full border-none bg-[#09090b]"
             />
           </div>
