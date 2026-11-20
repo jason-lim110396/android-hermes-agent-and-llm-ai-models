@@ -118,35 +118,35 @@ const HardwareTickerBar = React.memo(function HardwareTickerBar({
   }, [isGenerating]);
 
   return (
-    <div className="px-3 py-1.5 bg-zinc-900/95 border-b border-zinc-800/80 backdrop-blur-md flex items-center justify-between text-[10px] font-mono z-10 select-none">
+    <div className="px-3 py-1.5 bg-zinc-900/95 border-b border-zinc-800/80 backdrop-blur-md flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 text-[9px] font-mono z-10 select-none">
       {/* RAM Usage */}
-      <div className="flex items-center gap-1.5 text-zinc-300">
+      <div className="flex items-center gap-1.5 text-zinc-300 whitespace-nowrap min-w-0">
         <Cpu className="w-3 h-3 text-cyan-400 shrink-0" />
         <span className="text-zinc-400">RAM:</span>
         <span className="text-cyan-300 font-bold">
           {(realtimeRamUsedMB / 1024).toFixed(2)} GB
         </span>
-        <span className="text-[9px] text-zinc-500">
+        <span className="text-[9px] text-zinc-500 hidden sm:inline">
           / {estimatedRamGB} GB
         </span>
       </div>
 
       {/* CPU Load */}
-      <div className="flex items-center gap-1.5 text-zinc-300">
+      <div className="flex items-center gap-1.5 text-zinc-300 whitespace-nowrap min-w-0">
         <Gauge className="w-3 h-3 text-emerald-400 shrink-0" />
         <span className="text-zinc-400">CPU:</span>
         <span className={`font-bold ${realtimeCpuLoad > 50 ? 'text-amber-400' : 'text-emerald-300'}`}>
           {realtimeCpuLoad}%
         </span>
-        <span className="text-[9px] text-zinc-500">
+        <span className="text-[9px] text-zinc-500 hidden sm:inline">
           ({cpuCores}C)
         </span>
       </div>
 
       {/* Acceleration Engine & Real Speed */}
-      <div className="flex items-center gap-1.5 text-zinc-300">
+      <div className="flex items-center gap-1.5 text-zinc-300 whitespace-nowrap min-w-0">
         <Zap className="w-3 h-3 text-amber-400 shrink-0" />
-        <span className="text-zinc-400">{engineLabel}</span>
+        <span className="text-zinc-400 hidden sm:inline">{engineLabel}</span>
         <span className="text-amber-300 font-bold">
           {isGenerating
             ? (liveTps > 0 ? `${liveTps.toFixed(1)} t/s` : 'generating...')
@@ -448,6 +448,7 @@ export default function ChatView() {
 
   // Mobile UX: soft keyboard awareness (Capacitor Android WebView) + jump-to-latest tracking
   const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const [isComposerFocused, setIsComposerFocused] = useState(false);
   const [isAwayFromBottom, setIsAwayFromBottom] = useState(false);
   const lastKeyboardHeightRef = useRef(0);
 
@@ -2067,10 +2068,10 @@ export default function ChatView() {
             if (navigator.vibrate) navigator.vibrate(10);
           }}
           title="Jump to latest message"
-          className="absolute right-4 z-30 w-10 h-10 rounded-full bg-zinc-900 border border-cyan-500/40 hover:border-cyan-400 text-cyan-400 shadow-xl shadow-cyan-500/10 flex items-center justify-center transition-all cursor-pointer active:scale-95 animate-in fade-in slide-in-from-bottom duration-200"
-          style={{ bottom: `${144 + keyboardHeight}px` }}
+          className="absolute right-4 z-30 w-12 h-12 rounded-full bg-zinc-900 border border-cyan-500/40 hover:border-cyan-400 text-cyan-400 shadow-xl shadow-cyan-500/10 flex items-center justify-center transition-all cursor-pointer active:scale-95 animate-in fade-in slide-in-from-bottom duration-200"
+          style={{ bottom: `${(isFabOpen ? 420 : 196) + keyboardHeight}px` }}
         >
-          <ChevronDown className="w-5 h-5" />
+          <ChevronDown className="w-6 h-6" />
         </button>
       )}
 
@@ -2107,7 +2108,8 @@ export default function ChatView() {
         className="p-2 bg-zinc-950 border-t border-zinc-800 z-20 shrink-0"
         style={{ paddingBottom: keyboardHeight > 0 ? `${keyboardHeight}px` : undefined }}
       >
-        {/* Mobile Quick Hardware & Intent Bar */}
+        {/* Mobile Quick Hardware & Intent Bar (hidden only while the soft keyboard is open) */}
+        {!(keyboardHeight > 0 && isComposerFocused) && (
         <div className="flex items-center gap-1.5 overflow-x-auto pb-1.5 pt-0.5 mb-1 no-scrollbar">
           <button
             onClick={() => {
@@ -2165,6 +2167,7 @@ export default function ChatView() {
             <span>Device Audit</span>
           </button>
         </div>
+        )}
 
         {isRecordingVoice ? (
           /* WhatsApp-Style Voice Recording Bar */
@@ -2223,7 +2226,7 @@ export default function ChatView() {
                 <button
                   onClick={() => setIsCameraOpen(true)}
                   title="Camera snapshot"
-                  className="p-2 rounded-xl text-zinc-400 hover:text-emerald-400 hover:bg-zinc-800 transition-all cursor-pointer"
+                  className="w-7 h-7 flex items-center justify-center rounded-lg text-zinc-400 hover:text-emerald-400 hover:bg-zinc-800 transition-all cursor-pointer"
                 >
                   <Camera className="w-4 h-4 text-emerald-400" />
                 </button>
@@ -2234,7 +2237,7 @@ export default function ChatView() {
                 <button
                   onClick={() => galleryInputRef.current?.click()}
                   title="Image or Video upload to index/search"
-                  className="p-2 rounded-xl text-zinc-400 hover:text-cyan-400 hover:bg-zinc-800 transition-all cursor-pointer"
+                  className="w-7 h-7 flex items-center justify-center rounded-lg text-zinc-400 hover:text-cyan-400 hover:bg-zinc-800 transition-all cursor-pointer"
                 >
                   <ImageIcon className="w-4 h-4 text-cyan-400" />
                 </button>
@@ -2245,7 +2248,7 @@ export default function ChatView() {
                 <button
                   onClick={() => fileInputRef.current?.click()}
                   title="Document, video, or file attachment to search/index"
-                  className="p-2 rounded-xl text-zinc-400 hover:text-cyan-400 hover:bg-zinc-800 transition-all cursor-pointer"
+                  className="w-7 h-7 flex items-center justify-center rounded-lg text-zinc-400 hover:text-cyan-400 hover:bg-zinc-800 transition-all cursor-pointer"
                 >
                   <Paperclip className="w-4 h-4 text-cyan-400" />
                 </button>
@@ -2256,7 +2259,7 @@ export default function ChatView() {
                 type="button"
                 onClick={() => setShowSnippetsDrawer(true)}
                 title="Smart Prompt Snippets & Custom Directives"
-                className="p-2 rounded-xl text-zinc-400 hover:text-amber-400 hover:bg-zinc-800 transition-all cursor-pointer"
+                className="w-7 h-7 flex items-center justify-center rounded-lg text-zinc-400 hover:text-amber-400 hover:bg-zinc-800 transition-all cursor-pointer"
               >
                 <BookOpen className="w-4 h-4 text-amber-400" />
               </button>
@@ -2327,6 +2330,8 @@ export default function ChatView() {
               <textarea
                 value={inputVal}
                 onChange={(e) => setInputVal(e.target.value)}
+                onFocus={() => setIsComposerFocused(true)}
+                onBlur={() => setIsComposerFocused(false)}
                 onKeyDown={handleKeyDown}
                 placeholder={
                   operatingMode === 'vision' || currentModel?.category === 'vision'
@@ -2351,7 +2356,7 @@ export default function ChatView() {
               type="button"
               onClick={startWhatsAppVoiceRecording}
               title="Record voice note (WhatsApp style)"
-              className="p-2 rounded-xl bg-zinc-800/80 border border-zinc-700/80 text-zinc-300 hover:text-emerald-400 hover:bg-zinc-800 transition-all cursor-pointer group"
+              className="w-8 h-8 flex items-center justify-center rounded-lg bg-zinc-800/80 border border-zinc-700/80 text-zinc-300 hover:text-emerald-400 hover:bg-zinc-800 transition-all cursor-pointer group"
             >
               <Mic className="w-4 h-4 group-hover:scale-110 transition-transform" />
             </button>
