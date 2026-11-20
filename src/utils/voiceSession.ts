@@ -7,10 +7,11 @@
 // event cannot clear the new session's speaking flag; this helper applies the
 // same rule to SpeechRecognition callers and to the local UI mirrors they own.
 
-/** The parts of a SpeechRecognition result event these call sites use. */
+/** The parts of a SpeechRecognition result event these call sites use.
+ * Each entry is an alternatives list that also carries the DOM isFinal flag. */
 export interface RecognitionResultLike {
   resultIndex: number;
-  results: ArrayLike<ArrayLike<{ transcript: string }>>;
+  results: ArrayLike<ArrayLike<{ transcript: string }> & { isFinal?: boolean }>;
 }
 
 /** The part of a SpeechRecognition error event the call sites read. */
