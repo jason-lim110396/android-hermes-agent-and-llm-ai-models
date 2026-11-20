@@ -20,7 +20,8 @@ export interface FallbackSettings {
 
 const STORAGE_KEY = 'androidllm_model_fallback_chain';
 
-/** $0 / free-tier endpoints. An entry without a key is skipped at call time. */
+/** $0 / free-tier endpoints. An entry without a key is sent unauthenticated;
+ * add a key for providers that require one. */
 export const FREE_FALLBACK_PRESETS: FallbackModelEntry[] = [
   {
     id: 'openrouter-free-router',
@@ -137,6 +138,9 @@ export function isUsageLimitFailure(status: number, detail: string): boolean {
 }
 
 export function describeLimitFailure(status: number, detail: string): string {
+  // A rejected key is not a quota problem, but it is the one remote failure the
+  // user can act on. Say so instead of a bare status code.
+  if (status === 401) return 'API key rejected (401)';
   const body = (detail || '').toLowerCase();
   const hint = LIMIT_HINTS.find((h) => body.includes(h));
   if (hint) return `limit: ${hint}`;

@@ -83,6 +83,20 @@ class RemoteEndpointError extends Error {
   }
 }
 
+// A mobile network can drop without ever erroring the socket: the fetch (or a
+// read mid-stream) then never settles and the chat stays "generating" until the
+// user force-stops. Bound both waits. The first response is allowed more time
+// because a local Ollama/vLLM server may load weights before it answers.
+const FIRST_BYTE_TIMEOUT_MS = 90_000;
+const STREAM_IDLE_TIMEOUT_MS = 45_000;
+
+class RemoteTimeoutError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'RemoteTimeoutError';
+  }
+}
+
 /** One streaming chat-completions call against a single OpenAI-compatible endpoint. */
 async function streamChatCompletion(
   candidate: FallbackEndpoint,
@@ -93,65 +107,114 @@ async function streamChatCompletion(
   const endpoint = candidate.endpoint.replace(/\/+$/, '');
   const url = endpoint.endsWith('/chat/completions') ? endpoint : `${endpoint}/chat/completions`;
 
-  const res = await fetch(url, {
-    method: 'POST',
-    signal,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(candidate.apiKey ? { Authorization: `Bearer ${candidate.apiKey}` } : {}),
-    },
-    body: JSON.stringify({
-      model: candidate.model,
-      messages: [{ role: 'system', content: payload.systemPrompt }, ...payload.messages],
-      temperature: payload.temperature,
-      max_tokens: payload.maxTokens,
-      stream: true,
-    }),
-  });
-
-  if (!res.ok) {
-    // Read the body so a quota message is not mistaken for a network error.
-    let detail = '';
-    try {
-      detail = (await res.text()).slice(0, 400);
-    } catch (_) {}
-    throw new RemoteEndpointError(`${candidate.label}: HTTP ${res.status} ${res.statusText}`, res.status, detail);
-  }
-
-  if (!res.body) return '';
-
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let fullText = '';
-  let buffer = '';
-  while (true) {
-    if (signal.aborted) {
-      try { await reader.cancel(); } catch (_) {}
-      throw new Error('Task stopped by user');
+  // Local controller so a timeout can abort only this request. The caller's
+  // signal stays authoritative: a user Stop must still read as "stopped".
+  const requestController = new AbortController();
+  let timedOut = false;
+  let receivedAny = false;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const timeoutMessage = () =>
+    receivedAny
+      ? `connection stalled with no data for ${Math.round(STREAM_IDLE_TIMEOUT_MS / 1000)}s`
+      : `timed out after ${Math.round(FIRST_BYTE_TIMEOUT_MS / 1000)}s waiting for a response`;
+  const clearTimer = () => {
+    if (timer) {
+      clearTimeout(timer);
+      timer = null;
     }
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split('\n');
-    // Keep the last, possibly incomplete, line for the next read.
-    buffer = lines.pop() ?? '';
-    for (const line of lines) {
-      if (signal.aborted) throw new Error('Task stopped by user');
-      const trimmed = line.trim();
-      if (!trimmed.startsWith('data:')) continue;
-      const dataStr = trimmed.slice(5).trim();
-      if (!dataStr || dataStr === '[DONE]') continue;
+  };
+  const armTimer = (ms: number) => {
+    clearTimer();
+    timer = setTimeout(() => {
+      timedOut = true;
+      try { requestController.abort(); } catch (_) {}
+    }, ms);
+  };
+  const forwardAbort = () => {
+    try { requestController.abort(); } catch (_) {}
+  };
+  if (signal.aborted) forwardAbort();
+  else signal.addEventListener('abort', forwardAbort, { once: true });
+  armTimer(FIRST_BYTE_TIMEOUT_MS);
+
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      signal: requestController.signal,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(candidate.apiKey ? { Authorization: `Bearer ${candidate.apiKey}` } : {}),
+      },
+      body: JSON.stringify({
+        model: candidate.model,
+        messages: [{ role: 'system', content: payload.systemPrompt }, ...payload.messages],
+        temperature: payload.temperature,
+        max_tokens: payload.maxTokens,
+        stream: true,
+      }),
+    });
+
+    if (!res.ok) {
+      // Read the body so a quota message is not mistaken for a network error.
+      let detail = '';
       try {
-        const parsed = JSON.parse(dataStr);
-        const delta = parsed.choices?.[0]?.delta?.content || '';
-        if (delta) {
-          fullText += delta;
-          onStreamChunk(fullText);
-        }
+        detail = (await res.text()).slice(0, 400);
       } catch (_) {}
+      throw new RemoteEndpointError(`${candidate.label}: HTTP ${res.status} ${res.statusText}`, res.status, detail);
     }
+
+    // A 200 with no body is not an answer; report it instead of returning ''
+    // (which used to fall through to on-device inference with no explanation).
+    if (!res.body) throw new Error(`${candidate.label} returned an empty response body`);
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let fullText = '';
+    let buffer = '';
+    while (true) {
+      if (signal.aborted) {
+        try { await reader.cancel(); } catch (_) {}
+        throw new Error('Task stopped by user');
+      }
+      const { done, value } = await reader.read();
+      if (timedOut) {
+        throw new RemoteTimeoutError(timeoutMessage());
+      }
+      if (done) break;
+      receivedAny = true;
+      armTimer(STREAM_IDLE_TIMEOUT_MS);
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      // Keep the last, possibly incomplete, line for the next read.
+      buffer = lines.pop() ?? '';
+      for (const line of lines) {
+        if (signal.aborted) throw new Error('Task stopped by user');
+        const trimmed = line.trim();
+        if (!trimmed.startsWith('data:')) continue;
+        const dataStr = trimmed.slice(5).trim();
+        if (!dataStr || dataStr === '[DONE]') continue;
+        try {
+          const parsed = JSON.parse(dataStr);
+          const delta = parsed.choices?.[0]?.delta?.content || '';
+          if (delta) {
+            fullText += delta;
+            onStreamChunk(fullText);
+          }
+        } catch (_) {}
+      }
+    }
+    return fullText;
+  } catch (err) {
+    // The caller's Stop wins over a local timeout so it still reports "stopped".
+    if (signal.aborted) throw err;
+    if (timedOut) {
+      throw new RemoteTimeoutError(timeoutMessage());
+    }
+    throw err;
+  } finally {
+    clearTimer();
+    signal.removeEventListener('abort', forwardAbort);
   }
-  return fullText;
 }
 
 // Global Singleton WebLLM Engine
@@ -413,21 +476,6 @@ export async function callRealLLMInference({
   const signal = abortCtrl.signal;
 
   try {
-    // CPU (WASM) models never touch WebGPU at all — dispatch to the wllama/llama.cpp backend
-    // entirely, bypassing every WebGPU-specific code path below (including its own abort/retry
-    // handling, since a GPU buffer race is not something this backend can ever hit).
-    if (isCpuWasmModel(modelSpec)) {
-      return await callCpuLLMInference({
-        messages,
-        modelId,
-        systemPrompt,
-        temperature,
-        maxTokens: effectiveMaxTokens,
-        onProgress,
-        onStreamChunk,
-      });
-    }
-
     // If active model is an Image Generation Model (e.g. SD-Turbo, FLUX.1 Schnell)
     if (modelSpec?.capabilities.includes('image-gen') || modelSpec?.family === 'image') {
       const userPrompt = messages[messages.length - 1]?.content || 'Futuristic AI concept art';
@@ -478,7 +526,9 @@ export async function callRealLLMInference({
     }
 
     // Option A: If User provided an external Local Server / Ollama / OpenRouter API
-    if (config?.apiEndpoint) {
+    // (a stray whitespace-only value must not count as a configured endpoint)
+    const remoteEndpoint = config?.apiEndpoint?.trim();
+    if (config && remoteEndpoint) {
       const sanitizedRemotePrompt = redactSensitiveMessages(messages, systemPrompt);
       if (sanitizedRemotePrompt.redactionCount > 0) {
         try { config.onPrivacyRedaction?.(sanitizedRemotePrompt.redactionCount); } catch (_) {}
@@ -487,7 +537,7 @@ export async function callRealLLMInference({
       const candidates: FallbackEndpoint[] = [
         {
           label: config.customModelName || 'primary endpoint',
-          endpoint: config.apiEndpoint,
+          endpoint: remoteEndpoint,
           apiKey: config.apiKey,
           model: primaryModel,
         },
@@ -518,7 +568,10 @@ export async function callRealLLMInference({
             return text;
           }
           // An empty 200 is not a useful answer. Keep switching so one bad
-          // provider cannot stop the whole chain.
+          // provider cannot stop the whole chain, and keep it as the reason if
+          // it was the last candidate (otherwise the empty turn would fall
+          // through to on-device inference with no notice at all).
+          lastFailure = new Error(`${candidate.label} returned an empty answer`);
           console.warn(`Inference endpoint "${candidate.label}" returned an empty answer, trying next in chain.`);
         } catch (err: unknown) {
           if (signal.aborted) throw err;
@@ -527,17 +580,15 @@ export async function callRealLLMInference({
           // with the next endpoint's output. The store callbacks must honour
           // this empty write without throttling it.
           try { onStreamChunk(''); } catch (_) {}
-          // Only a bad API key (401) is terminal: forwarding the same prompt
-          // would not help. Every other failure (limit, quota, outage, 404,
-          // 5xx, network) keeps the chain moving so the app does not stop.
-          const isBadKey =
-            lastFailure instanceof RemoteEndpointError && lastFailure.status === 401;
-          if (isBadKey) {
+          // A 401 means *this* candidate's key was rejected. The other
+          // candidates hold their own keys, so the chain keeps going instead
+          // of letting one bad key block every free fallback behind it.
+          if (lastFailure instanceof RemoteEndpointError && lastFailure.status === 401) {
             console.warn(
-              `Inference endpoint "${candidate.label}" rejected the API key (401); not sending the prompt to another provider:`,
+              `Inference endpoint "${candidate.label}" rejected its API key (401), trying the next endpoint:`,
               err
             );
-            break;
+            continue;
           }
           // Forwarding a prompt to a different provider is only justified when
           // the current one rejected it for usage/quota reasons (429/402/403
@@ -555,16 +606,18 @@ export async function callRealLLMInference({
             break;
           }
           // A failed fetch with no HTTP status is a transport fault: offline,
-          // DNS failure, TLS error, or a dead local endpoint. Replaying the
-          // same prompt down every remaining endpoint cannot help here and on
-          // a phone it adds seconds of lag while the user waits for an answer
-          // that will never arrive. Stop the chain and let the caller fall
-          // through to on-device inference instead.
+          // DNS failure, TLS error, or a dead local endpoint. A stalled request
+          // (no response, or no data mid-stream) is the same class of failure.
+          // Replaying the same prompt down every remaining endpoint cannot help
+          // here and on a phone it adds seconds of lag while the user waits for
+          // an answer that will never arrive. Stop the chain and let the caller
+          // fall through to on-device inference instead.
           // Only a genuine fetch/transport failure is terminal here. A stream
           // parsing error (non-RemoteEndpointError thrown while reading the
           // body) is NOT a network fault: another provider may still serve the
           // prompt, so keep the chain moving for those.
           const errMessage = (lastFailure?.message || '').toLowerCase();
+          const isTimeout = lastFailure instanceof RemoteTimeoutError;
           const isFetchFailure =
             !(lastFailure instanceof RemoteEndpointError) &&
             (lastFailure instanceof TypeError ||
@@ -575,11 +628,13 @@ export async function callRealLLMInference({
             typeof navigator !== 'undefined' && typeof navigator.onLine === 'boolean'
               ? !navigator.onLine
               : false;
-          if (isFetchFailure || offline) {
+          if (isFetchFailure || offline || isTimeout) {
             console.warn(
               offline
                 ? `Inference endpoint "${candidate.label}" unreachable while offline; not forwarding the prompt to other providers.`
-                : `Inference endpoint "${candidate.label}" failed at the network layer; not replaying the prompt down the chain.`,
+                : isTimeout
+                  ? `Inference endpoint "${candidate.label}" stopped responding; not replaying the prompt down the chain.`
+                  : `Inference endpoint "${candidate.label}" failed at the network layer; not replaying the prompt down the chain.`,
               err
             );
             // Give the exhausted-chain notice a meaningful reason instead of
@@ -587,7 +642,11 @@ export async function callRealLLMInference({
             // Preserve the original error as `cause` so diagnostics keep the
             // stack and detail that produced the switch.
             lastFailure = new Error(
-              offline ? 'device is offline' : 'network unreachable',
+              offline
+                ? 'device is offline'
+                : isTimeout
+                  ? lastFailure.message
+                  : 'network unreachable',
               { cause: err }
             );
             break;
@@ -605,17 +664,36 @@ export async function callRealLLMInference({
           lastFailure instanceof RemoteEndpointError
             ? describeLimitFailure(lastFailure.status, lastFailure.detail)
             : (lastFailure.message || 'unavailable');
-        console.warn('All configured inference endpoints failed, transitioning to on-device WebGPU WebLLM:', lastFailure);
+        // Name the actual on-device destination: a CPU (GGUF) model must not
+        // be described as a WebGPU/WebLLM download.
+        const to = isCpuWasmModel(modelSpec) ? 'on-device CPU model' : 'on-device model';
+        console.warn(`All configured inference endpoints failed, transitioning to ${to}:`, lastFailure);
         // On a phone the on-device fallback can download hundreds of MB and
         // crash a low-memory WebView. Tell the user why it is happening before
         // the load starts, so an exhausted free-tier chain never looks silent.
         try {
-          config?.onRemoteChainExhausted?.({ reason, to: 'on-device model' });
+          config?.onRemoteChainExhausted?.({ reason, to });
         } catch (_) {}
       }
     }
 
     if (signal.aborted) throw new Error('Task stopped by user');
+
+    // The configured remote endpoint (above) always wins: entering an endpoint
+    // in Settings means requests go there. Only when no endpoint is set, or
+    // every endpoint failed, does the selected on-device model run. CPU (WASM)
+    // models dispatch to wllama/llama.cpp entirely, never to WebGPU.
+    if (isCpuWasmModel(modelSpec)) {
+      return await callCpuLLMInference({
+        messages,
+        modelId,
+        systemPrompt,
+        temperature,
+        maxTokens: effectiveMaxTokens,
+        onProgress,
+        onStreamChunk,
+      });
+    }
 
     // Option B: REAL ON-DEVICE WEBGPU INFERENCE VIA WEBLLM
     // Buffer-readback races (mapAsync failing because the staging buffer was recycled/unmapped
