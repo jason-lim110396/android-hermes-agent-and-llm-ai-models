@@ -591,6 +591,16 @@ export default function ChatView() {
         }
       }
       if (!isFinalizingVoiceRef.current) audioChunksRef.current = [];
+      // A playing voice note must not survive a tab switch: pause it, detach
+      // its handlers and drop the data URL from memory.
+      const audio = audioPlayerRef.current;
+      if (audio) {
+        audio.onended = null;
+        audio.onerror = null;
+        try { audio.pause(); } catch (_) {}
+        try { audio.src = ''; } catch (_) {}
+        audioPlayerRef.current = null;
+      }
     };
   }, []);
 
@@ -827,14 +837,24 @@ export default function ChatView() {
   const togglePlayAudio = (dataUrl: string, id: string) => {
     if (activeAudioPlayingId === id) {
       if (audioPlayerRef.current) {
-        audioPlayerRef.current.pause();
+        audioPlayerRef.current.onended = null;
+        audioPlayerRef.current.onerror = null;
+        try { audioPlayerRef.current.pause(); } catch (_) {}
+        try { audioPlayerRef.current.src = ''; } catch (_) {}
+        audioPlayerRef.current = null;
       }
       setActiveAudioPlayingId(null);
       return;
     }
 
     if (audioPlayerRef.current) {
-      audioPlayerRef.current.pause();
+      const previous = audioPlayerRef.current;
+      previous.onended = null;
+      previous.onerror = null;
+      try { previous.pause(); } catch (_) {}
+      try { previous.src = ''; } catch (_) {}
+      audioPlayerRef.current = null;
+      setActiveAudioPlayingId(null);
     }
 
     const audio = new Audio(dataUrl);
