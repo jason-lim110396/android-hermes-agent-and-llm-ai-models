@@ -23,22 +23,28 @@ const STORAGE_KEY = 'androidllm_model_fallback_chain';
 /** $0 / free-tier endpoints. An entry without a key is skipped at call time. */
 export const FREE_FALLBACK_PRESETS: FallbackModelEntry[] = [
   {
-    id: 'openrouter-free',
-    label: 'OpenRouter free tier',
+    id: 'openrouter-free-router',
+    label: 'OpenRouter free router',
     endpoint: 'https://openrouter.ai/api/v1',
-    model: 'deepseek/deepseek-chat-v3-0324:free',
+    model: 'openrouter/free',
   },
   {
-    id: 'gemini-free',
-    label: 'Google Gemini free tier',
-    endpoint: 'https://generativelanguage.googleapis.com/v1beta/openai',
-    model: 'gemini-2.0-flash',
+    id: 'openrouter-ernie-free',
+    label: 'ERNIE 5.5 Flash Preview (free)',
+    endpoint: 'https://openrouter.ai/api/v1',
+    model: 'baidu/ernie-5.5-flash-preview:free',
   },
   {
-    id: 'groq-free',
-    label: 'Groq free tier',
-    endpoint: 'https://api.groq.com/openai/v1',
-    model: 'llama-3.3-70b-versatile',
+    id: 'openrouter-nemotron-ultra-free',
+    label: 'NVIDIA Nemotron 3 Ultra (free)',
+    endpoint: 'https://openrouter.ai/api/v1',
+    model: 'nvidia/nemotron-3-ultra-550b-a55b:free',
+  },
+  {
+    id: 'openrouter-gemma-free',
+    label: 'Google Gemma 4 26B A4B (free)',
+    endpoint: 'https://openrouter.ai/api/v1',
+    model: 'google/gemma-4-26b-a4b-it:free',
   },
   {
     id: 'ollama-local',
