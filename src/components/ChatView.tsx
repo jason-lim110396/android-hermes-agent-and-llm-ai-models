@@ -65,6 +65,7 @@ import {
 import { useAppStore, Attachment } from '@/appStore';
 import { AVAILABLE_MODELS, ModelSpec } from '@/models';
 import { startVisibleInterval } from '@/utils/visibleInterval';
+import { isOversizedImage, downsampleImageFile } from '@/utils/imageOptimizer';
 import CameraModal from './CameraModal';
 import CodeSandboxModal from './CodeSandboxModal';
 import TableSpreadsheetModal from './TableSpreadsheetModal';
