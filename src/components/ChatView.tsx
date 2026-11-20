@@ -172,6 +172,7 @@ export default function ChatView() {
   const setChatTabMode = useAppStore((s) => s.setChatTabMode);
   const selectedModelId = useAppStore((s) => s.selectedModelId);
   const setSelectedModelId = useAppStore((s) => s.setSelectedModelId);
+  const isOnline = useAppStore((s) => s.isOnline);
   const downloads = useAppStore((s) => s.downloads);
   const startDownloadModel = useAppStore((s) => s.startDownloadModel);
   const setCurrentTab = useAppStore((s) => s.setCurrentTab);
@@ -2203,6 +2204,11 @@ export default function ChatView() {
         className="p-2 bg-zinc-950 border-t border-zinc-800 z-20 shrink-0"
         style={{ paddingBottom: keyboardHeight > 0 ? `${keyboardHeight}px` : undefined }}
       >
+          {!isOnline && (
+            <div className="mb-1.5 px-2 py-1 rounded-lg bg-amber-950/40 border border-amber-500/30 text-amber-200 text-[10px] font-bold">
+              Offline - cached models only
+            </div>
+          )}
         {/* Mobile Quick Hardware & Intent Bar (hidden only while the soft keyboard is open) */}
         {!(keyboardHeight > 0 && isComposerFocused) && (
         <div className="flex items-center gap-1.5 overflow-x-auto pb-1.5 pt-0.5 mb-1 no-scrollbar">
