@@ -48,6 +48,8 @@ import {
   Share2,
   Vibrate,
   Bell,
+  Star,
+  Bookmark,
 } from 'lucide-react';
 import { useAppStore, Attachment } from '@/appStore';
 import { AVAILABLE_MODELS, ModelSpec } from '@/models';
@@ -103,6 +105,27 @@ export default function ChatView() {
   const [showSearch, setShowSearch] = useState(false);
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
+
+  // Starred Bookmarks State
+  const [starredMessageIds, setStarredMessageIds] = useState<string[]>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        return JSON.parse(window.localStorage.getItem('hermes_starred_msgs') || '[]');
+      } catch (_) {}
+    }
+    return [];
+  });
+  const [showBookmarksDrawer, setShowBookmarksDrawer] = useState(false);
+
+  const toggleStarMessage = (msgId: string) => {
+    setStarredMessageIds((prev) => {
+      const next = prev.includes(msgId) ? prev.filter((id) => id !== msgId) : [...prev, msgId];
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem('hermes_starred_msgs', JSON.stringify(next));
+      }
+      return next;
+    });
+  };
 
   const QUICK_PROMPTS = [
     { label: '🚀 Hardware Diagnostic', prompt: 'Audit all device hardware, RAM usage, and WebGPU tensor acceleration.' },
@@ -950,6 +973,18 @@ export default function ChatView() {
             <span>Stop All</span>
           </button>
 
+          {/* Starred Bookmarks */}
+          <button
+            onClick={() => setShowBookmarksDrawer(true)}
+            title="View saved bookmarks"
+            className={`flex items-center gap-1 px-2.5 py-1 rounded-xl border text-[10px] font-bold transition-all cursor-pointer ${
+              starredMessageIds.length > 0 ? 'bg-amber-950/70 border-amber-500/50 text-amber-300' : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white'
+            }`}
+          >
+            <Bookmark className="w-3.5 h-3.5" />
+            <span>Saved ({starredMessageIds.length})</span>
+          </button>
+
           {/* Search Session */}
           <button
             onClick={() => setShowSearch(!showSearch)}
@@ -1398,6 +1433,20 @@ export default function ChatView() {
                         </>
                       )}
                     </button>
+
+                    {/* Star / Bookmark Button */}
+                    <button
+                      onClick={() => toggleStarMessage(msg.id)}
+                      title={starredMessageIds.includes(msg.id) ? "Remove from bookmarks" : "Save / Bookmark this insight"}
+                      className={`flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-medium transition-all cursor-pointer ${
+                        starredMessageIds.includes(msg.id)
+                          ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                          : 'bg-zinc-900/80 hover:bg-zinc-800 text-zinc-400 hover:text-white border border-zinc-800/80'
+                      }`}
+                    >
+                      <Star className={`w-3 h-3 ${starredMessageIds.includes(msg.id) ? 'fill-current text-amber-400' : ''}`} />
+                      <span>{starredMessageIds.includes(msg.id) ? 'Saved' : 'Save'}</span>
+                    </button>
                   </div>
                 )}
               </div>
@@ -1777,6 +1826,91 @@ export default function ChatView() {
         onClose={() => setIsCameraOpen(false)}
         onCapture={(att) => addAttachment(att)}
       />
+
+      {/* Starred Bookmarks Drawer */}
+      {showBookmarksDrawer && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-end animate-in fade-in">
+          <div className="bg-zinc-900 border-l border-zinc-800 w-full max-w-md h-full flex flex-col shadow-2xl p-4">
+            <div className="flex items-center justify-between pb-3 border-b border-zinc-800">
+              <div className="flex items-center gap-2">
+                <Bookmark className="w-4 h-4 text-amber-400" />
+                <h3 className="text-sm font-bold text-white">Saved Insights & Bookmarks</h3>
+                <span className="text-[10px] bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded-full font-mono font-bold">
+                  {starredMessageIds.length}
+                </span>
+              </div>
+              <button
+                onClick={() => setShowBookmarksDrawer(false)}
+                className="p-1 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition-all cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Bookmarks List */}
+            <div className="flex-1 overflow-y-auto py-3 space-y-2.5">
+              {starredMessageIds.length === 0 ? (
+                <div className="h-full flex flex-col items-center justify-center text-center p-6 text-zinc-500 space-y-2">
+                  <Star className="w-8 h-8 opacity-40 text-amber-400" />
+                  <p className="text-xs">No saved messages yet.</p>
+                  <p className="text-[10px] text-zinc-600">Tap the &quot;Save&quot; star icon on any response to bookmark key insights.</p>
+                </div>
+              ) : (
+                messages
+                  .filter((m) => starredMessageIds.includes(m.id))
+                  .map((msg) => (
+                    <div key={msg.id} className="p-3 rounded-xl bg-zinc-950 border border-zinc-800/80 space-y-2">
+                      <div className="flex items-center justify-between text-[10px] text-zinc-400">
+                        <span className="font-bold text-cyan-400">{msg.modelUsed || 'Hermes AI'}</span>
+                        <button
+                          onClick={() => toggleStarMessage(msg.id)}
+                          className="text-rose-400 hover:text-rose-300 text-[10px] flex items-center gap-0.5 cursor-pointer"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                          <span>Remove</span>
+                        </button>
+                      </div>
+                      <p className="text-xs text-zinc-200 line-clamp-4 font-mono whitespace-pre-wrap leading-relaxed">
+                        {msg.content.replace(/<think>[\s\S]*?<\/think>/g, '').trim()}
+                      </p>
+                      <div className="flex items-center gap-2 pt-1 border-t border-zinc-800">
+                        <button
+                          onClick={() => handleCopyMessage(msg.id, msg.content)}
+                          className="flex items-center gap-1 text-[10px] text-zinc-400 hover:text-white px-2 py-1 rounded bg-zinc-900 border border-zinc-800 cursor-pointer"
+                        >
+                          {copiedMessageId === msg.id ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                          <span>{copiedMessageId === msg.id ? 'Copied' : 'Copy'}</span>
+                        </button>
+                        <button
+                          onClick={() => {
+                            if (typeof navigator !== 'undefined' && navigator.share) {
+                              navigator.share({ title: 'Saved Insight', text: msg.content }).catch(() => {});
+                            }
+                          }}
+                          className="flex items-center gap-1 text-[10px] text-zinc-400 hover:text-white px-2 py-1 rounded bg-zinc-900 border border-zinc-800 cursor-pointer"
+                        >
+                          <Share2 className="w-3 h-3 text-cyan-400" />
+                          <span>Share</span>
+                        </button>
+                      </div>
+                    </div>
+                  ))
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="pt-3 border-t border-zinc-800 flex items-center justify-between">
+              <span className="text-[10px] text-zinc-500 font-mono">Persisted on device</span>
+              <button
+                onClick={() => setShowBookmarksDrawer(false)}
+                className="px-4 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white font-medium text-xs cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
