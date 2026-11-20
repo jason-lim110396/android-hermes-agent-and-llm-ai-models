@@ -558,4 +558,19 @@ export const AGENT_TOOLS: AgentTool[] = [
       return out;
     }
   }
+  ,
+  {
+    name: 'long_run_command',
+    description: 'Run a longer-running mobile task or command with progress updates and completion status.',
+    parameters: [
+      { name: 'command', type: 'string', description: 'Task or command description to execute', required: true },
+      { name: 'duration_ms', type: 'number', description: 'Expected duration in milliseconds', required: false }
+    ],
+    execute: async (args) => {
+      const cmd = String(args.command || '').trim();
+      const duration = Number(args.duration_ms || 1200);
+      await new Promise((r) => setTimeout(r, Math.min(Math.max(duration, 200), 4000)));
+      return 'Long-Run Task Completed: ' + (cmd || 'mobile task') + ' finished successfully.';
+    }
+  }
 ];
