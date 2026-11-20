@@ -47,7 +47,7 @@ export default function Home() {
 
   // Screen wake lock during heavy work: keeps Android from sleeping the
   // screen (and suspending WebView JS) mid-generation or mid-download.
-  React.useEffect(() => {
+  useEffect(() => {
     if (hasRunningTasks) {
       holdWakeLock();
     } else {

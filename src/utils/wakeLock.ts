@@ -12,22 +12,39 @@ type Sentinel = { released: boolean; release: () => Promise<void> };
 
 let activeSentinel: Sentinel | null = null;
 let releaseTimer: ReturnType<typeof setTimeout> | null = null;
+// Intent flag: true while heavy work wants the lock held, even if the grant
+// is still pending or was denied. Gates re-requests on intent, not possession.
+let holdDesired = false;
+// Monotonic id so a stale grant/reject (settling after a newer request or
+// after work ended) can be detected and never clobbers newer state.
+let requestId = 0;
 
 async function requestLock(): Promise<void> {
   if (typeof navigator === 'undefined' || !('wakeLock' in navigator)) return;
+  const thisRequest = ++requestId;
   try {
-    // Re-requesting while a lock is held is a no-op on the platform side.
-    activeSentinel = await (navigator as any).wakeLock.request('screen');
+    const granted: Sentinel = await (navigator as any).wakeLock.request('screen');
+    if (thisRequest !== requestId || !holdDesired) {
+      // Superseded by a newer request, or work ended while the grant was in
+      // flight: release immediately instead of leaking a live sentinel.
+      if (!granted.released) {
+        try {
+          await granted.release();
+        } catch (_) {}
+      }
+      return;
+    }
+    activeSentinel = granted;
   } catch (_) {
-    // Denied (battery saver, unsupported WebView, document hidden): best-effort.
-    activeSentinel = null;
+    // Denied (battery saver, unsupported WebView, document hidden).
+    if (thisRequest === requestId) activeSentinel = null;
   }
 }
 
 function handleVisibility(): void {
-  if (document.visibilityState === 'visible' && activeSentinel !== null) {
-    // The OS releases wake locks when the document is hidden; re-request on
-    // return so a long generation keeps the screen awake after a tab switch.
+  // Gate on intent, not possession: if the initial grant was denied, a
+  // foreground return retries it even though no sentinel is held.
+  if (document.visibilityState === 'visible' && holdDesired) {
     requestLock();
   }
 }
@@ -43,6 +60,7 @@ if (typeof window !== 'undefined') {
  */
 export function holdWakeLock(): void {
   if (typeof window === 'undefined') return;
+  holdDesired = true;
   if (releaseTimer) {
     clearTimeout(releaseTimer);
     releaseTimer = null;
@@ -56,6 +74,7 @@ export function releaseWakeLock(): void {
   if (releaseTimer) clearTimeout(releaseTimer);
   releaseTimer = setTimeout(async () => {
     releaseTimer = null;
+    holdDesired = false;
     const sentinel = activeSentinel;
     activeSentinel = null;
     if (sentinel && !sentinel.released) {
