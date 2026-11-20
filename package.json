@@ -1,6 +1,7 @@
 {
-  "name": "boxhead-game",
-  "version": "0.1.0",
+  "name": "android-hermes-studio",
+  "version": "1.0.0",
+  "description": "On-device Hermes AI Agent & Local LLM Studio for Android with WebGPU acceleration",
   "private": true,
   "scripts": {
     "dev": "next dev",

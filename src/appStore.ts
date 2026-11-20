@@ -58,10 +58,20 @@ export interface ChatSession {
   messages: ChatMessage[];
 }
 
+export type NavigationTab =
+  | 'chat'
+  | 'models'
+  | 'device'
+  | 'settings'
+  | 'image-studio'
+  | 'vision-studio'
+  | 'voice-studio'
+  | 'file-search';
+
 interface AppStore {
   // Navigation & View Mode
-  currentTab: 'chat' | 'models' | 'device' | 'settings';
-  setCurrentTab: (tab: 'chat' | 'models' | 'device' | 'settings') => void;
+  currentTab: NavigationTab;
+  setCurrentTab: (tab: NavigationTab) => void;
 
   // Active Modes & AI Purpose
   operatingMode: 'chat' | 'image-gen' | 'vision' | 'voice' | 'agent' | 'embedding';
