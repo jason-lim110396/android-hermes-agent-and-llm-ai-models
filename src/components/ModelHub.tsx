@@ -21,6 +21,7 @@ import {
   MessageSquare,
   Image as ImageIcon,
   X,
+  RefreshCw,
 } from 'lucide-react';
 import { AVAILABLE_MODELS, ModelSpec } from '@/models';
 import { useAppStore } from '@/appStore';
@@ -61,6 +62,35 @@ export default function ModelHub() {
   const [selectedFamily, setSelectedFamily] = useState<'all' | 'downloaded' | 'recommended' | 'text' | 'vision' | 'image' | 'voice' | 'embedding'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [showCompareModal, setShowCompareModal] = useState(false);
+  const [isEvicting, setIsEvicting] = useState(false);
+  const [evictSuccessMsg, setEvictSuccessMsg] = useState<string | null>(null);
+
+  const handleSmartEvictUnusedModels = async () => {
+    setIsEvicting(true);
+    try {
+      const downloadedModels = AVAILABLE_MODELS.filter(
+        (m) => downloads[m.id]?.isReady && m.id !== selectedModelId
+      );
+      if (downloadedModels.length === 0) {
+        setEvictSuccessMsg('No unused models to purge. Active model is preserved.');
+        setTimeout(() => setEvictSuccessMsg(null), 3000);
+        return;
+      }
+      let totalFreedMB = 0;
+      for (const m of downloadedModels) {
+        await deleteModel(m.id);
+        totalFreedMB += m.sizeMB;
+      }
+      await checkCacheStatus();
+      setEvictSuccessMsg(`Purged ${downloadedModels.length} model(s), freeing ${(totalFreedMB / 1024).toFixed(1)} GB phone storage!`);
+      if (navigator.vibrate) navigator.vibrate([60, 40, 60]);
+      setTimeout(() => setEvictSuccessMsg(null), 4000);
+    } catch (_) {
+      setEvictSuccessMsg('Eviction completed with partial release.');
+    } finally {
+      setIsEvicting(false);
+    }
+  };
 
   React.useEffect(() => {
     checkCacheStatus();
@@ -187,6 +217,57 @@ export default function ModelHub() {
           </span>
         </div>
       )}
+
+      {/* Storage Quota & Smart Eviction Card */}
+      <div className="p-3 mb-3 rounded-2xl bg-zinc-900/90 border border-zinc-800/80 shadow-md">
+        <div className="flex items-center justify-between gap-2 mb-2">
+          <div className="flex items-center gap-2">
+            <HardDrive className="w-4 h-4 text-cyan-400" />
+            <div>
+              <span className="text-xs font-bold text-zinc-100">Storage Quota & Model Cache</span>
+              <span className="text-[10px] text-zinc-400 ml-2">
+                {(totalCachedMB / 1024).toFixed(2)} GB cached
+              </span>
+            </div>
+          </div>
+          <button
+            onClick={handleSmartEvictUnusedModels}
+            disabled={isEvicting || totalCachedMB === 0}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-300 disabled:opacity-40 text-[10px] font-bold transition-all cursor-pointer"
+          >
+            {isEvicting ? (
+              <RefreshCw className="w-3 h-3 animate-spin text-rose-400" />
+            ) : (
+              <Trash2 className="w-3 h-3 text-rose-400" />
+            )}
+            <span>Smart Purge Unused</span>
+          </button>
+        </div>
+
+        {/* Progress Bar of Storage */}
+        <div className="w-full bg-zinc-800 rounded-full h-1.5 overflow-hidden mb-1.5">
+          <div
+            className={`h-full rounded-full transition-all duration-500 ${
+              totalCachedMB > 4000 ? 'bg-rose-500' : totalCachedMB > 2000 ? 'bg-amber-500' : 'bg-cyan-500'
+            }`}
+            style={{ width: `${Math.min(100, Math.max(5, (totalCachedMB / 6000) * 100))}%` }}
+          />
+        </div>
+
+        {evictSuccessMsg && (
+          <div className="p-1.5 mt-1 rounded bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-[10px] font-medium flex items-center gap-1.5 animate-fadeIn">
+            <CheckCircle2 className="w-3 h-3 shrink-0 text-emerald-400" />
+            <span>{evictSuccessMsg}</span>
+          </div>
+        )}
+
+        {hardwareProfile && hardwareProfile.storageEstimateGB.available < 3 && (
+          <div className="p-1.5 mt-1 rounded bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[10px] font-medium flex items-center gap-1.5">
+            <AlertTriangle className="w-3 h-3 shrink-0 text-amber-400" />
+            <span>Low phone storage ({hardwareProfile.storageEstimateGB.available} GB left). Tap "Smart Purge Unused" to release space.</span>
+          </div>
+        )}
+      </div>
 
       {/* Filters & Search */}
       <div className="space-y-2 mb-3">
