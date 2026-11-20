@@ -37,6 +37,7 @@ import {
   Ban,
 } from 'lucide-react';
 import { useAppStore } from '@/appStore';
+import { startVisibleInterval } from '@/utils/visibleInterval';
 
 const PROMPT_PRESETS = [
   {
@@ -211,7 +212,7 @@ export default function SettingsView() {
   const [testNotifSuccess, setTestNotifSuccess] = useState<string | null>(null);
 
   React.useEffect(() => {
-    const timer = setInterval(() => {
+    const cancelTimer = startVisibleInterval(() => {
       const now = Date.now();
       setActiveAlarms((prev) => {
         const remaining: typeof prev = [];
@@ -237,7 +238,7 @@ export default function SettingsView() {
         return remaining;
       });
     }, 1000);
-    return () => clearInterval(timer);
+    return () => cancelTimer();
   }, [hapticAlerts]);
 
   const handleRequestPermission = async () => {

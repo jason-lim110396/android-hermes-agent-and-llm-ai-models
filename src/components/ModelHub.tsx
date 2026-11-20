@@ -31,6 +31,7 @@ import {
 } from 'lucide-react';
 import { AVAILABLE_MODELS, ModelSpec } from '@/models';
 import { useAppStore } from '@/appStore';
+import { startVisibleInterval } from '@/utils/visibleInterval';
 
 export default function ModelHub() {
   const selectedModelId = useAppStore((s) => s.selectedModelId);
@@ -120,7 +121,7 @@ export default function ModelHub() {
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
 
-    const interval = setInterval(() => {
+    const cancelInterval = startVisibleInterval(() => {
       const isAnyDownloading = Object.values(downloads).some((d) => d.isDownloading);
       if (isAnyDownloading) {
         setDownloadSpeed(+(3.2 + Math.random() * 2.8).toFixed(1));
@@ -132,7 +133,7 @@ export default function ModelHub() {
     return () => {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
-      clearInterval(interval);
+      cancelInterval();
     };
   }, [downloads]);
 

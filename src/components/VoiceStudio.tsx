@@ -38,6 +38,7 @@ import {
 } from 'lucide-react';
 import { useAppStore } from '@/appStore';
 import { AVAILABLE_MODELS } from '@/models';
+import { startVisibleInterval } from '@/utils/visibleInterval';
 
 interface VoicePreset {
   id: string;
@@ -297,7 +298,7 @@ export default function VoiceStudio() {
   const [saveSuccessMsg, setSaveSuccessMsg] = useState<string | null>(null);
 
   const recognitionRef = useRef<any>(null);
-  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const timerRef = useRef<(() => void) | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const clonerCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const animFrameRef = useRef<number | null>(null);
@@ -309,13 +310,13 @@ export default function VoiceStudio() {
   useEffect(() => {
     if (isRecording) {
       setRecordingDuration(0);
-      timerRef.current = setInterval(() => {
+      timerRef.current = startVisibleInterval(() => {
         setRecordingDuration((sec) => sec + 1);
       }, 1000);
       drawWaveform();
     } else {
       if (timerRef.current) {
-        clearInterval(timerRef.current);
+        timerRef.current();
         timerRef.current = null;
       }
       if (animFrameRef.current) {
@@ -324,7 +325,7 @@ export default function VoiceStudio() {
       }
     }
     return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
+      if (timerRef.current) timerRef.current();
       if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
     };
   }, [isRecording]);

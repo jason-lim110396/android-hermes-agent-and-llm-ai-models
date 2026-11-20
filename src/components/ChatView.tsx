@@ -64,6 +64,7 @@ import {
 } from 'lucide-react';
 import { useAppStore, Attachment } from '@/appStore';
 import { AVAILABLE_MODELS, ModelSpec } from '@/models';
+import { startVisibleInterval } from '@/utils/visibleInterval';
 import CameraModal from './CameraModal';
 import CodeSandboxModal from './CodeSandboxModal';
 import TableSpreadsheetModal from './TableSpreadsheetModal';
@@ -403,7 +404,7 @@ export default function ChatView() {
 
   // Real-time hardware load & memory ticker
   React.useEffect(() => {
-    const timer = setInterval(() => {
+    const cancelTicker = startVisibleInterval(() => {
       if (isGenerating) {
         setRealtimeCpuLoad(Math.round(45 + Math.random() * 25));
         setRealtimeRamUsedMB(Math.round(1800 + Math.random() * 250));
@@ -412,7 +413,7 @@ export default function ChatView() {
         setRealtimeRamUsedMB(Math.round(1180 + Math.random() * 80));
       }
     }, 1500);
-    return () => clearInterval(timer);
+    return () => cancelTicker();
   }, [isGenerating]);
 
   React.useEffect(() => {
