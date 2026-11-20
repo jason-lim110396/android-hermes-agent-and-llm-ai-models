@@ -1,6 +1,6 @@
 import type { MLCEngine, InitProgressReport } from '@mlc-ai/web-llm';
 import { AVAILABLE_MODELS, ModelSpec } from './models';
-import { describeLimitFailure } from './utils/modelFallback';
+import { describeLimitFailure, isUsageLimitFailure } from './utils/modelFallback';
 import { redactSensitiveMessages } from './utils/sensitiveContent';
 import {
   isCpuModelCached,
@@ -535,6 +535,21 @@ export async function callRealLLMInference({
           if (isBadKey) {
             console.warn(
               `Inference endpoint "${candidate.label}" rejected the API key (401); not sending the prompt to another provider:`,
+              err
+            );
+            break;
+          }
+          // Forwarding a prompt to a different provider is only justified when
+          // the current one rejected it for usage/quota reasons (429/402/403
+          // quota/503 limit) or went unreachable. A plain HTTP failure such as
+          // 404 or a malformed-request 400 means the prompt/route is wrong;
+          // replaying it down the whole free chain just burns every endpoint.
+          const isTerminalHttpError =
+            lastFailure instanceof RemoteEndpointError &&
+            !isUsageLimitFailure(lastFailure.status, lastFailure.detail);
+          if (isTerminalHttpError) {
+            console.warn(
+              `Inference endpoint "${candidate.label}" failed with a non-quota HTTP error; not forwarding the prompt to another provider:`,
               err
             );
             break;
