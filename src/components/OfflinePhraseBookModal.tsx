@@ -120,23 +120,30 @@ export default function OfflinePhraseBookModal({ isOpen, onClose }: OfflinePhras
   const [speakingId, setSpeakingId] = useState<string | null>(null);
   const [pinnedIds, setPinnedIds] = useState<Set<string>>(new Set());
   const synthRef = useRef<SpeechSynthesisUtterance | null>(null);
+  // Only the newest utterance may touch speakingId. Tapping another phrase
+  // cancels the old one, but its onend still lands later and used to clear
+  // the mirror while the new phrase was audibly speaking.
+  const speakRequestIdRef = useRef(0);
 
   const handleSpeak = (phrase: Phrase) => {
     if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
     const text = phrase.translations[selectedLang.code];
     if (!text) return;
+    const requestId = ++speakRequestIdRef.current;
+    const isCurrent = () => speakRequestIdRef.current === requestId;
     const utter = new SpeechSynthesisUtterance(text);
     utter.lang = selectedLang.bcp47;
     utter.rate = 0.9;
-    utter.onstart = () => setSpeakingId(phrase.id);
-    utter.onend = () => setSpeakingId(null);
-    utter.onerror = () => setSpeakingId(null);
+    utter.onstart = () => { if (isCurrent()) setSpeakingId(phrase.id); };
+    utter.onend = () => { if (isCurrent()) setSpeakingId(null); };
+    utter.onerror = () => { if (isCurrent()) setSpeakingId(null); };
     synthRef.current = utter;
     if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(20);
     speakGuarded(utter);
   };
 
   const handleStop = () => {
+    speakRequestIdRef.current++;
     cancelSpeech();
     setSpeakingId(null);
   };
