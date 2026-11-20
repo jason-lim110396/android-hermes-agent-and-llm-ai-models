@@ -3,23 +3,20 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
   Volume2,
-  VolumeX,
   Mic,
   MicOff,
-  Play,
-  Pause,
-  RotateCcw,
   Sparkles,
   Download,
   Copy,
   Check,
-  Radio,
-  Sliders,
   AudioLines,
   Waves,
-  Headphones,
   Send,
   Zap,
+  Clock,
+  FileText,
+  Mail,
+  ListChecks,
 } from 'lucide-react';
 import { useAppStore } from '@/appStore';
 import { AVAILABLE_MODELS } from '@/models';
@@ -48,7 +45,6 @@ const SAMPLE_SCRIPTS = [
 
 export default function VoiceStudio() {
   const selectedModelId = useAppStore((s) => s.selectedModelId);
-  const setSelectedModelId = useAppStore((s) => s.setSelectedModelId);
   const speakText = useAppStore((s) => s.speakText);
   const stopSpeaking = useAppStore((s) => s.stopSpeaking);
   const isSpeaking = useAppStore((s) => s.isSpeaking);
@@ -61,13 +57,77 @@ export default function VoiceStudio() {
   const [pitch, setPitch] = useState<number>(1.05);
   const [rate, setRate] = useState<number>(1.0);
   const [isRecording, setIsRecording] = useState(false);
+  const [recordingDuration, setRecordingDuration] = useState(0);
   const [transcribedText, setTranscribedText] = useState('');
   const [copied, setCopied] = useState(false);
 
   const recognitionRef = useRef<any>(null);
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const animFrameRef = useRef<number | null>(null);
 
   const voiceModels = AVAILABLE_MODELS.filter((m) => m.category === 'voice' || m.family === 'audio');
-  const currentModel = voiceModels.find((m) => m.id === selectedModelId) || voiceModels[0];
+
+  // Timer & Audio Visualizer effects
+  useEffect(() => {
+    if (isRecording) {
+      setRecordingDuration(0);
+      timerRef.current = setInterval(() => {
+        setRecordingDuration((sec) => sec + 1);
+      }, 1000);
+      drawWaveform();
+    } else {
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+      if (animFrameRef.current) {
+        cancelAnimationFrame(animFrameRef.current);
+        animFrameRef.current = null;
+      }
+    }
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+      if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
+    };
+  }, [isRecording]);
+
+  const drawWaveform = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    let step = 0;
+    const render = () => {
+      step += 0.08;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const width = canvas.width;
+      const height = canvas.height;
+      const centerY = height / 2;
+
+      ctx.beginPath();
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = '#f59e0b'; // amber-500
+
+      for (let x = 0; x < width; x += 4) {
+        const amplitude = 18 * Math.sin(x * 0.05 + step) * Math.cos(x * 0.02 + step * 0.5);
+        const y = centerY + amplitude;
+        if (x === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+
+      animFrameRef.current = requestAnimationFrame(render);
+    };
+    render();
+  };
+
+  const formatDuration = (totalSec: number) => {
+    const m = Math.floor(totalSec / 60).toString().padStart(2, '0');
+    const s = (totalSec % 60).toString().padStart(2, '0');
+    return `${m}:${s}`;
+  };
 
   const handleSpeak = () => {
     if (isSpeaking) {
@@ -107,6 +167,7 @@ export default function VoiceStudio() {
         recognitionRef.current.stop();
       }
       setIsRecording(false);
+      if (navigator.vibrate) navigator.vibrate([30]);
       return;
     }
 
@@ -121,6 +182,7 @@ export default function VoiceStudio() {
     }
 
     try {
+      if (navigator.vibrate) navigator.vibrate([40]);
       const recognition = new SpeechRecognition();
       recognition.continuous = true;
       recognition.interimResults = true;
@@ -154,9 +216,23 @@ export default function VoiceStudio() {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const handleSendToAgent = () => {
+  const handleDownloadNote = () => {
+    if (!transcribedText) return;
+    const blob = new Blob([transcribedText], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `voice_note_${new Date().toISOString().slice(0, 10)}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleSendToAgent = (prefixPrompt?: string) => {
     if (!transcribedText.trim()) return;
-    sendMessage(transcribedText.trim());
+    const finalMsg = prefixPrompt
+      ? `${prefixPrompt}\n\n"""\n${transcribedText.trim()}\n"""`
+      : transcribedText.trim();
+    sendMessage(finalMsg);
     setCurrentTab('chat');
   };
 
@@ -199,7 +275,7 @@ export default function VoiceStudio() {
                 : 'text-zinc-400 hover:text-white'
             }`}
           >
-            Voice Transcribe
+            Voice Dictation & STT
           </button>
         </div>
       </div>
@@ -259,33 +335,36 @@ export default function VoiceStudio() {
                         }}
                         className={`p-2 rounded-xl text-left border transition-all cursor-pointer ${
                           isSelected
-                            ? 'bg-amber-950/40 border-amber-500/50 ring-1 ring-amber-500/40'
-                            : 'bg-zinc-800/60 border-zinc-800 hover:bg-zinc-800'
+                            ? 'bg-amber-500/15 border-amber-500/60 ring-1 ring-amber-500/40'
+                            : 'bg-zinc-800/50 border-zinc-800 hover:border-zinc-700'
                         }`}
                       >
                         <div className="flex items-center justify-between">
-                          <span className="text-xs font-bold text-white">{voice.name}</span>
-                          <span className="text-[9px] px-1.5 py-0.2 rounded bg-zinc-800 text-amber-400 font-mono">
+                          <span className={`text-xs font-bold ${isSelected ? 'text-amber-400' : 'text-zinc-200'}`}>
+                            {voice.name}
+                          </span>
+                          <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-zinc-700 text-zinc-300 font-mono">
                             {voice.gender}
                           </span>
                         </div>
-                        <p className="text-[10px] text-zinc-400 truncate mt-0.5">{voice.description}</p>
+                        <p className="text-[10px] text-zinc-400 mt-1 line-clamp-1">{voice.description}</p>
                       </button>
                     );
                   })}
                 </div>
               </div>
 
-              {/* Rate & Pitch Sliders */}
-              <div className="grid grid-cols-2 gap-3 pt-1 border-t border-zinc-800/80">
+              {/* Pitch and Speed sliders */}
+              <div className="grid grid-cols-2 gap-3 pt-2 border-t border-zinc-800/80">
                 <div>
-                  <div className="flex justify-between text-[10px] font-bold text-zinc-400 mb-1">
-                    <span>Speed ({rate}x)</span>
+                  <div className="flex justify-between text-[11px] text-zinc-400 mb-1">
+                    <span>Speed / Rate</span>
+                    <span className="font-mono text-amber-400">{rate}x</span>
                   </div>
                   <input
                     type="range"
-                    min="0.75"
-                    max="1.5"
+                    min="0.5"
+                    max="1.75"
                     step="0.05"
                     value={rate}
                     onChange={(e) => setRate(parseFloat(e.target.value))}
@@ -293,13 +372,14 @@ export default function VoiceStudio() {
                   />
                 </div>
                 <div>
-                  <div className="flex justify-between text-[10px] font-bold text-zinc-400 mb-1">
-                    <span>Pitch ({pitch}x)</span>
+                  <div className="flex justify-between text-[11px] text-zinc-400 mb-1">
+                    <span>Pitch Modulation</span>
+                    <span className="font-mono text-amber-400">{pitch}</span>
                   </div>
                   <input
                     type="range"
-                    min="0.8"
-                    max="1.3"
+                    min="0.75"
+                    max="1.35"
                     step="0.05"
                     value={pitch}
                     onChange={(e) => setPitch(parseFloat(e.target.value))}
@@ -308,63 +388,54 @@ export default function VoiceStudio() {
                 </div>
               </div>
 
-              {/* Speak Playback Action Button */}
+              {/* Action Button */}
               <button
                 onClick={handleSpeak}
-                disabled={!ttsInput.trim()}
                 className={`w-full py-2.5 rounded-xl font-black text-xs flex items-center justify-center gap-2 transition-all cursor-pointer shadow-lg ${
                   isSpeaking
-                    ? 'bg-rose-600 hover:bg-rose-500 text-white shadow-rose-600/30'
-                    : 'bg-gradient-to-r from-amber-500 via-orange-500 to-rose-500 hover:from-amber-400 hover:to-orange-400 text-black shadow-amber-500/30'
+                    ? 'bg-rose-500 hover:bg-rose-600 text-white shadow-rose-500/20'
+                    : 'bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-black shadow-amber-500/25'
                 }`}
               >
                 {isSpeaking ? (
                   <>
-                    <VolumeX className="w-4 h-4 fill-current" />
+                    <Waves className="w-4 h-4 animate-pulse" />
                     <span>Stop Speech Playback</span>
                   </>
                 ) : (
                   <>
                     <Volume2 className="w-4 h-4" />
-                    <span>Synthesize Voice with Kokoro 82M</span>
+                    <span>Synthesize with Kokoro 82M</span>
                   </>
                 )}
               </button>
-
-              {/* Animated Waveform Indicator */}
-              {isSpeaking && (
-                <div className="flex items-center justify-center gap-1.5 py-2 animate-in fade-in">
-                  {[40, 70, 100, 50, 90, 60, 80, 40, 100, 60].map((h, i) => (
-                    <span
-                      key={i}
-                      className="w-1 bg-amber-400 rounded-full animate-pulse"
-                      style={{
-                        height: `${h * 0.25}px`,
-                        animationDelay: `${i * 100}ms`,
-                      }}
-                    />
-                  ))}
-                </div>
-              )}
             </div>
           </>
         )}
 
         {/* ========================================================= */}
-        {/* TAB 2: SPEECH-TO-TEXT (STT) TRANSCRIPTION */}
+        {/* TAB 2: SPEECH-TO-TEXT (STT) TRANSCRIPTION & SUMMARIZER */}
         {/* ========================================================= */}
         {activeTab === 'stt' && (
           <div className="bg-zinc-900/80 border border-zinc-800 rounded-2xl p-4 shadow-xl space-y-4">
             <div className="flex items-center justify-between text-xs font-bold text-zinc-300">
               <span className="flex items-center gap-1.5 text-amber-400">
                 <Mic className="w-3.5 h-3.5" />
-                <span>Whisper Audio Transcriber</span>
+                <span>Whisper Dictation & Meeting Audio Recorder</span>
               </span>
               <span className="text-[10px] text-zinc-500 font-mono">100% Offline</span>
             </div>
 
-            {/* Big Mic Push-to-Talk Zone */}
-            <div className="flex flex-col items-center justify-center p-6 bg-zinc-950/60 rounded-xl border border-zinc-800 space-y-3">
+            {/* Big Mic Push-to-Talk Zone with Timer & Waveform */}
+            <div className="flex flex-col items-center justify-center p-6 bg-zinc-950/60 rounded-xl border border-zinc-800 space-y-3 relative overflow-hidden">
+              {/* Live Waveform Canvas */}
+              <canvas
+                ref={canvasRef}
+                width={300}
+                height={40}
+                className={`w-full h-10 ${isRecording ? 'opacity-100' : 'opacity-0'} transition-opacity`}
+              />
+
               <button
                 onClick={handleToggleRecord}
                 className={`w-16 h-16 rounded-full flex items-center justify-center transition-all cursor-pointer shadow-xl ${
@@ -377,11 +448,16 @@ export default function VoiceStudio() {
               </button>
 
               <div className="text-center">
-                <p className="text-xs font-bold text-white">
-                  {isRecording ? 'Listening to speech...' : 'Tap to start recording'}
-                </p>
+                {isRecording ? (
+                  <div className="flex items-center justify-center gap-1.5 text-rose-400 font-mono font-bold text-xs">
+                    <Clock className="w-3.5 h-3.5 animate-spin" />
+                    <span>Recording: {formatDuration(recordingDuration)}</span>
+                  </div>
+                ) : (
+                  <p className="text-xs font-bold text-white">Tap to start recording</p>
+                )}
                 <p className="text-[10px] text-zinc-400 mt-0.5">
-                  {isRecording ? 'Tap again to finalize transcription' : 'Speak clearly into your smartphone microphone'}
+                  {isRecording ? 'Tap again to stop & transcribe' : 'Speak clearly into your smartphone microphone'}
                 </p>
               </div>
             </div>
@@ -392,12 +468,22 @@ export default function VoiceStudio() {
                 <span className="font-bold text-zinc-400">Transcript Result:</span>
                 <div className="flex items-center gap-2">
                   {transcribedText && (
-                    <button
-                      onClick={() => setTranscribedText('')}
-                      className="text-[11px] text-zinc-500 hover:text-zinc-300 cursor-pointer"
-                    >
-                      Clear
-                    </button>
+                    <>
+                      <button
+                        onClick={handleDownloadNote}
+                        className="flex items-center gap-1 text-[11px] text-zinc-400 hover:text-zinc-200 cursor-pointer"
+                        title="Save as TXT file"
+                      >
+                        <Download className="w-3 h-3" />
+                        <span>Export</span>
+                      </button>
+                      <button
+                        onClick={() => setTranscribedText('')}
+                        className="text-[11px] text-zinc-500 hover:text-zinc-300 cursor-pointer"
+                      >
+                        Clear
+                      </button>
+                    </>
                   )}
                   <button
                     onClick={handleCopyTranscription}
@@ -416,14 +502,47 @@ export default function VoiceStudio() {
                 )}
               </div>
 
+              {/* Instant Autonomous AI Prompt Action Chips */}
+              {transcribedText && (
+                <div className="space-y-1.5 pt-1">
+                  <span className="text-[10px] font-bold text-amber-400 uppercase tracking-wider flex items-center gap-1">
+                    <Sparkles className="w-3 h-3" />
+                    <span>Instant AI Meeting Workflows</span>
+                  </span>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    <button
+                      onClick={() => handleSendToAgent('Extract all action items, assignees, and deadlines from this meeting note in bullet points:')}
+                      className="flex items-center gap-1.5 p-2 rounded-xl bg-zinc-800/80 hover:bg-zinc-700 border border-zinc-700/60 text-left text-xs font-semibold text-zinc-200 cursor-pointer transition-all"
+                    >
+                      <ListChecks className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                      <span className="line-clamp-1">Action Items</span>
+                    </button>
+                    <button
+                      onClick={() => handleSendToAgent('Draft a concise professional follow-up email based on the following discussion transcript:')}
+                      className="flex items-center gap-1.5 p-2 rounded-xl bg-zinc-800/80 hover:bg-zinc-700 border border-zinc-700/60 text-left text-xs font-semibold text-zinc-200 cursor-pointer transition-all"
+                    >
+                      <Mail className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                      <span className="line-clamp-1">Follow-up Email</span>
+                    </button>
+                    <button
+                      onClick={() => handleSendToAgent('Provide an executive 3-bullet TL;DR summary highlighting key decisions:')}
+                      className="flex items-center gap-1.5 p-2 rounded-xl bg-zinc-800/80 hover:bg-zinc-700 border border-zinc-700/60 text-left text-xs font-semibold text-zinc-200 cursor-pointer transition-all"
+                    >
+                      <Zap className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                      <span className="line-clamp-1">3-Bullet TL;DR</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {/* Action: Send to Hermes Agent */}
               {transcribedText && (
                 <button
-                  onClick={handleSendToAgent}
+                  onClick={() => handleSendToAgent()}
                   className="w-full py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 text-black font-black text-xs flex items-center justify-center gap-2 transition-all cursor-pointer shadow-md shadow-amber-500/20"
                 >
                   <Send className="w-3.5 h-3.5" />
-                  <span>Send Transcription to Hermes Agent for Action</span>
+                  <span>Send Raw Transcript to Hermes Agent</span>
                 </button>
               )}
             </div>
