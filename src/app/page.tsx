@@ -115,18 +115,58 @@ export default function Home() {
         )}
       </header>
 
-      {/* Active Tab View */}
+      {/* Active Tab View (each tab gets its own crash boundary so a fault only takes down that tab) */}
       <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-        {currentTab === 'chat' && <ChatView />}
-        {currentTab === 'workflows' && <TaskWorkflowsStudio />}
-        {currentTab === 'benchmark' && <BenchmarkStudio />}
-        {currentTab === 'image-studio' && <ImageStudio />}
-        {currentTab === 'vision-studio' && <VisionStudio />}
-        {currentTab === 'voice-studio' && <VoiceStudio />}
-        {currentTab === 'file-search' && <FileSearchStudio />}
-        {currentTab === 'models' && <ModelHub />}
-        {currentTab === 'device' && <DeviceDiagnostics />}
-        {currentTab === 'settings' && <SettingsView />}
+        {currentTab === 'chat' && (
+          <ErrorBoundary variant="tab">
+            <ChatView />
+          </ErrorBoundary>
+        )}
+        {currentTab === 'workflows' && (
+          <ErrorBoundary variant="tab">
+            <TaskWorkflowsStudio />
+          </ErrorBoundary>
+        )}
+        {currentTab === 'benchmark' && (
+          <ErrorBoundary variant="tab">
+            <BenchmarkStudio />
+          </ErrorBoundary>
+        )}
+        {currentTab === 'image-studio' && (
+          <ErrorBoundary variant="tab">
+            <ImageStudio />
+          </ErrorBoundary>
+        )}
+        {currentTab === 'vision-studio' && (
+          <ErrorBoundary variant="tab">
+            <VisionStudio />
+          </ErrorBoundary>
+        )}
+        {currentTab === 'voice-studio' && (
+          <ErrorBoundary variant="tab">
+            <VoiceStudio />
+          </ErrorBoundary>
+        )}
+        {currentTab === 'file-search' && (
+          <ErrorBoundary variant="tab">
+            <FileSearchStudio />
+          </ErrorBoundary>
+        )}
+        {currentTab === 'models' && (
+          <ErrorBoundary variant="tab">
+            <ModelHub />
+          </ErrorBoundary>
+        )}
+        {currentTab === 'device' && (
+          <ErrorBoundary variant="tab">
+            <DeviceDiagnostics />
+          </ErrorBoundary>
+        )}
+        {currentTab === 'settings' && (
+          <ErrorBoundary variant="tab">
+            <SettingsView />
+          </ErrorBoundary>
+        )}
       </div>
 
       {/* Global Running Tasks Floating Banner (Shows whenever AI is thinking, speaking, or downloading) */}
