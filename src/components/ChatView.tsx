@@ -60,6 +60,7 @@ import {
   Clipboard,
   Globe,
   Wifi,
+  QrCode,
 } from 'lucide-react';
 import { useAppStore, Attachment } from '@/appStore';
 import { AVAILABLE_MODELS, ModelSpec } from '@/models';
@@ -76,6 +77,7 @@ import OfflinePhraseBookModal from './OfflinePhraseBookModal';
 import SensorSpatialModal from './SensorSpatialModal';
 import NetworkSpeedModal from './NetworkSpeedModal';
 import MarkdownNotepadModal from './MarkdownNotepadModal';
+import QRCodeStudioModal from './QRCodeStudioModal';
 
 export default function ChatView() {
   const hardwareProfile = useAppStore((s) => s.hardwareProfile);
@@ -147,6 +149,7 @@ export default function ChatView() {
   const [isPhraseBookOpen, setIsPhraseBookOpen] = useState(false);
   const [isNetworkSpeedOpen, setIsNetworkSpeedOpen] = useState(false);
   const [isNotepadOpen, setIsNotepadOpen] = useState(false);
+  const [isQRCodeStudioOpen, setIsQRCodeStudioOpen] = useState(false);
 
   // AI Code Playground & Sandbox State
   const [isCodeSandboxOpen, setIsCodeSandboxOpen] = useState(false);
@@ -1279,6 +1282,16 @@ export default function ChatView() {
           >
             <FileText className="w-3.5 h-3.5 text-emerald-400" />
             <span>Notes</span>
+          </button>
+
+          {/* QR Code & Barcode Studio */}
+          <button
+            onClick={() => setIsQRCodeStudioOpen(true)}
+            title="QR Code & Barcode Studio — Wi-Fi, Contacts, Crypto & URLs"
+            className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-cyan-300 hover:border-cyan-500/40 text-[10px] font-bold transition-all cursor-pointer"
+          >
+            <QrCode className="w-3.5 h-3.5 text-cyan-400" />
+            <span>QR Studio</span>
           </button>
         </div>
       </div>
@@ -2593,6 +2606,14 @@ export default function ChatView() {
       <MarkdownNotepadModal
         isOpen={isNotepadOpen}
         onClose={() => setIsNotepadOpen(false)}
+        onInsertIntoChat={(text) => setInputVal((prev) => (prev ? prev + '\n\n' + text : text))}
+        onAuditWithAgent={(prompt) => sendMessage(prompt)}
+      />
+
+      {/* QR Code & Barcode Studio Modal */}
+      <QRCodeStudioModal
+        isOpen={isQRCodeStudioOpen}
+        onClose={() => setIsQRCodeStudioOpen(false)}
         onInsertIntoChat={(text) => setInputVal((prev) => (prev ? prev + '\n\n' + text : text))}
         onAuditWithAgent={(prompt) => sendMessage(prompt)}
       />
