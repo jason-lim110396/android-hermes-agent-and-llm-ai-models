@@ -55,6 +55,7 @@ import {
   History,
   Calculator,
   Presentation,
+  Minimize2,
 } from 'lucide-react';
 import { useAppStore, Attachment } from '@/appStore';
 import { AVAILABLE_MODELS, ModelSpec } from '@/models';
@@ -65,6 +66,7 @@ import ChatHistoryModal from './ChatHistoryModal';
 import ExportDocumentModal from './ExportDocumentModal';
 import MathFormulaModal from './MathFormulaModal';
 import SlideDeckModal from './SlideDeckModal';
+import ContextCompressorModal from './ContextCompressorModal';
 
 export default function ChatView() {
   const hardwareProfile = useAppStore((s) => s.hardwareProfile);
@@ -130,6 +132,7 @@ export default function ChatView() {
   const [showBookmarksDrawer, setShowBookmarksDrawer] = useState(false);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [isCompressorModalOpen, setIsCompressorModalOpen] = useState(false);
 
   // AI Code Playground & Sandbox State
   const [isCodeSandboxOpen, setIsCodeSandboxOpen] = useState(false);
@@ -1202,6 +1205,16 @@ export default function ChatView() {
           >
             <Download className="w-3.5 h-3.5 text-cyan-400" />
             <span>Export</span>
+          </button>
+
+          {/* Context Window Compressor & KV-Cache Optimizer */}
+          <button
+            onClick={() => setIsCompressorModalOpen(true)}
+            title="Context Window Compressor & KV-Cache Optimizer"
+            className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-cyan-300 hover:border-cyan-500/40 text-[10px] font-bold transition-all cursor-pointer"
+          >
+            <Minimize2 className="w-3.5 h-3.5 text-cyan-400" />
+            <span>Compress</span>
           </button>
         </div>
       </div>
@@ -2474,6 +2487,13 @@ export default function ChatView() {
         initialContent={slideDeckContent}
         deckTitle={slideDeckTitle}
         onClose={() => setIsSlideDeckOpen(false)}
+      />
+
+      {/* Context Window Compressor & Scratchpad Pinning Modal */}
+      <ContextCompressorModal
+        isOpen={isCompressorModalOpen}
+        onClose={() => setIsCompressorModalOpen(false)}
+        activeSessionId={operatingMode === 'agent' ? activeAgentSessionId : activeChatSessionId}
       />
     </div>
   );

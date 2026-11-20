@@ -115,6 +115,7 @@ interface AppStore {
   togglePinSession: (sessionId: string, mode?: 'chat' | 'agent') => void;
   updateSessionCategory: (sessionId: string, category: string, mode?: 'chat' | 'agent') => void;
   updateSessionTitle: (sessionId: string, title: string, mode?: 'chat' | 'agent') => void;
+  replaceSessionMessages: (sessionId: string, messages: ChatMessage[], mode?: 'chat' | 'agent') => void;
   clearCurrentConversation: () => void;
 
   // Voice Interaction (STT / TTS)
@@ -562,6 +563,31 @@ export const useAppStore = create<AppStore>((set, get) => ({
           },
         };
       });
+    }
+  },
+
+  replaceSessionMessages: (sessionId: string, messages: ChatMessage[], targetMode?: 'chat' | 'agent') => {
+    const mode = targetMode || get().operatingMode;
+    if (mode === 'agent') {
+      set((state) => ({
+        agentSessions: {
+          ...state.agentSessions,
+          [sessionId]: {
+            ...state.agentSessions[sessionId],
+            messages,
+          },
+        },
+      }));
+    } else {
+      set((state) => ({
+        chatSessions: {
+          ...state.chatSessions,
+          [sessionId]: {
+            ...state.chatSessions[sessionId],
+            messages,
+          },
+        },
+      }));
     }
   },
 
