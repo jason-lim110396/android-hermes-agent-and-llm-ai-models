@@ -140,15 +140,80 @@ export const AGENT_TOOLS: AgentTool[] = [
   },
   {
     name: 'device_diagnostics',
-    description: 'Query smartphone on-device battery, memory footprint, OS environment and network latency.',
+    description: 'Report real, measured device facts: battery level and charging state, browser-reported RAM ceiling, CPU core count, network reachability, storage quota usage, and WebGPU availability. Anything this WebView cannot measure is reported as unknown - no value is invented.',
     parameters: [
-      { name: 'metric', type: 'string', description: 'Diagnostic target: "battery", "memory", "network", or "all"', required: false }
+      { name: 'metric', type: 'string', description: 'Diagnostic target: "battery", "memory", "network", "storage", or "all" (default)', required: false }
     ],
-    execute: async () => {
-      const mem = typeof navigator !== 'undefined' && 'deviceMemory' in navigator ? `${(navigator as unknown as { deviceMemory: number }).deviceMemory} GB` : '4 GB';
-      const cores = typeof navigator !== 'undefined' ? navigator.hardwareConcurrency : 8;
-      const online = typeof navigator !== 'undefined' ? navigator.onLine : true;
-      return `[Mobile Diagnostics]\n- RAM Allocated: ${mem}\n- CPU Threads: ${cores} Cores\n- Network: ${online ? 'Connected (WiFi/5G, Latency 18ms)' : 'Offline'}\n- AI Engine: Local WebGPU Accelerated\n- Status: 100% Operational`;
+    execute: async (args) => {
+      const metric = String(args.metric || 'all').toLowerCase();
+      if (!['battery', 'memory', 'network', 'storage', 'all'].includes(metric)) {
+        return `Device diagnostics refused: unknown metric "${metric}". Use "battery", "memory", "network", "storage", or "all". Nothing was measured.`;
+      }
+      if (typeof navigator === 'undefined') {
+        return 'Device diagnostics unavailable: no navigator object in this environment. Nothing was measured.';
+      }
+
+      const lines: string[] = ['[Mobile Diagnostics - measured on this device]'];
+
+      if (metric === 'battery' || metric === 'all') {
+        const nav = navigator as Navigator & {
+          getBattery?: () => Promise<{ level: number; charging: boolean }>;
+        };
+        if (typeof nav.getBattery === 'function') {
+          try {
+            const battery = await nav.getBattery();
+            lines.push(
+              `- Battery: ${Math.round(battery.level * 100)}% ${battery.charging ? '(charging)' : '(on battery power)'}`
+            );
+          } catch (_) {
+            lines.push('- Battery: unknown (the Battery API refused the request)');
+          }
+        } else {
+          lines.push('- Battery: unknown (this WebView does not expose the Battery API)');
+        }
+      }
+
+      if (metric === 'memory' || metric === 'all') {
+        const nav = navigator as Navigator & { deviceMemory?: number };
+        lines.push(
+          '- RAM: ' +
+            (typeof nav.deviceMemory === 'number'
+              ? `about ${nav.deviceMemory} GB (browser-reported ceiling; actual RAM may be higher)`
+              : 'unknown (this WebView does not report deviceMemory)')
+        );
+        lines.push(
+          `- CPU threads: ${typeof navigator.hardwareConcurrency === 'number' ? `${navigator.hardwareConcurrency} logical cores` : 'unknown'}`
+        );
+      }
+
+      if (metric === 'network' || metric === 'all') {
+        lines.push(
+          `- Network: ${navigator.onLine ? 'reports online (individual server reachability was not measured)' : 'offline (per navigator.onLine)'}`
+        );
+      }
+
+      if (metric === 'storage' || metric === 'all') {
+        if (navigator.storage?.estimate) {
+          try {
+            const { quota = 0, usage = 0 } = await navigator.storage.estimate();
+            const mb = (v: number) => Math.max(0, Math.round(v / (1024 * 1024)));
+            lines.push(`- Storage: ${mb(usage)} MB used of a ${mb(quota)} MB browser quota`);
+          } catch (_) {
+            lines.push('- Storage: unknown (the storage estimate request failed)');
+          }
+        } else {
+          lines.push('- Storage: unknown (this WebView does not expose storage.estimate)');
+        }
+      }
+
+      if (metric === 'all') {
+        lines.push(
+          `- AI engine: ${'gpu' in navigator ? 'WebGPU API available (the selected model still decides CPU vs GPU)' : 'WebGPU unavailable; on-device inference runs on CPU (WASM)'}`
+        );
+      }
+
+      lines.push('- Anything not listed as a number above was not measured; no latency or "operational status" value is invented.');
+      return lines.join('\n');
     }
   },
   {
