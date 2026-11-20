@@ -49,6 +49,8 @@ interface ScannedPage {
   id: string;
   name: string;
   dataUrl: string;
+  /** The pre-enhancement photo, kept so toggling B&W off restores the source. */
+  originalDataUrl?: string;
   isHighContrast: boolean;
 }
 
@@ -357,11 +359,23 @@ export default function VisionStudio() {
         const enhancedUrl = canvas.toDataURL('image/jpeg', 0.9);
 
         setScannedPages((prev) =>
-          prev.map((p, idx) => (idx === selectedPageIndex ? { ...p, dataUrl: enhancedUrl, isHighContrast: true } : p))
+          // Keep the untouched photo: the binarized JPEG used to overwrite
+          // dataUrl with no backup, so a bad threshold (common on dim phone
+          // photos) destroyed the source image irreversibly - re-shooting
+          // was the only recovery.
+          prev.map((p, idx) =>
+            idx === selectedPageIndex
+              ? { ...p, dataUrl: enhancedUrl, originalDataUrl: p.originalDataUrl || p.dataUrl, isHighContrast: true }
+              : p
+          )
         );
       } else {
         setScannedPages((prev) =>
-          prev.map((p, idx) => (idx === selectedPageIndex ? { ...p, isHighContrast: false } : p))
+          prev.map((p, idx) =>
+            idx === selectedPageIndex
+              ? { ...p, dataUrl: p.originalDataUrl || p.dataUrl, originalDataUrl: undefined, isHighContrast: false }
+              : p
+          )
         );
       }
     };
