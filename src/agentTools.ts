@@ -110,21 +110,31 @@ export const AGENT_TOOLS: AgentTool[] = [
     name: 'code_interpreter',
     description: 'Execute JavaScript / Math expressions in an isolated client sandbox and return calculated output.',
     parameters: [
-      { name: 'code', type: 'string', description: 'JavaScript / Math code to execute', required: true }
+      { name: 'code', type: 'string', description: 'Arithmetic / number expression (digits, + - * / % ** ( ) . , and Math.* constants/functions such as Math.PI, Math.E, Math.sqrt, Math.cos). Plain JavaScript is not executed.', required: true }
     ],
     execute: async (args) => {
-      const code = String(args.code || '');
+      if (typeof args.code !== 'string' || !args.code.trim()) {
+        return 'Sandbox refused: `code` must be a non-empty string expression. Nothing was executed.';
+      }
+      const code = args.code;
+      // Only a pure arithmetic/number expression may run. The sanitizer output
+      // is what gets evaluated: previously the sanitized string was only used
+      // for a length check while Function() ran the RAW input, so the model
+      // could execute arbitrary JavaScript (localStorage.clear(), while(true){},
+      // navigation) and then read it back as an "Execution Result".
+      const sanitized = code.replace(/[^0-9+\-*/().%^Math.sqrtbcosinlogPIE,\s]/g, '');
+      if (code.includes('import') || code.includes('fetch') || code.length > 1000) {
+        return 'Sandbox refused: only short arithmetic/number expressions are executed here. Nothing was run.';
+      }
+      if (sanitized !== code) {
+        return 'Sandbox refused: the expression contains characters outside the arithmetic whitelist (digits, + - * / % ** ( ) . , and Math.* constants/functions - use Math.PI and Math.E, not bare PI/E). Nothing was executed.';
+      }
       try {
-        // Safe evaluation for math / basic expressions
-        const sanitized = code.replace(/[^0-9+\-*/().%^Math.sqrtbcosinlogPIE,\s]/g, '');
-        if (sanitized.trim().length > 0 && !code.includes('import') && !code.includes('fetch')) {
-          // eslint-disable-next-line no-eval
-          const res = Function(`"use strict"; return (${code})`)();
-          return `Execution Result: ${JSON.stringify(res)}`;
-        }
-        return `Code compiled cleanly in mobile VM sandbox: Output verified.`;
+        // eslint-disable-next-line no-eval
+        const res = Function(`"use strict"; return (${sanitized});`)();
+        return `Execution Result: ${JSON.stringify(res)}`;
       } catch (err: unknown) {
-        return `Sandbox Runtime Notice: ${(err as Error).message}`;
+        return `Sandbox Runtime Notice: ${(err as Error)?.message || String(err)}`;
       }
     }
   },
@@ -151,22 +161,27 @@ export const AGENT_TOOLS: AgentTool[] = [
     ],
     execute: async (args) => {
       const act = String(args.action || 'summarize');
-      const text = String(args.text || '');
-      const filename = String(args.filename || 'Attached Document');
-      
-      const lineCount = text ? text.split('\n').length : 0;
-      const wordCount = text ? text.split(/\s+/).filter(Boolean).length : 0;
+      const text = typeof args.text === 'string' ? args.text : '';
+      const filename = typeof args.filename === 'string' && args.filename.trim() ? args.filename : 'Attached Document';
+
+      if (!['summarize', 'extract_entities', 'code_audit'].includes(act)) {
+        return `Document Analyzer refused: unknown action "${act}". Use "summarize", "extract_entities", or "code_audit". Nothing was analyzed.`;
+      }
+      if (!text.trim()) {
+        return `Document Analyzer: no text content was provided for "${filename}". Attach the document or pass its text and retry - nothing was analyzed.`;
+      }
+
+      const lineCount = text.split('\n').length;
+      const wordCount = text.split(/\s+/).filter(Boolean).length;
 
       let details = `[Document Analyzer - Action: ${act}]\nTarget: ${filename}\n`;
-      if (text) {
-        details += `Metrics: ${lineCount} lines, ${wordCount} words\n`;
-        if (act === 'code_audit') {
-          const hasUnclosedBrackets = (text.match(/\{/g) || []).length !== (text.match(/\}/g) || []).length;
-          const hasUnclosedParens = (text.match(/\(/g) || []).length !== (text.match(/\)/g) || []).length;
-          details += `Syntax Integrity: ${hasUnclosedBrackets || hasUnclosedParens ? '⚠️ Potential bracket/paren mismatch' : '✅ Bracket & tag closures verified'}\n`;
-        }
+      details += `Metrics: ${lineCount} lines, ${wordCount} words\n`;
+      if (act === 'code_audit') {
+        const hasUnclosedBrackets = (text.match(/\{/g) || []).length !== (text.match(/\}/g) || []).length;
+        const hasUnclosedParens = (text.match(/\(/g) || []).length !== (text.match(/\)/g) || []).length;
+        details += `Syntax Integrity: ${hasUnclosedBrackets || hasUnclosedParens ? '⚠️ Potential bracket/paren mismatch' : '✅ Bracket & tag closures verified'}\n`;
       }
-      details += `Successfully parsed document structure. Extracted key functional declarations and semantic topics.`;
+      details += `Analysis complete for ${lineCount} lines / ${wordCount} words.`;
       return details;
     }
   },
@@ -179,9 +194,12 @@ export const AGENT_TOOLS: AgentTool[] = [
       { name: 'value', type: 'string', description: 'Content or data to store', required: false }
     ],
     execute: async (args) => {
-      const act = String(args.action || 'save');
-      const key = String(args.key || 'note');
-      const val = String(args.value || '');
+      const act = String(args.action || '').toLowerCase();
+      const key = String(args.key || '').trim();
+      const val = typeof args.value === 'string' ? args.value : String(args.value ?? '');
+      if (!key) {
+        return 'Scratchpad refused: `key` must be a non-empty string. Nothing was saved.';
+      }
       try {
         if (typeof window !== 'undefined') {
           if (act === 'save') {
@@ -194,10 +212,11 @@ export const AGENT_TOOLS: AgentTool[] = [
             window.localStorage.removeItem(`hermes-scratchpad:${key}`);
             return `[Scratchpad Cleared] Key "${key}" removed.`;
           }
+          return `Scratchpad refused: ${act ? `unknown action "${act}"` : '`action` is required and was missing'}. Use "save", "read", or "clear". Nothing was changed.`;
         }
-        return `Scratchpad operation ${act} noted for key "${key}".`;
-      } catch (_) {
-        return `Scratchpad memory ready for key "${key}".`;
+        return `Scratchpad unavailable: no browser storage in this environment, key "${key}" was not saved.`;
+      } catch (err: unknown) {
+        return `Scratchpad ${act || 'operation'} failed for key "${key}": ${(err as Error)?.message || 'storage error'}. Nothing was saved.`;
       }
     }
   },
@@ -208,8 +227,14 @@ export const AGENT_TOOLS: AgentTool[] = [
       { name: 'prompt', type: 'string', description: 'Detailed visual description of the image to generate', required: true }
     ],
     execute: async (args) => {
-      const prompt = String(args.prompt || 'Cyberpunk digital artwork');
-      return `[Diffusion Engine Initiated]\nPrompt: "${prompt}"\nLatent denoising completed. Rendered visual canvas stream ready.`;
+      const prompt = String(args.prompt || '').trim();
+      if (!prompt) {
+        return 'Image generation refused: `prompt` must be a non-empty string. Nothing was rendered.';
+      }
+      // The actual render happens in the agent harness right after this tool
+      // returns (generateOnDeviceAIImage). Describe the request, not a
+      // completed render, so a failed render below is not contradicted.
+      return `[Diffusion Engine Initiated]\nPrompt: "${prompt}"\nRequesting on-device latent render...`;
     }
   },
   {
@@ -278,24 +303,34 @@ export const AGENT_TOOLS: AgentTool[] = [
       { name: 'title', type: 'string', description: 'Title or subject of the share', required: false }
     ],
     execute: async (args) => {
-      const text = String(args.text || '').trim();
+      const text = typeof args.text === 'string' ? args.text.trim() : '';
       const title = String(args.title || 'Shared from Hermes Agent');
+      if (!text) {
+        return 'Share refused: `text` must be a non-empty string. Nothing was shared.';
+      }
+      let shareSheetNote = 'no share sheet was available';
       if (typeof navigator !== 'undefined' && navigator.share) {
         try {
           await navigator.share({ title, text });
           return `📲 **Native Android Share Sheet Launched**: Content successfully dispatched to target mobile app.`;
-        } catch (err: any) {
-          if (err.name === 'AbortError') {
+        } catch (err) {
+          if ((err as { name?: string })?.name === 'AbortError') {
             return `📲 **Native Share Notice**: User dismissed Android share sheet.`;
           }
-          return `📲 **Native Share Fallback**: Copied to clipboard for manual sharing.`;
+          // A real share-sheet failure falls through to an actual clipboard
+          // attempt below; claiming "copied" without copying was a lie.
+          shareSheetNote = 'the share sheet failed, so the content was copied instead';
         }
       }
       if (typeof navigator !== 'undefined' && navigator.clipboard) {
-        await navigator.clipboard.writeText(text);
-        return `📲 **Share & Clipboard**: Content copied to mobile clipboard (Ready to paste in WhatsApp/Telegram/Messages).`;
+        try {
+          await navigator.clipboard.writeText(text);
+          return `📲 **Share Fallback**: Content copied to the mobile clipboard (${shareSheetNote}). Paste it in WhatsApp/Telegram/Messages.`;
+        } catch (err) {
+          return `📲 **Share Failed**: neither the Android share sheet nor the clipboard worked (${(err as Error)?.message || 'clipboard rejected'}). Nothing was shared - show the text to the user instead.`;
+        }
       }
-      return `📲 **Share Prepared**: "${text.slice(0, 100)}..."`;
+      return `📲 **Share Unavailable**: this WebView exposes neither navigator.share nor navigator.clipboard. Nothing was shared - show the text to the user instead.`;
     }
   },
   {
@@ -316,10 +351,12 @@ export const AGENT_TOOLS: AgentTool[] = [
           const success = navigator.vibrate(vibPattern);
           return success
             ? `📳 **Haptic Actuation Succeeded**: Phone vibration motor triggered with pattern: [${pattern.toUpperCase()}].`
-            : `📳 **Haptic Actuation**: Hardware vibration sent to Android kernel.`;
-        } catch (_) {}
+            : `📳 **Haptic Not Triggered**: the platform rejected the vibration request (pattern ${pattern.toUpperCase()}) - nothing was vibrated.`;
+        } catch (err: unknown) {
+          return `📳 **Haptic Failed**: ${(err as Error)?.message || 'navigator.vibrate threw'} - nothing was vibrated.`;
+        }
       }
-      return `📳 **Haptic Feedback**: Vibration signal dispatched (${pattern}).`;
+      return `📳 **Haptic Unavailable**: this WebView does not expose navigator.vibrate; no vibration was sent.`;
     }
   },
   {
@@ -330,28 +367,59 @@ export const AGENT_TOOLS: AgentTool[] = [
       { name: 'due_time', type: 'string', description: 'Target time or duration (e.g. "in 10 minutes", "tomorrow 9am")', required: false }
     ],
     execute: async (args) => {
-      const title = String(args.title || 'Reminder');
+      const title = String(args.title || '').trim();
       const due = String(args.due_time || 'Soon');
+      if (!title) {
+        return 'Reminder refused: `title` must be a non-empty string. No reminder was scheduled.';
+      }
       const reminderItem = {
         id: 'rem_' + Date.now(),
         title,
         due,
         createdAt: new Date().toISOString(),
       };
-      if (typeof window !== 'undefined') {
+      if (typeof window === 'undefined') {
+        return 'Reminder unavailable: no browser storage in this environment. The reminder was NOT saved.';
+      }
+      try {
+        // The stored vault may be corrupt JSON or hold junk entries. Parse
+        // defensively (the #129 pattern): a bad vault self-heals to a clean
+        // array instead of silently swallowing every future reminder while
+        // still reporting "Armed".
+        let existing: { id: string; title: string; due?: string; createdAt?: string }[] = [];
         try {
-          const existing = JSON.parse(window.localStorage.getItem('hermes_reminders') || '[]');
-          existing.push(reminderItem);
-          window.localStorage.setItem('hermes_reminders', JSON.stringify(existing));
+          const parsed: unknown = JSON.parse(window.localStorage.getItem('hermes_reminders') || '[]');
+          if (Array.isArray(parsed)) {
+            existing = parsed.filter(
+              (e): e is { id: string; title: string; due?: string; createdAt?: string } =>
+                !!e && typeof e === 'object' && !Array.isArray(e) &&
+                typeof (e as Record<string, unknown>).title === 'string' && !!(e as Record<string, unknown>).title
+            );
+          }
+        } catch (_) {
+          existing = [];
+        }
+        existing.push(reminderItem);
+        window.localStorage.setItem('hermes_reminders', JSON.stringify(existing));
 
+        // The pop-up is best-effort and separate from the write: a flaky
+        // Notification constructor on some Android WebViews must not turn a
+        // successful save into a false "Not Saved" (which would also breed
+        // duplicate reminders on retry).
+        let activeStatus = 'Armed';
+        try {
           if ('Notification' in window && Notification.permission === 'granted') {
             new Notification(`⏰ Reminder: ${title}`, { body: `Scheduled for: ${due}` });
           } else if ('Notification' in window && Notification.permission !== 'denied') {
             Notification.requestPermission();
           }
-        } catch (_) {}
+        } catch (popErr: unknown) {
+          activeStatus = `Saved, but the notification pop-up failed: ${(popErr as Error)?.message || 'Notification constructor threw'}`;
+        }
+        return `⏰ **Device Reminder Set**: "${title}"\n- **Target Schedule**: ${due}\n- **Storage**: Persisted to local Android phone memory (${existing.length} reminder${existing.length === 1 ? '' : 's'} stored)\n- **Active Status**: ${activeStatus}`;
+      } catch (err: unknown) {
+        return `⏰ **Reminder Not Saved**: ${(err as Error)?.message || 'local storage write failed'}. The reminder was NOT persisted - tell the user to retry.`;
       }
-      return `⏰ **Device Reminder Set**: "${title}"\n- **Target Schedule**: ${due}\n- **Storage**: Persisted to local Android phone memory\n- **Active Status**: Armed`;
     }
   },
   {
@@ -363,22 +431,30 @@ export const AGENT_TOOLS: AgentTool[] = [
       { name: 'message', type: 'string', description: 'Prefilled SMS message body (for SMS action)', required: false }
     ],
     execute: async (args) => {
-      const action = String(args.action || 'call').toLowerCase();
+      const action = String(args.action || '').toLowerCase();
       const target = String(args.target || '').replace(/[^0-9+]/g, '');
-      const msg = String(args.message || '');
-      if (typeof window !== 'undefined') {
-        try {
-          if (action === 'call') {
-            window.open(`tel:${target}`, '_system');
-            return `📞 **Android Dialer Intent**: Opening phone dialer with number: ${target}`;
-          } else {
-            const smsUrl = msg ? `sms:${target}?body=${encodeURIComponent(msg)}` : `sms:${target}`;
-            window.open(smsUrl, '_system');
-            return `💬 **Android SMS Intent**: Opening native SMS composer for: ${target} with prefilled message.`;
-          }
-        } catch (_) {}
+      const msg = typeof args.message === 'string' ? args.message : '';
+      if (action !== 'call' && action !== 'sms') {
+        return `Mobile Intent refused: ${action ? `unknown action "${action}"` : '`action` is required and was missing'}. Use "call" or "sms". No intent was launched.`;
       }
-      return `📱 **Mobile Intent Prepared**: ${action.toUpperCase()} ➔ ${target}`;
+      if (!target) {
+        return `Mobile Intent refused: \`target\` ("${String(args.target ?? '')}") contains no usable phone number. The ${action === 'call' ? 'dialer' : 'SMS composer'} was not opened.`;
+      }
+      if (typeof window === 'undefined') {
+        return `Mobile Intent unavailable: no window in this environment. The ${action} intent was not launched.`;
+      }
+      try {
+        if (action === 'call') {
+          window.open(`tel:${target}`, '_system');
+          return `📞 **Android Dialer Intent**: Opening phone dialer with number: ${target}`;
+        } else {
+          const smsUrl = msg ? `sms:${target}?body=${encodeURIComponent(msg)}` : `sms:${target}`;
+          window.open(smsUrl, '_system');
+          return `💬 **Android SMS Intent**: Opening native SMS composer for: ${target} with prefilled message.`;
+        }
+      } catch (err: unknown) {
+        return `Mobile Intent failed: ${(err as Error)?.message || 'window.open threw'} - the ${action} intent did not launch.`;
+      }
     }
   },
   {
@@ -549,18 +625,46 @@ export const AGENT_TOOLS: AgentTool[] = [
 
       let notes: NoteItem[] = [];
       if (typeof window !== 'undefined') {
+        // The stored vault may be corrupt JSON, a non-array, or hold junk
+        // entries (the #129 pattern). Sanitize on read so one bad entry cannot
+        // make every later action throw, and so "create" cannot wipe the
+        // vault or save on top of unparseable data.
+        const coerceNote = (raw: unknown): NoteItem | null => {
+          if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return null;
+          const o = raw as Record<string, unknown>;
+          if (typeof o.id !== 'string' || !o.id) return null;
+          return {
+            id: o.id,
+            title: typeof o.title === 'string' ? o.title : 'Untitled Note',
+            content: typeof o.content === 'string' ? o.content : '',
+            category: typeof o.category === 'string' ? o.category : 'General',
+            isPinned: o.isPinned === true,
+            createdAt: typeof o.createdAt === 'string' ? o.createdAt : new Date().toISOString(),
+            updatedAt: typeof o.updatedAt === 'string' ? o.updatedAt : new Date().toISOString(),
+          };
+        };
         try {
           const raw = window.localStorage.getItem(storageKey);
-          if (raw) notes = JSON.parse(raw);
+          if (raw) {
+            const parsed: unknown = JSON.parse(raw);
+            if (Array.isArray(parsed)) {
+              notes = parsed.map(coerceNote).filter((n): n is NoteItem => n !== null);
+            }
+          }
         } catch {
-          // ignore
+          // Corrupt vault: start from empty instead of throwing (or silently
+          // wiping the old blob) on the next create.
+          notes = [];
         }
       }
 
       if (act === 'create') {
-        const title = String(args.title || 'Untitled Note');
-        const content = String(args.content || '');
-        const category = String(args.category || 'General');
+        if (typeof args.title !== 'string' || !args.title.trim() || typeof args.content !== 'string' || !args.content.trim()) {
+          return `📝 **Note Not Created**: \`title\` and \`content\` must be non-empty strings. Nothing was saved to the vault.`;
+        }
+        const title = args.title;
+        const content = args.content;
+        const category = typeof args.category === 'string' && args.category.trim() ? args.category : 'General';
         const newNote: NoteItem = {
           id: `note-${Date.now()}`,
           title,
@@ -574,8 +678,8 @@ export const AGENT_TOOLS: AgentTool[] = [
         if (typeof window !== 'undefined') {
           try {
             window.localStorage.setItem(storageKey, JSON.stringify(notes));
-          } catch {
-            // storage full
+          } catch (err: unknown) {
+            return `📝 **Note Not Saved**: ${(err as Error)?.message || 'local storage write failed (quota or unavailable)'}. Nothing was persisted.`;
           }
         }
         return `📝 **Note Created Successfully**:\n• **ID**: \`${newNote.id}\`\n• **Title**: "${newNote.title}"\n• **Category**: ${newNote.category}\n• **Length**: ${newNote.content.length} characters\n*(Saved to on-device vault)*`;
@@ -629,7 +733,10 @@ export const AGENT_TOOLS: AgentTool[] = [
     ],
     execute: async (args) => {
       const cmd = String(args.command || '').trim();
-      const duration = Number(args.duration_ms || 1200);
+      const rawDuration = Number(args.duration_ms);
+      // A non-numeric duration must not become NaN (setTimeout(NaN) fires
+      // immediately and the task claims it ran for the expected time).
+      const duration = Number.isFinite(rawDuration) && rawDuration > 0 ? rawDuration : 1200;
       await new Promise((r) => setTimeout(r, Math.min(Math.max(duration, 200), 4000)));
       return 'Long-Run Task Completed: ' + (cmd || 'mobile task') + ' finished successfully.';
     }
