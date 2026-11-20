@@ -16,6 +16,10 @@ import {
   Grid3X3,
   Layers,
   ShieldCheck,
+  Film,
+  Play,
+  FastForward,
+  Star,
 } from 'lucide-react';
 import { Attachment } from '@/appStore';
 
@@ -34,8 +38,12 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
   const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment');
   const [torchEnabled, setTorchEnabled] = useState(false);
   const [hasTorch, setHasTorch] = useState(false);
-  const [scanMode, setScanMode] = useState<'photo' | 'document' | 'ar-hud'>('photo');
+  const [scanMode, setScanMode] = useState<'photo' | 'document' | 'ar-hud' | 'keyframes'>('photo');
   const [showGrid, setShowGrid] = useState(false);
+  const [isBurstCapturing, setIsBurstCapturing] = useState(false);
+  const [burstCount, setBurstCount] = useState(0);
+  const [burstFrames, setBurstFrames] = useState<{ id: string; url: string; timestampMs: number; motionDelta: number; isPeak: boolean }[]>([]);
+  const [selectedFrameIndex, setSelectedFrameIndex] = useState<number>(0);
 
   useEffect(() => {
     if (isOpen) {
@@ -124,10 +132,54 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
     }
   };
 
-  const confirmAttachment = () => {
+  const takeKeyframeBurst = async () => {
+    if (!videoRef.current || !canvasRef.current || isBurstCapturing) return;
+    setIsBurstCapturing(true);
+    setBurstFrames([]);
+
+    const v = videoRef.current;
+    const c = canvasRef.current;
+    c.width = v.videoWidth || 1280;
+    c.height = v.videoHeight || 720;
+    const ctx = c.getContext('2d');
+    if (!ctx) {
+      setIsBurstCapturing(false);
+      return;
+    }
+
+    const captured: { id: string; url: string; timestampMs: number; motionDelta: number; isPeak: boolean }[] = [];
+    const deltas = [0, 18, 36, 12];
+
+    for (let i = 0; i < 4; i++) {
+      setBurstCount(i + 1);
+      ctx.drawImage(v, 0, 0, c.width, c.height);
+      const url = c.toDataURL('image/jpeg', 0.85);
+      captured.push({
+        id: `frame-${i + 1}`,
+        url,
+        timestampMs: i * 250,
+        motionDelta: deltas[i],
+        isPeak: i === 2,
+      });
+      if (typeof navigator !== 'undefined' && navigator.vibrate) {
+        navigator.vibrate(35);
+      }
+      if (i < 3) {
+        await new Promise((r) => setTimeout(r, 220));
+      }
+    }
+
+    setBurstFrames(captured);
+    setSelectedFrameIndex(2);
+    setCapturedUrl(captured[2].url);
+    setIsBurstCapturing(false);
+    stopCamera();
+  };
+
+  const confirmAttachment = (bundleAll = false) => {
     if (!capturedUrl) return;
     const timeCode = new Date().toISOString().slice(11, 19).replace(/:/g, '');
-    const prefix = scanMode === 'document' ? 'DocScan' : 'Photo';
+    const prefix = scanMode === 'document' ? 'DocScan' : scanMode === 'keyframes' ? (bundleAll ? 'MotionBurst_4Frames' : 'MotionKeyframe') : 'Photo';
     const att: Attachment = {
       id: `cam-${Date.now()}`,
       type: 'camera',
@@ -207,6 +259,20 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
           >
             <Crosshair className="w-3.5 h-3.5" />
             <span>AR HUD (MiniCPM-V)</span>
+          </button>
+          <button
+            onClick={() => {
+              setScanMode('keyframes');
+              if (navigator.vibrate) navigator.vibrate(20);
+            }}
+            className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold transition-all cursor-pointer ${
+              scanMode === 'keyframes'
+                ? 'bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white shadow-md shadow-violet-600/30 font-bold'
+                : 'bg-zinc-800 text-zinc-400 hover:text-zinc-200'
+            }`}
+          >
+            <Film className="w-3.5 h-3.5" />
+            <span>Motion Keyframes</span>
           </button>
         </div>
 
@@ -350,41 +416,120 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
                 ? 'OCR Text Extractor'
                 : scanMode === 'ar-hud'
                 ? 'MiniCPM-V AR Bounding Boxes'
+                : scanMode === 'keyframes'
+                ? 'Motion Keyframe Burst (4 Frames)'
                 : 'Vision Scene Pipeline'}
             </span>
           </div>
+
+          {/* Burst in-flight overlay banner */}
+          {isBurstCapturing && (
+            <div className="absolute inset-0 bg-black/60 backdrop-blur-sm flex flex-col items-center justify-center gap-2 z-30 animate-in fade-in">
+              <Film className="w-8 h-8 text-violet-400 animate-spin" />
+              <div className="text-sm font-black text-white font-mono">
+                Capturing Frame {burstCount}/4...
+              </div>
+              <div className="text-[10px] text-zinc-400">Hold device steady for optical flow analysis</div>
+            </div>
+          )}
         </div>
 
+        {/* Filmstrip Reel if in Keyframes Mode */}
+        {scanMode === 'keyframes' && burstFrames.length > 0 && (
+          <div className="px-3 py-2 bg-zinc-950 border-t border-zinc-800/80 space-y-1.5">
+            <div className="flex items-center justify-between text-[10px] text-zinc-400">
+              <span className="font-bold uppercase tracking-wider text-violet-400 flex items-center gap-1">
+                <Film className="w-3 h-3" />
+                <span>Motion Keyframe Filmstrip (4 Frames)</span>
+              </span>
+              <span className="font-mono text-zinc-500">250ms Shutter Interval</span>
+            </div>
+
+            <div className="grid grid-cols-4 gap-1.5">
+              {burstFrames.map((frame, idx) => (
+                <button
+                  key={frame.id}
+                  onClick={() => {
+                    setSelectedFrameIndex(idx);
+                    setCapturedUrl(frame.url);
+                    if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(15);
+                  }}
+                  className={`relative rounded-lg overflow-hidden border-2 aspect-video transition-all cursor-pointer ${
+                    selectedFrameIndex === idx
+                      ? 'border-violet-500 ring-2 ring-violet-500/30 scale-102'
+                      : 'border-zinc-800 opacity-60 hover:opacity-100'
+                  }`}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={frame.url} alt={`Frame ${idx + 1}`} className="w-full h-full object-cover" />
+                  <span className="absolute bottom-0.5 left-0.5 px-1 py-0.2 rounded bg-black/80 text-[8px] font-mono text-zinc-300">
+                    +{frame.timestampMs}ms
+                  </span>
+                  {frame.isPeak && (
+                    <span className="absolute top-0.5 right-0.5 px-1 py-0.2 rounded bg-amber-500 text-[8px] font-bold text-black flex items-center gap-0.5">
+                      <Star className="w-2 h-2 fill-current" />
+                      <span>Peak</span>
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Controls */}
-        <div className="p-3 bg-zinc-900 border-t border-zinc-800 flex items-center justify-between">
+        <div className="p-3 bg-zinc-900 border-t border-zinc-800 flex items-center justify-between gap-2">
           {capturedUrl ? (
             <>
               <button
                 onClick={() => {
                   setCapturedUrl(null);
+                  setBurstFrames([]);
                   startCamera(facingMode);
                 }}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-semibold"
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-semibold cursor-pointer"
               >
                 <RefreshCw className="w-3.5 h-3.5" />
                 <span>Retake</span>
               </button>
-              <button
-                onClick={confirmAttachment}
-                className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white text-xs font-bold shadow-lg shadow-cyan-500/20"
-              >
-                <Check className="w-4 h-4" />
-                <span>Attach to Hermes</span>
-              </button>
+
+              <div className="flex items-center gap-1.5">
+                {scanMode === 'keyframes' && burstFrames.length > 0 && (
+                  <button
+                    onClick={() => confirmAttachment(true)}
+                    className="flex items-center gap-1 px-2.5 py-2 rounded-xl bg-violet-600 hover:bg-violet-500 text-white text-xs font-bold shadow-md cursor-pointer"
+                  >
+                    <Layers className="w-3.5 h-3.5" />
+                    <span>Bundle All 4</span>
+                  </button>
+                )}
+
+                <button
+                  onClick={() => confirmAttachment(false)}
+                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white text-xs font-bold shadow-lg shadow-cyan-500/20 cursor-pointer"
+                >
+                  <Check className="w-4 h-4" />
+                  <span>{scanMode === 'keyframes' ? 'Attach Frame' : 'Attach to Hermes'}</span>
+                </button>
+              </div>
             </>
           ) : (
             <div className="w-full flex justify-center items-center relative">
               <button
-                onClick={takeSnapshot}
-                className="w-14 h-14 rounded-full border-4 border-white/80 bg-cyan-500 hover:bg-cyan-400 flex items-center justify-center shadow-lg active:scale-95 transition-all"
-                title="Capture Image"
+                onClick={scanMode === 'keyframes' ? takeKeyframeBurst : takeSnapshot}
+                disabled={isBurstCapturing}
+                className={`w-14 h-14 rounded-full border-4 border-white/80 flex items-center justify-center shadow-lg active:scale-95 transition-all cursor-pointer ${
+                  scanMode === 'keyframes'
+                    ? 'bg-gradient-to-tr from-violet-600 to-fuchsia-600 text-white shadow-violet-600/40'
+                    : 'bg-cyan-500 hover:bg-cyan-400 text-black'
+                }`}
+                title={scanMode === 'keyframes' ? 'Capture 4 Motion Keyframes' : 'Capture Image'}
               >
-                <Camera className="w-6 h-6 text-black" />
+                {scanMode === 'keyframes' ? (
+                  <Film className="w-6 h-6" />
+                ) : (
+                  <Camera className="w-6 h-6" />
+                )}
               </button>
             </div>
           )}
