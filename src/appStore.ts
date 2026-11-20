@@ -361,6 +361,33 @@ export const useAppStore = create<AppStore>((set, get) => ({
       return;
     }
 
+    // Honor the Model Hub's "Wi-Fi Only" toggle: the user explicitly opted out
+    // of downloading multi-GB weights over metered/cellular links. The Network
+    // Information API is Android-WebView/chromium-only; where it is missing we
+    // never block (same best-effort policy as the quota check below).
+    if (typeof window !== 'undefined' && window.localStorage.getItem('hermes_wifi_only') === 'true') {
+      const conn = (navigator as Navigator & { connection?: { type?: string; saveData?: boolean } }).connection;
+      const onMeteredLink = !!conn && (conn.type === 'cellular' || conn.saveData === true);
+      if (onMeteredLink) {
+        set((state) => ({
+          downloads: {
+            ...state.downloads,
+            [modelId]: {
+              modelId,
+              isDownloading: false,
+              progressPct: 0,
+              downloadedMB: 0,
+              totalMB: spec.sizeMB,
+              speedMBs: 0,
+              isReady: false,
+              errorMessage: `Wi-Fi Only is enabled: ${spec.name} is ${spec.sizeMB >= 1024 ? (spec.sizeMB / 1024).toFixed(1) + ' GB' : spec.sizeMB + ' MB'} and cellular/metered data is in use. Turn off Wi-Fi Only in the Model Hub or reconnect to Wi-Fi to download.`,
+            },
+          },
+        }));
+        return;
+      }
+    }
+
     // Refuse a download that cannot fit inside this origin's storage quota.
     // NOTE: quota is a share of total disk (Chrome/WebView report roughly 60%),
     // NOT free disk space, so this only catches an exhausted quota. A full disk
