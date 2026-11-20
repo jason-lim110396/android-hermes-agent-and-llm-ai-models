@@ -1301,7 +1301,15 @@ async function executeHermesAgent(
     updateMsg(assistantMsgId, steps, prefixNotice, true, set, get, 'agent', sessionId);
 
     await new Promise((r) => setTimeout(r, 400));
-    let toolResult = await tool.execute(args);
+    let toolResult: string;
+    try {
+      toolResult = await tool.execute(args);
+    } catch (err: any) {
+      // One tool crashing must not kill the whole agent turn: without this
+      // guard the exception surfaced as a fake "*[Stopped by user]*" and the
+      // remaining tools plus the final synthesis were lost.
+      toolResult = `⚠️ Tool "${tool.name}" failed: ${err?.message || String(err)}. The step was not completed.`;
+    }
 
     // If create_image, synthesize actual visual image dataUrl
     if (tool.name === 'create_image') {
@@ -1309,7 +1317,11 @@ async function executeHermesAgent(
         const cleanArtPrompt = userText.replace(/^(generate|draw|create|render|paint|make)(\s+(an?\s+)?(image|picture|photo|artwork|illustration|drawing|art|logo))?(\s+(of|about|depicting|showing))?\s*/i, '').trim() || userText;
         const imgDataUrl = await generateOnDeviceAIImage(cleanArtPrompt, 'Hermes Diffusion Studio');
         toolResult += `\n\n![Generated Art](${imgDataUrl})\n\n**Visual Prompt:** "${cleanArtPrompt}"`;
-      } catch (_) {}
+      } catch (err: any) {
+        // The tool text above only announces the render request, so a failure
+        // here must be named - a swallowed error left the claim standing.
+        toolResult += `\n\n⚠️ **Image Generation Failed**: ${err?.message || 'the on-device diffusion engine did not return an image'}. No image was rendered.`;
+      }
     }
 
     currentStep.toolResult = toolResult;
