@@ -425,9 +425,20 @@ export default function ChatView() {
 
   const handleCopyMessage = (msgId: string, content: string) => {
     if (typeof navigator !== 'undefined' && navigator.clipboard) {
-      navigator.clipboard.writeText(content);
-      setCopiedMessageId(msgId);
-      setTimeout(() => setCopiedMessageId(null), 2000);
+      // clipboard.writeText needs a user gesture + focus and can reject in
+      // WebViews (backgrounded app, permission policy). Show the "Copied"
+      // badge only when the write actually landed; a rejection is logged
+      // quietly instead of surfacing as an unhandled promise in crash
+      // reporting with a false success badge on screen.
+      navigator.clipboard
+        .writeText(content)
+        .then(() => {
+          setCopiedMessageId(msgId);
+          setTimeout(() => setCopiedMessageId((cur) => (cur === msgId ? null : cur)), 2000);
+        })
+        .catch((err) => {
+          console.warn('Clipboard write failed:', err);
+        });
     }
   };
 
@@ -925,8 +936,16 @@ export default function ChatView() {
     audioPlayerRef.current = audio;
     audio.onended = () => setActiveAudioPlayingId(null);
     audio.onerror = () => setActiveAudioPlayingId(null);
-    audio.play();
     setActiveAudioPlayingId(id);
+    // A rejected play() promise (autoplay policy after a tab switch, audio
+    // focus loss, truncated webm data URL) fires neither onended nor
+    // onerror: without this catch the bubble showed a pulsing "playing"
+    // waveform with no audio forever, and the retry tap only tore the
+    // player down.
+    audio.play().catch(() => {
+      if (audioPlayerRef.current === audio) audioPlayerRef.current = null;
+      setActiveAudioPlayingId((cur) => (cur === id ? null : cur));
+    });
   };
 
   const handleSend = () => {
