@@ -70,6 +70,12 @@ export interface InferenceBackendConfig {
   onRemoteChainExhausted?: (info: { reason: string; to: string }) => void;
   /** Called when the remote-request privacy guard redacts high-confidence secrets. */
   onPrivacyRedaction?: (count: number) => void;
+  /**
+   * Called when a remote endpoint actually answers (the primary or a
+   * fallback), so the UI can label the reply with the provider/model that
+   * produced it instead of the on-device model selected at send time.
+   */
+  onAnsweredModel?: (info: { label: string; model?: string }) => void;
 }
 
 class RemoteEndpointError extends Error {
@@ -556,6 +562,11 @@ export async function callRealLLMInference({
             onStreamChunk
           );
           if (text) {
+            // Report the endpoint that actually produced this answer so the
+            // message header reflects reality, not the send-time selection.
+            try {
+              config.onAnsweredModel?.({ label: candidate.label, model: candidate.model });
+            } catch (_) {}
             if (i > 0) {
               const reason =
                 lastFailure instanceof RemoteEndpointError
