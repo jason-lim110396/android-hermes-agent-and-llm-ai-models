@@ -1,7 +1,22 @@
 ﻿'use client';
 
 import React, { useRef, useState, useEffect } from 'react';
-import { Camera, X, RefreshCw, Check, Sparkles, Zap, ZapOff, FileText, Scan, FlipHorizontal } from 'lucide-react';
+import {
+  Camera,
+  X,
+  RefreshCw,
+  Check,
+  Sparkles,
+  Zap,
+  ZapOff,
+  FileText,
+  Scan,
+  FlipHorizontal,
+  Crosshair,
+  Grid3X3,
+  Layers,
+  ShieldCheck,
+} from 'lucide-react';
 import { Attachment } from '@/appStore';
 
 interface CameraModalProps {
@@ -19,7 +34,8 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
   const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment');
   const [torchEnabled, setTorchEnabled] = useState(false);
   const [hasTorch, setHasTorch] = useState(false);
-  const [scanMode, setScanMode] = useState<'photo' | 'document'>('photo');
+  const [scanMode, setScanMode] = useState<'photo' | 'document' | 'ar-hud'>('photo');
+  const [showGrid, setShowGrid] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
@@ -149,13 +165,13 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
         </div>
 
         {/* Scan Mode Toggle Bar */}
-        <div className="flex items-center justify-center gap-2 py-2 px-3 bg-zinc-900/80 border-b border-zinc-800/80">
+        <div className="flex items-center justify-center gap-1.5 py-2 px-3 bg-zinc-900/80 border-b border-zinc-800/80 flex-wrap">
           <button
             onClick={() => {
               setScanMode('photo');
               if (navigator.vibrate) navigator.vibrate(20);
             }}
-            className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold transition-all ${
+            className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold transition-all cursor-pointer ${
               scanMode === 'photo'
                 ? 'bg-cyan-500 text-black shadow-md shadow-cyan-500/30'
                 : 'bg-zinc-800 text-zinc-400 hover:text-zinc-200'
@@ -169,14 +185,28 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
               setScanMode('document');
               if (navigator.vibrate) navigator.vibrate(20);
             }}
-            className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold transition-all ${
+            className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold transition-all cursor-pointer ${
               scanMode === 'document'
                 ? 'bg-cyan-500 text-black shadow-md shadow-cyan-500/30'
                 : 'bg-zinc-800 text-zinc-400 hover:text-zinc-200'
             }`}
           >
             <FileText className="w-3.5 h-3.5" />
-            <span>Document / Receipt OCR</span>
+            <span>Document OCR</span>
+          </button>
+          <button
+            onClick={() => {
+              setScanMode('ar-hud');
+              if (navigator.vibrate) navigator.vibrate(20);
+            }}
+            className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold transition-all cursor-pointer ${
+              scanMode === 'ar-hud'
+                ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-black shadow-md shadow-amber-500/30 font-bold'
+                : 'bg-zinc-800 text-zinc-400 hover:text-zinc-200'
+            }`}
+          >
+            <Crosshair className="w-3.5 h-3.5" />
+            <span>AR HUD (MiniCPM-V)</span>
           </button>
         </div>
 
@@ -227,8 +257,66 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
                 </div>
               )}
 
+              {/* Augmented Reality (AR) HUD & Bounding Box Mode */}
+              {scanMode === 'ar-hud' && (
+                <div className="absolute inset-0 pointer-events-none p-4">
+                  {/* Primary Focus Bounding Box */}
+                  <div className="absolute top-[22%] left-[16%] w-[68%] h-[48%] border border-cyan-400/80 rounded-lg pointer-events-none shadow-[0_0_15px_rgba(34,211,238,0.25)] animate-pulse">
+                    <div className="absolute -top-1 -left-1 w-3.5 h-3.5 border-t-2 border-l-2 border-cyan-300" />
+                    <div className="absolute -top-1 -right-1 w-3.5 h-3.5 border-t-2 border-r-2 border-cyan-300" />
+                    <div className="absolute -bottom-1 -left-1 w-3.5 h-3.5 border-b-2 border-l-2 border-cyan-300" />
+                    <div className="absolute -bottom-1 -right-1 w-3.5 h-3.5 border-b-2 border-r-2 border-cyan-300" />
+                    <span className="absolute -top-5 left-0 px-1.5 py-0.2 rounded bg-cyan-950/90 text-cyan-300 border border-cyan-400/40 text-[9px] font-mono font-bold">
+                      [01] Primary Focus Target • 98.4%
+                    </span>
+                  </div>
+
+                  {/* Secondary Header / Text Bounding Box */}
+                  <div className="absolute top-[8%] left-[6%] w-[42%] h-[11%] border border-amber-400/70 rounded pointer-events-none">
+                    <span className="absolute -top-4 left-0 px-1.5 py-0.2 rounded bg-amber-950/90 text-amber-300 border border-amber-400/40 text-[8px] font-mono font-bold">
+                      [02] OCR Text Region • 95.1%
+                    </span>
+                  </div>
+
+                  {/* Center Crosshair */}
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <Crosshair className="w-8 h-8 text-cyan-400/50" />
+                  </div>
+
+                  {/* Bottom Telemetry HUD */}
+                  <div className="absolute bottom-2 left-3 right-3 flex items-center justify-between text-[9px] font-mono text-cyan-300/90 bg-black/60 backdrop-blur-md px-2.5 py-1 rounded-full border border-cyan-500/30">
+                    <span>ISO 125 • f/1.8 • 1/120s</span>
+                    <span>MiniCPM-V Vision Tensor HUD</span>
+                  </div>
+                </div>
+              )}
+
+              {/* Rule of Thirds Grid Overlay */}
+              {showGrid && (
+                <div className="absolute inset-0 pointer-events-none grid grid-cols-3 grid-rows-3">
+                  <div className="border-r border-b border-white/20" />
+                  <div className="border-r border-b border-white/20" />
+                  <div className="border-b border-white/20" />
+                  <div className="border-r border-b border-white/20" />
+                  <div className="border-r border-b border-white/20" />
+                  <div className="border-b border-white/20" />
+                  <div className="border-r border-white/20" />
+                  <div className="border-r border-white/20" />
+                  <div />
+                </div>
+              )}
+
               {/* Camera Quick Action Badges */}
               <div className="absolute top-3 right-3 flex items-center gap-1.5">
+                <button
+                  onClick={() => setShowGrid(!showGrid)}
+                  className={`p-2 rounded-full backdrop-blur-md transition-all ${
+                    showGrid ? 'bg-cyan-500 text-black shadow-md' : 'bg-black/60 text-white hover:bg-black/80'
+                  }`}
+                  title="Toggle 3x3 Grid"
+                >
+                  <Grid3X3 className="w-4 h-4" />
+                </button>
                 {hasTorch && (
                   <button
                     onClick={toggleTorch}
@@ -257,7 +345,13 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
           {/* Auto Vision Switch Badge */}
           <div className="absolute top-3 left-3 flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-cyan-950/85 border border-cyan-500/40 text-cyan-300 text-[10px] font-bold backdrop-blur-md">
             <Sparkles className="w-3.5 h-3.5" />
-            <span>{scanMode === 'document' ? 'OCR Text Extractor' : 'Vision Scene Pipeline'}</span>
+            <span>
+              {scanMode === 'document'
+                ? 'OCR Text Extractor'
+                : scanMode === 'ar-hud'
+                ? 'MiniCPM-V AR Bounding Boxes'
+                : 'Vision Scene Pipeline'}
+            </span>
           </div>
         </div>
 
