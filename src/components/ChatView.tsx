@@ -51,11 +51,13 @@ import {
   Star,
   Bookmark,
   BookOpen,
+  FileSpreadsheet,
 } from 'lucide-react';
 import { useAppStore, Attachment } from '@/appStore';
 import { AVAILABLE_MODELS, ModelSpec } from '@/models';
 import CameraModal from './CameraModal';
 import CodeSandboxModal from './CodeSandboxModal';
+import TableSpreadsheetModal from './TableSpreadsheetModal';
 
 export default function ChatView() {
   const hardwareProfile = useAppStore((s) => s.hardwareProfile);
@@ -132,6 +134,16 @@ export default function ChatView() {
       setSandboxInitialCode(text.trim());
     }
     setIsCodeSandboxOpen(true);
+    if (navigator.vibrate) navigator.vibrate(20);
+  };
+
+  // Markdown Table & Spreadsheet Modal State
+  const [isTableModalOpen, setIsTableModalOpen] = useState(false);
+  const [tableModalMarkdown, setTableModalMarkdown] = useState<string>('');
+
+  const handleOpenTableModal = (content: string) => {
+    setTableModalMarkdown(content);
+    setIsTableModalOpen(true);
     if (navigator.vibrate) navigator.vibrate(20);
   };
 
@@ -1582,6 +1594,18 @@ export default function ChatView() {
                       </button>
                     )}
 
+                    {/* View / Convert Markdown Table to Spreadsheet CSV */}
+                    {msg.content.includes('|') && msg.content.includes('---') && (
+                      <button
+                        onClick={() => handleOpenTableModal(msg.content)}
+                        title="View interactive spreadsheet table and export CSV"
+                        className="flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold bg-emerald-950/70 hover:bg-emerald-900/80 text-emerald-300 hover:text-white border border-emerald-700/80 transition-all cursor-pointer shadow-sm"
+                      >
+                        <FileSpreadsheet className="w-3 h-3 text-emerald-400" />
+                        <span>Spreadsheet CSV</span>
+                      </button>
+                    )}
+
                     {/* Star / Bookmark Button */}
                     <button
                       onClick={() => toggleStarMessage(msg.id)}
@@ -1672,6 +1696,19 @@ export default function ChatView() {
               >
                 <span>Code Sandbox</span>
                 <FileCode className="w-4 h-4" />
+              </button>
+
+              <button
+                onClick={() => {
+                  setIsFabOpen(false);
+                  setTableModalMarkdown('');
+                  setIsTableModalOpen(true);
+                  if (navigator.vibrate) navigator.vibrate(20);
+                }}
+                className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-teal-600 hover:bg-teal-500 text-white shadow-xl text-xs font-bold transition-all cursor-pointer"
+              >
+                <span>Table Spreadsheet</span>
+                <FileSpreadsheet className="w-4 h-4" />
               </button>
             </div>
           )}
@@ -2318,6 +2355,13 @@ export default function ChatView() {
         isOpen={isCodeSandboxOpen}
         initialCode={sandboxInitialCode}
         onClose={() => setIsCodeSandboxOpen(false)}
+      />
+
+      {/* Markdown Table & CSV Spreadsheet Modal */}
+      <TableSpreadsheetModal
+        isOpen={isTableModalOpen}
+        markdownContent={tableModalMarkdown}
+        onClose={() => setIsTableModalOpen(false)}
       />
     </div>
   );
