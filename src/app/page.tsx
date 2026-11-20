@@ -41,9 +41,23 @@ export default function Home() {
   const hasRunningTasks = isGenerating || isSpeaking || isDownloadingAny;
 
   // Run hardware detection and check cached models automatically on mount
+  const [isOnline, setIsOnline] = React.useState(true);
+
   useEffect(() => {
     refreshHardwareProfile();
     checkCacheStatus();
+
+    if (typeof window !== 'undefined') {
+      setIsOnline(navigator.onLine);
+      const handleOnline = () => setIsOnline(true);
+      const handleOffline = () => setIsOnline(false);
+      window.addEventListener('online', handleOnline);
+      window.addEventListener('offline', handleOffline);
+      return () => {
+        window.removeEventListener('online', handleOnline);
+        window.removeEventListener('offline', handleOffline);
+      };
+    }
   }, [refreshHardwareProfile, checkCacheStatus]);
 
   const studioTabs: { id: NavigationTab; label: string; icon: any; color: string }[] = [
@@ -84,6 +98,14 @@ export default function Home() {
             </button>
           );
         })}
+
+        {/* Offline Sovereign Badge */}
+        {!isOnline && (
+          <div className="ml-auto flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-950/80 border border-emerald-500/40 text-emerald-300 text-[10px] font-mono shrink-0 font-bold shadow-md">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            <span>100% Offline Mode</span>
+          </div>
+        )}
       </header>
 
       {/* Active Tab View */}
