@@ -18,6 +18,7 @@ import {
   Sliders,
   Palette,
   Eye,
+  AlertTriangle,
 } from 'lucide-react';
 import { generateQRCode } from '@/utils/qrEncoder';
 import { useBackButtonClose } from '@/utils/backButton';
@@ -72,27 +73,49 @@ export default function QRCodeStudioModal({
   // Text
   const [textVal, setTextVal] = useState('Hermes Autonomous Edge Agent — Local LLM Studio v1.0');
 
-  // Contact vCard
+  // Contact vCard. ORG defaults to empty: with the demo org filled in, the
+  // payload is 124 bytes and exceeds what QR versions 1-6 can encode - the
+  // studio would greet the user with the too-long error on first open.
   const [contactName, setContactName] = useState('Jason Lim');
   const [contactPhone, setContactPhone] = useState('+1-555-019-8234');
   const [contactEmail, setContactEmail] = useState('jason@hermes-ai.org');
-  const [contactOrg, setContactOrg] = useState('Hermes AI Labs');
+  const [contactOrg, setContactOrg] = useState('');
 
   // Crypto
   const [cryptoCoin, setCryptoCoin] = useState<'BTC' | 'ETH' | 'SOL'>('ETH');
   const [cryptoAddress, setCryptoAddress] = useState('0x71C...49e3B');
 
   // Compute Raw String Payload
+  // vCard 3.0 escapes backslash, comma and semicolon; the Wi-Fi config
+  // format escapes backslash, semicolon, colon and double quote. Unescaped
+  // values (a name typed as "Lim, Jason", an SSID containing ":") shift
+  // every field boundary after them when scanned.
+  const escapeVCardValue = (v: string) => v.replace(/([\\;,])/g, '\\$1');
+  const escapeWifiValue = (v: string) => v.replace(/([\\;:"])/g, '\\$1');
+
   const payloadString = useMemo(() => {
     switch (mode) {
       case 'wifi':
-        return `WIFI:T:${wifiAuth};S:${wifiSsid};P:${wifiAuth === 'nopass' ? '' : wifiPass};H:${wifiHidden ? 'true' : 'false'};;`;
+        return `WIFI:T:${wifiAuth};S:${escapeWifiValue(wifiSsid)};P:${wifiAuth === 'nopass' ? '' : escapeWifiValue(wifiPass)};H:${wifiHidden ? 'true' : 'false'};;`;
       case 'url':
         return urlVal.trim();
       case 'text':
         return textVal.trim();
-      case 'contact':
-        return `BEGIN:VCARD\nVERSION:3.0\nN:${contactName}\nFN:${contactName}\nORG:${contactOrg}\nTEL:${contactPhone}\nEMAIL:${contactEmail}\nEND:VCARD`;
+      case 'contact': {
+        // Omit blank fields: every included line costs symbol capacity, and
+        // empty vCard properties are invalid anyway.
+        const lines = [
+          'BEGIN:VCARD',
+          'VERSION:3.0',
+          `N:${escapeVCardValue(contactName)}`,
+          `FN:${escapeVCardValue(contactName)}`,
+          contactOrg.trim() ? `ORG:${escapeVCardValue(contactOrg.trim())}` : '',
+          contactPhone.trim() ? `TEL:${escapeVCardValue(contactPhone.trim())}` : '',
+          contactEmail.trim() ? `EMAIL:${escapeVCardValue(contactEmail.trim())}` : '',
+          'END:VCARD',
+        ].filter(Boolean);
+        return lines.join('\n');
+      }
       case 'crypto':
         return `${cryptoCoin.toLowerCase()}:${cryptoAddress.trim()}`;
       default:
@@ -114,15 +137,22 @@ export default function QRCodeStudioModal({
     cryptoAddress,
   ]);
 
-  // Generate QR Matrix
-  const qrData = useMemo(() => {
+  // Generate QR Matrix. A payload longer than the supported versions can
+  // hold is an error state the user must see - the encoder used to swallow
+  // it and render a corrupt, unscannable matrix as if everything was fine.
+  const qr = useMemo(() => {
+    if (!payloadString) return { data: null as null, error: null as null };
     try {
-      if (!payloadString) return null;
-      return generateQRCode(payloadString);
-    } catch {
-      return null;
+      return { data: generateQRCode(payloadString), error: null as null };
+    } catch (err) {
+      return {
+        data: null as null,
+        error: err instanceof Error ? err.message : 'QR generation failed',
+      };
     }
   }, [payloadString]);
+  const qrData = qr.data;
+  const qrError = qr.error;
 
   // Copy SVG or payload to clipboard
   const handleCopyPayload = () => {
@@ -469,6 +499,12 @@ export default function QRCodeStudioModal({
                       })
                     )}
                   </svg>
+                ) : qrError ? (
+                  <div className="w-48 h-48 flex flex-col items-center justify-center text-center px-3">
+                    <AlertTriangle className="w-6 h-6 text-rose-400 mb-2" />
+                    <span className="text-[11px] text-rose-300 font-bold">Cannot encode payload</span>
+                    <span className="text-[10px] text-zinc-500 mt-1.5 leading-snug">{qrError}</span>
+                  </div>
                 ) : (
                   <div className="w-48 h-48 flex items-center justify-center text-xs text-zinc-500">
                     Generating...
