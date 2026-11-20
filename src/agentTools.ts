@@ -92,7 +92,7 @@ export const AGENT_TOOLS: AgentTool[] = [
     name: 'code_interpreter',
     description: 'Execute JavaScript / Math expressions in an isolated client sandbox and return calculated output.',
     parameters: [
-      { name: 'code', type: 'string', description: 'JavaScript / Math code to execute', required: true }
+      { name: 'code', type: 'string', description: 'Arithmetic / number expression (digits, + - * / % ** ( ) . , and Math.* constants/functions such as Math.PI, Math.E, Math.sqrt, Math.cos). Plain JavaScript is not executed.', required: true }
     ],
     execute: async (args) => {
       if (typeof args.code !== 'string' || !args.code.trim()) {
@@ -109,14 +109,14 @@ export const AGENT_TOOLS: AgentTool[] = [
         return 'Sandbox refused: only short arithmetic/number expressions are executed here. Nothing was run.';
       }
       if (sanitized !== code) {
-        return 'Sandbox refused: the expression contains characters outside the arithmetic whitelist (digits, + - * / % ^ ( ) . , Math.*, PI, E). Nothing was executed.';
+        return 'Sandbox refused: the expression contains characters outside the arithmetic whitelist (digits, + - * / % ** ( ) . , and Math.* constants/functions - use Math.PI and Math.E, not bare PI/E). Nothing was executed.';
       }
       try {
         // eslint-disable-next-line no-eval
         const res = Function(`"use strict"; return (${sanitized});`)();
         return `Execution Result: ${JSON.stringify(res)}`;
       } catch (err: unknown) {
-        return `Sandbox Runtime Notice: ${(err as Error).message}`;
+        return `Sandbox Runtime Notice: ${(err as Error)?.message || String(err)}`;
       }
     }
   },
@@ -194,7 +194,7 @@ export const AGENT_TOOLS: AgentTool[] = [
             window.localStorage.removeItem(`hermes-scratchpad:${key}`);
             return `[Scratchpad Cleared] Key "${key}" removed.`;
           }
-          return `Scratchpad refused: unknown action "${act}". Use "save", "read", or "clear". Nothing was changed.`;
+          return `Scratchpad refused: ${act ? `unknown action "${act}"` : '`action` is required and was missing'}. Use "save", "read", or "clear". Nothing was changed.`;
         }
         return `Scratchpad unavailable: no browser storage in this environment, key "${key}" was not saved.`;
       } catch (err: unknown) {
@@ -290,6 +290,7 @@ export const AGENT_TOOLS: AgentTool[] = [
       if (!text) {
         return 'Share refused: `text` must be a non-empty string. Nothing was shared.';
       }
+      let shareSheetNote = 'no share sheet was available';
       if (typeof navigator !== 'undefined' && navigator.share) {
         try {
           await navigator.share({ title, text });
@@ -298,14 +299,15 @@ export const AGENT_TOOLS: AgentTool[] = [
           if ((err as { name?: string })?.name === 'AbortError') {
             return `📲 **Native Share Notice**: User dismissed Android share sheet.`;
           }
-          // A real failure falls through to an actual clipboard attempt below;
-          // claiming "copied" without copying was a lie.
+          // A real share-sheet failure falls through to an actual clipboard
+          // attempt below; claiming "copied" without copying was a lie.
+          shareSheetNote = 'the share sheet failed, so the content was copied instead';
         }
       }
       if (typeof navigator !== 'undefined' && navigator.clipboard) {
         try {
           await navigator.clipboard.writeText(text);
-          return `📲 **Share Fallback**: Content copied to the mobile clipboard (no share sheet was available). Paste it in WhatsApp/Telegram/Messages.`;
+          return `📲 **Share Fallback**: Content copied to the mobile clipboard (${shareSheetNote}). Paste it in WhatsApp/Telegram/Messages.`;
         } catch (err) {
           return `📲 **Share Failed**: neither the Android share sheet nor the clipboard worked (${(err as Error)?.message || 'clipboard rejected'}). Nothing was shared - show the text to the user instead.`;
         }
@@ -382,12 +384,21 @@ export const AGENT_TOOLS: AgentTool[] = [
         existing.push(reminderItem);
         window.localStorage.setItem('hermes_reminders', JSON.stringify(existing));
 
-        if ('Notification' in window && Notification.permission === 'granted') {
-          new Notification(`⏰ Reminder: ${title}`, { body: `Scheduled for: ${due}` });
-        } else if ('Notification' in window && Notification.permission !== 'denied') {
-          Notification.requestPermission();
+        // The pop-up is best-effort and separate from the write: a flaky
+        // Notification constructor on some Android WebViews must not turn a
+        // successful save into a false "Not Saved" (which would also breed
+        // duplicate reminders on retry).
+        let activeStatus = 'Armed';
+        try {
+          if ('Notification' in window && Notification.permission === 'granted') {
+            new Notification(`⏰ Reminder: ${title}`, { body: `Scheduled for: ${due}` });
+          } else if ('Notification' in window && Notification.permission !== 'denied') {
+            Notification.requestPermission();
+          }
+        } catch (popErr: unknown) {
+          activeStatus = `Saved, but the notification pop-up failed: ${(popErr as Error)?.message || 'Notification constructor threw'}`;
         }
-        return `⏰ **Device Reminder Set**: "${title}"\n- **Target Schedule**: ${due}\n- **Storage**: Persisted to local Android phone memory (${existing.length} reminder${existing.length === 1 ? '' : 's'} stored)\n- **Active Status**: Armed`;
+        return `⏰ **Device Reminder Set**: "${title}"\n- **Target Schedule**: ${due}\n- **Storage**: Persisted to local Android phone memory (${existing.length} reminder${existing.length === 1 ? '' : 's'} stored)\n- **Active Status**: ${activeStatus}`;
       } catch (err: unknown) {
         return `⏰ **Reminder Not Saved**: ${(err as Error)?.message || 'local storage write failed'}. The reminder was NOT persisted - tell the user to retry.`;
       }
@@ -406,7 +417,7 @@ export const AGENT_TOOLS: AgentTool[] = [
       const target = String(args.target || '').replace(/[^0-9+]/g, '');
       const msg = typeof args.message === 'string' ? args.message : '';
       if (action !== 'call' && action !== 'sms') {
-        return `Mobile Intent refused: unknown action "${action}". Use "call" or "sms". No intent was launched.`;
+        return `Mobile Intent refused: ${action ? `unknown action "${action}"` : '`action` is required and was missing'}. Use "call" or "sms". No intent was launched.`;
       }
       if (!target) {
         return `Mobile Intent refused: \`target\` ("${String(args.target ?? '')}") contains no usable phone number. The ${action === 'call' ? 'dialer' : 'SMS composer'} was not opened.`;
