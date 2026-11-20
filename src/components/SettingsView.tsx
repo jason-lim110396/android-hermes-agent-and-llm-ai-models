@@ -1,8 +1,48 @@
 'use client';
 
-import React from 'react';
-import { Sliders, Shield, Terminal, RefreshCw, Cpu, Database, BatteryCharging, Gauge, Zap, Flame } from 'lucide-react';
+import React, { useState } from 'react';
+import {
+  Sliders,
+  Shield,
+  Terminal,
+  RefreshCw,
+  Cpu,
+  Database,
+  BatteryCharging,
+  Gauge,
+  Zap,
+  Flame,
+  Check,
+  AlertCircle,
+  Trash2,
+  Wifi,
+  Wand2,
+  Sparkles,
+} from 'lucide-react';
 import { useAppStore } from '@/appStore';
+
+const PROMPT_PRESETS = [
+  {
+    name: 'Hermes Agent',
+    icon: '🤖',
+    prompt: 'You are Hermes AI Agent, a sovereign on-device intelligence. You reason thoroughly, plan autonomously, and utilize local tools with extreme precision.',
+  },
+  {
+    name: 'Code Architect',
+    icon: '💻',
+    prompt: 'You are an expert full-stack engineer and software architect. Write clean, idiomatic, robust code with zero unclosed tags, strict type safety, and production-ready error handling.',
+  },
+  {
+    name: 'Research Analyst',
+    icon: '🔬',
+    prompt: 'You are a meticulous fact-checking and research assistant. Analyze documents with critical objectivity, cite source context, and deliver concise structured bullet points.',
+  },
+  {
+    name: 'Creative Writer',
+    icon: '✍️',
+    prompt: 'You are an imaginative creative writer. Craft evocative narratives, compelling copy, and vivid prose.',
+  },
+];
 
 export default function SettingsView() {
   const systemPrompt = useAppStore((s) => s.systemPrompt);
@@ -19,8 +59,58 @@ export default function SettingsView() {
   const setPerformanceMode = useAppStore((s) => s.setPerformanceMode);
   const hardwareProfile = useAppStore((s) => s.hardwareProfile);
 
+  const [isTestingEndpoint, setIsTestingEndpoint] = useState(false);
+  const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const [clearCacheSuccess, setClearCacheSuccess] = useState(false);
+
+  const handleTestConnection = async () => {
+    if (!apiEndpoint.trim()) return;
+    setIsTestingEndpoint(true);
+    setTestResult(null);
+
+    const start = performance.now();
+    try {
+      const ctrl = new AbortController();
+      const timeoutId = setTimeout(() => ctrl.abort(), 4000);
+
+      // Attempt ping to models endpoint
+      const targetUrl = apiEndpoint.trim().replace(/\/+$/, '') + '/models';
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (apiKey.trim()) {
+        headers['Authorization'] = `Bearer ${apiKey.trim()}`;
+      }
+
+      const res = await fetch(targetUrl, { signal: ctrl.signal, headers });
+      clearTimeout(timeoutId);
+      const latency = Math.round(performance.now() - start);
+
+      if (res.ok) {
+        setTestResult({ ok: true, message: `Connected! HTTP 200 • Latency: ${latency}ms • Endpoint ready` });
+      } else {
+        setTestResult({ ok: false, message: `Server replied with HTTP ${res.status} (${latency}ms)` });
+      }
+    } catch (err: any) {
+      setTestResult({ ok: false, message: `Connection failed: ${err?.message || 'Host unreachable or CORS blocked'}` });
+    } finally {
+      setIsTestingEndpoint(false);
+    }
+  };
+
+  const handleClearCache = () => {
+    if (typeof window !== 'undefined') {
+      try {
+        const keysToRemove = Object.keys(localStorage).filter(
+          (k) => k.startsWith('hermes-') || k.startsWith('synthetic-')
+        );
+        keysToRemove.forEach((k) => localStorage.removeItem(k));
+        setClearCacheSuccess(true);
+        setTimeout(() => setClearCacheSuccess(false), 2500);
+      } catch (_) {}
+    }
+  };
+
   return (
-    <div className="flex-1 flex flex-col overflow-y-auto bg-zinc-950 px-3 py-3 max-w-2xl mx-auto w-full pb-20">
+    <div className="flex-1 flex flex-col overflow-y-auto bg-zinc-950 px-3 py-3 max-w-2xl mx-auto w-full pb-20 select-none">
       <div className="mb-4">
         <h1 className="text-xl font-black text-white tracking-tight">Agent & LLM Engine Settings</h1>
         <p className="text-xs text-zinc-400">Configure performance & thermal profiles, on-device parameters, and external AI backends</p>
@@ -122,10 +212,11 @@ export default function SettingsView() {
             </button>
           </div>
         </div>
+
         {/* Local / Remote AI Server Bridge (Ollama / OpenRouter / vLLM) */}
-        <div className="bg-zinc-900/60 border border-zinc-800 rounded-2xl p-3.5">
-          <label className="text-xs font-bold text-white block mb-0.5">Local Server / OpenRouter Inference Bridge</label>
-          <p className="text-[10px] text-zinc-400 mb-2">
+        <div className="bg-zinc-900/60 border border-zinc-800 rounded-2xl p-3.5 space-y-2.5">
+          <label className="text-xs font-bold text-white block">Local Server / OpenRouter Inference Bridge</label>
+          <p className="text-[10px] text-zinc-400">
             Leave empty for on-device browser inference, or enter your local Ollama / vLLM / OpenRouter endpoint (e.g. <code className="text-cyan-400">http://192.168.1.x:11434/v1</code> or <code className="text-cyan-400">https://openrouter.ai/api/v1</code>) for full unquantized weights.
           </p>
           <div className="space-y-2">
@@ -143,22 +234,60 @@ export default function SettingsView() {
               onChange={(e) => setApiKey(e.target.value)}
               className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-cyan-500/50 font-mono"
             />
+
+            <div className="flex items-center justify-between pt-1">
+              <button
+                onClick={handleTestConnection}
+                disabled={!apiEndpoint.trim() || isTestingEndpoint}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-bold transition-all cursor-pointer disabled:opacity-40"
+              >
+                <Wifi className={`w-3.5 h-3.5 text-cyan-400 ${isTestingEndpoint ? 'animate-pulse' : ''}`} />
+                <span>{isTestingEndpoint ? 'Testing...' : 'Test Connection'}</span>
+              </button>
+
+              {testResult && (
+                <span
+                  className={`text-[10px] font-mono px-2 py-0.5 rounded-lg border ${
+                    testResult.ok
+                      ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-300'
+                      : 'bg-rose-950/40 border-rose-500/40 text-rose-300'
+                  }`}
+                >
+                  {testResult.message}
+                </span>
+              )}
+            </div>
           </div>
         </div>
 
-        {/* System Prompt */}
-        <div className="bg-zinc-900/60 border border-zinc-800 rounded-2xl p-3.5">
-          <label className="text-xs font-bold text-zinc-200 block mb-1">Hermes Agent System Prompt</label>
-          <p className="text-[10px] text-zinc-400 mb-2">Guides the persona, tool usage policy, and safety guardrails of the local model.</p>
+        {/* System Prompt & Quick Presets */}
+        <div className="bg-zinc-900/60 border border-zinc-800 rounded-2xl p-3.5 space-y-2.5">
+          <div className="flex items-center justify-between">
+            <label className="text-xs font-bold text-zinc-200">Hermes Agent System Prompt</label>
+            <span className="text-[10px] text-zinc-500 font-mono">Persona & Guardrails</span>
+          </div>
+
+          {/* Quick Presets Pills */}
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+            {PROMPT_PRESETS.map((preset, idx) => (
+              <button
+                key={idx}
+                onClick={() => setSystemPrompt(preset.prompt)}
+                className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-zinc-800/80 hover:bg-zinc-700/80 text-zinc-300 text-[11px] font-medium border border-zinc-700/60 whitespace-nowrap cursor-pointer transition-all"
+              >
+                <span>{preset.icon}</span>
+                <span>{preset.name}</span>
+              </button>
+            ))}
+          </div>
+
           <textarea
             value={systemPrompt}
             onChange={(e) => setSystemPrompt(e.target.value)}
             rows={3}
-            className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-2.5 text-xs text-zinc-200 focus:outline-none focus:border-cyan-500/50 font-mono"
+            className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-2.5 text-xs text-zinc-200 focus:outline-none focus:border-cyan-500/50 font-mono resize-none"
           />
         </div>
-
-
 
         {/* Temperature */}
         <div className="bg-zinc-900/60 border border-zinc-800 rounded-2xl p-3.5">
@@ -173,7 +302,7 @@ export default function SettingsView() {
             step="0.05"
             value={temperature}
             onChange={(e) => setTemperature(parseFloat(e.target.value))}
-            className="w-full accent-cyan-500"
+            className="w-full accent-cyan-500 cursor-pointer"
           />
           <div className="flex justify-between text-[9px] text-zinc-500 mt-1">
             <span>Deterministic (0.1)</span>
@@ -195,7 +324,7 @@ export default function SettingsView() {
             step="256"
             value={maxTokens}
             onChange={(e) => setMaxTokens(parseInt(e.target.value))}
-            className="w-full accent-cyan-500"
+            className="w-full accent-cyan-500 cursor-pointer"
           />
           <div className="flex justify-between text-[9px] text-zinc-500 mt-1">
             <span>256 (Fast)</span>
@@ -204,12 +333,26 @@ export default function SettingsView() {
           </div>
         </div>
 
+        {/* Cache & Local Storage Management */}
+        <div className="bg-zinc-900/60 border border-zinc-800 rounded-2xl p-3.5 flex items-center justify-between">
+          <div>
+            <h4 className="text-xs font-bold text-zinc-200">Session & Scratchpad Cache</h4>
+            <p className="text-[10px] text-zinc-400">Clear temporary scratchpad notes and cached conversation sessions.</p>
+          </div>
+          <button
+            onClick={handleClearCache}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-rose-950/60 text-zinc-300 hover:text-rose-300 border border-zinc-700/80 hover:border-rose-500/40 text-xs font-bold transition-all cursor-pointer"
+          >
+            {clearCacheSuccess ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Trash2 className="w-3.5 h-3.5" />}
+            <span>{clearCacheSuccess ? 'Cleared!' : 'Clear Cache'}</span>
+          </button>
+        </div>
+
         {/* Privacy Note */}
         <div className="bg-emerald-950/20 border border-emerald-500/20 rounded-2xl p-3 flex items-start gap-2.5">
           <Shield className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
           <div className="text-[11px] text-zinc-300 leading-relaxed">
-            <strong className="text-emerald-400 font-bold block mb-0.5">100% On-Device Sovereign AI</strong>
-            Your weights, chat messages, photos, and document embeddings remain entirely inside your phone memory. No telemetry or server storage.
+            <strong>100% Sovereign & Offline by Design:</strong> In on-device mode, all model weights execute entirely inside your smartphone&apos;s WebGPU & WebAssembly runtime. No telemetry or conversation transcripts are ever sent to external cloud servers.
           </div>
         </div>
       </div>
