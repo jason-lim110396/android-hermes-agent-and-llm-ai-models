@@ -12,7 +12,11 @@ export function startVisibleInterval(callback: () => void, ms: number): () => vo
     return () => {};
   }
 
-  const tick = () => {
+  // Skip the cadence tick right after an immediate visibility fire so the
+  // average cadence is preserved.
+  let skipNextTick = false;
+
+  const run = () => {
     if (!document.hidden) {
       callback();
     }
@@ -20,12 +24,20 @@ export function startVisibleInterval(callback: () => void, ms: number): () => vo
 
   const handleVisibilityChange = () => {
     if (!document.hidden) {
-      callback();
+      // Refresh promptly on resume: run the callback once when visible again.
+      run();
+      skipNextTick = true;
     }
   };
 
   document.addEventListener('visibilitychange', handleVisibilityChange);
-  const timer = setInterval(tick, ms);
+  const timer = setInterval(() => {
+    if (skipNextTick) {
+      skipNextTick = false;
+      return;
+    }
+    run();
+  }, ms);
 
   // Cancel function: clears the timer and removes the listener.
   return () => {

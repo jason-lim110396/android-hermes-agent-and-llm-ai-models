@@ -37,7 +37,6 @@ import {
   Ban,
 } from 'lucide-react';
 import { useAppStore } from '@/appStore';
-import { startVisibleInterval } from '@/utils/visibleInterval';
 
 const PROMPT_PRESETS = [
   {
@@ -212,7 +211,11 @@ export default function SettingsView() {
   const [testNotifSuccess, setTestNotifSuccess] = useState<string | null>(null);
 
   React.useEffect(() => {
-    const cancelTimer = startVisibleInterval(() => {
+    // Deliberately a plain setInterval (NOT startVisibleInterval): alarms are a
+    // notification feature and WebView timers keep running while the app is
+    // backgrounded, so this checker must keep firing when hidden to deliver
+    // its vibrate/Notification side effects on time.
+    const timer = setInterval(() => {
       const now = Date.now();
       setActiveAlarms((prev) => {
         const remaining: typeof prev = [];
@@ -238,7 +241,7 @@ export default function SettingsView() {
         return remaining;
       });
     }, 1000);
-    return () => cancelTimer();
+    return () => clearInterval(timer);
   }, [hapticAlerts]);
 
   const handleRequestPermission = async () => {

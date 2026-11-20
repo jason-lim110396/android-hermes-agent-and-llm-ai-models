@@ -299,6 +299,7 @@ export default function VoiceStudio() {
 
   const recognitionRef = useRef<any>(null);
   const timerRef = useRef<(() => void) | null>(null);
+  const recordingStartedAtRef = useRef<number | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const clonerCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const animFrameRef = useRef<number | null>(null);
@@ -309,12 +310,21 @@ export default function VoiceStudio() {
   // Timer & Audio Visualizer effects
   useEffect(() => {
     if (isRecording) {
+      // Capture the wall-clock start so the stopwatch stays accurate even if
+      // ticks are suspended while the app is backgrounded.
+      if (recordingStartedAtRef.current === null) {
+        recordingStartedAtRef.current = Date.now();
+      }
       setRecordingDuration(0);
       timerRef.current = startVisibleInterval(() => {
-        setRecordingDuration((sec) => sec + 1);
+        const startedAt = recordingStartedAtRef.current;
+        if (startedAt !== null) {
+          setRecordingDuration(Math.floor((Date.now() - startedAt) / 1000));
+        }
       }, 1000);
       drawWaveform();
     } else {
+      recordingStartedAtRef.current = null;
       if (timerRef.current) {
         timerRef.current();
         timerRef.current = null;
