@@ -17,6 +17,13 @@ import {
   FileText,
   Mail,
   ListChecks,
+  Sliders,
+  Plus,
+  Trash2,
+  Play,
+  RotateCcw,
+  CheckCircle2,
+  Bookmark,
 } from 'lucide-react';
 import { useAppStore } from '@/appStore';
 import { AVAILABLE_MODELS } from '@/models';
@@ -28,9 +35,10 @@ interface VoicePreset {
   pitch: number;
   rate: number;
   description: string;
+  isCustom?: boolean;
 }
 
-const VOICE_PRESETS: VoicePreset[] = [
+const DEFAULT_VOICE_PRESETS: VoicePreset[] = [
   { id: 'kokoro-female', name: 'Kokoro Natural', gender: 'Female', pitch: 1.05, rate: 1.0, description: 'Warm, clear conversational neural voice' },
   { id: 'deep-male', name: 'Studio Narrator', gender: 'Male', pitch: 0.9, rate: 0.95, description: 'Deep, authoritative documentary acoustic tone' },
   { id: 'fast-assistant', name: 'Hermes Fast', gender: 'Neutral', pitch: 1.0, rate: 1.25, description: 'Concise high-tempo assistant playback' },
@@ -45,13 +53,12 @@ const SAMPLE_SCRIPTS = [
 
 export default function VoiceStudio() {
   const selectedModelId = useAppStore((s) => s.selectedModelId);
-  const speakText = useAppStore((s) => s.speakText);
   const stopSpeaking = useAppStore((s) => s.stopSpeaking);
   const isSpeaking = useAppStore((s) => s.isSpeaking);
   const sendMessage = useAppStore((s) => s.sendMessage);
   const setCurrentTab = useAppStore((s) => s.setCurrentTab);
 
-  const [activeTab, setActiveTab] = useState<'tts' | 'stt'>('tts');
+  const [activeTab, setActiveTab] = useState<'tts' | 'stt' | 'cloner'>('tts');
   const [ttsInput, setTtsInput] = useState(SAMPLE_SCRIPTS[0]);
   const [selectedVoiceId, setSelectedVoiceId] = useState<string>('kokoro-female');
   const [pitch, setPitch] = useState<number>(1.05);
@@ -61,12 +68,32 @@ export default function VoiceStudio() {
   const [transcribedText, setTranscribedText] = useState('');
   const [copied, setCopied] = useState(false);
 
+  // Custom Cloned Personas State
+  const [customPresets, setCustomPresets] = useState<VoicePreset[]>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const stored = window.localStorage.getItem('hermes_custom_voice_profiles');
+        return stored ? JSON.parse(stored) : [];
+      } catch (_) {}
+    }
+    return [];
+  });
+
+  const [cloneName, setCloneName] = useState('');
+  const [cloneGender, setCloneGender] = useState('Neutral');
+  const [clonePitch, setClonePitch] = useState(1.0);
+  const [cloneRate, setCloneRate] = useState(1.0);
+  const [cloneFormant, setCloneFormant] = useState<'warm' | 'crisp' | 'deep' | 'fast'>('warm');
+  const [saveSuccessMsg, setSaveSuccessMsg] = useState<string | null>(null);
+
   const recognitionRef = useRef<any>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const clonerCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const animFrameRef = useRef<number | null>(null);
+  const clonerAnimFrameRef = useRef<number | null>(null);
 
-  const voiceModels = AVAILABLE_MODELS.filter((m) => m.category === 'voice' || m.family === 'audio');
+  const allPresets = [...DEFAULT_VOICE_PRESETS, ...customPresets];
 
   // Timer & Audio Visualizer effects
   useEffect(() => {
@@ -123,25 +150,51 @@ export default function VoiceStudio() {
     render();
   };
 
+  const drawClonerSpectrum = () => {
+    const canvas = clonerCanvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    let tick = 0;
+    const render = () => {
+      tick += 0.1;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const bars = 24;
+      const barWidth = canvas.width / bars;
+
+      for (let i = 0; i < bars; i++) {
+        const heightMultiplier = Math.abs(Math.sin(tick + i * 0.3) * Math.cos(tick * 0.7 + i * 0.1));
+        const barHeight = Math.max(4, heightMultiplier * (canvas.height - 8));
+        const x = i * barWidth;
+        const y = canvas.height - barHeight;
+
+        ctx.fillStyle = '#06b6d4'; // cyan-500
+        ctx.fillRect(x + 1, y, barWidth - 2, barHeight);
+      }
+
+      if (useAppStore.getState().isSpeaking) {
+        clonerAnimFrameRef.current = requestAnimationFrame(render);
+      } else {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+      }
+    };
+    render();
+  };
+
   const formatDuration = (totalSec: number) => {
     const m = Math.floor(totalSec / 60).toString().padStart(2, '0');
     const s = (totalSec % 60).toString().padStart(2, '0');
     return `${m}:${s}`;
   };
 
-  const handleSpeak = () => {
-    if (isSpeaking) {
-      stopSpeaking();
-      return;
-    }
-    if (!ttsInput.trim()) return;
-
+  const playUtterance = (text: string, voicePitch: number, voiceRate: number) => {
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       try {
         window.speechSynthesis.cancel();
-        const utterance = new SpeechSynthesisUtterance(ttsInput.trim());
-        utterance.rate = rate;
-        utterance.pitch = pitch;
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.rate = voiceRate;
+        utterance.pitch = voicePitch;
 
         const voices = window.speechSynthesis.getVoices();
         if (voices && voices.length > 0) {
@@ -151,13 +204,93 @@ export default function VoiceStudio() {
           if (naturalVoice) utterance.voice = naturalVoice;
         }
 
-        utterance.onstart = () => useAppStore.setState({ isSpeaking: true });
+        utterance.onstart = () => {
+          useAppStore.setState({ isSpeaking: true });
+          drawClonerSpectrum();
+        };
         utterance.onend = () => useAppStore.setState({ isSpeaking: false });
         utterance.onerror = () => useAppStore.setState({ isSpeaking: false });
         window.speechSynthesis.speak(utterance);
       } catch (_) {
         useAppStore.setState({ isSpeaking: false });
       }
+    }
+  };
+
+  const handleSpeak = () => {
+    if (isSpeaking) {
+      stopSpeaking();
+      return;
+    }
+    if (!ttsInput.trim()) return;
+    playUtterance(ttsInput.trim(), pitch, rate);
+  };
+
+  const handlePreviewClone = () => {
+    playUtterance(
+      `Neural voice profile calibrated. Acoustic timbre set to ${cloneFormant} resonance, pitch ${clonePitch}, rate ${cloneRate}x.`,
+      clonePitch,
+      cloneRate
+    );
+  };
+
+  const handleSaveCustomProfile = () => {
+    if (!cloneName.trim()) return;
+    const newProfile: VoicePreset = {
+      id: `custom-voice-${Date.now()}`,
+      name: cloneName.trim(),
+      gender: cloneGender,
+      pitch: clonePitch,
+      rate: cloneRate,
+      description: `Custom ${cloneFormant} acoustic profile with ${clonePitch} pitch`,
+      isCustom: true,
+    };
+
+    const updated = [newProfile, ...customPresets];
+    setCustomPresets(updated);
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem('hermes_custom_voice_profiles', JSON.stringify(updated));
+    }
+    setSelectedVoiceId(newProfile.id);
+    setPitch(newProfile.pitch);
+    setRate(newProfile.rate);
+    setCloneName('');
+    setSaveSuccessMsg(`Saved "${newProfile.name}" to neural voice profiles!`);
+    if (navigator.vibrate) navigator.vibrate([40, 30, 40]);
+    setTimeout(() => setSaveSuccessMsg(null), 3000);
+  };
+
+  const handleDeleteCustomProfile = (id: string) => {
+    const updated = customPresets.filter((p) => p.id !== id);
+    setCustomPresets(updated);
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem('hermes_custom_voice_profiles', JSON.stringify(updated));
+    }
+    if (selectedVoiceId === id) {
+      setSelectedVoiceId(DEFAULT_VOICE_PRESETS[0].id);
+      setPitch(DEFAULT_VOICE_PRESETS[0].pitch);
+      setRate(DEFAULT_VOICE_PRESETS[0].rate);
+    }
+  };
+
+  const handleApplyFormantPreset = (type: 'warm' | 'crisp' | 'deep' | 'fast') => {
+    setCloneFormant(type);
+    if (type === 'deep') {
+      setClonePitch(0.8);
+      setCloneRate(0.9);
+      setCloneGender('Male');
+    } else if (type === 'crisp') {
+      setClonePitch(1.15);
+      setCloneRate(1.1);
+      setCloneGender('Female');
+    } else if (type === 'fast') {
+      setClonePitch(1.05);
+      setCloneRate(1.35);
+      setCloneGender('Neutral');
+    } else {
+      setClonePitch(0.98);
+      setCloneRate(1.0);
+      setCloneGender('Warm');
     }
   };
 
@@ -251,7 +384,7 @@ export default function VoiceStudio() {
                 Kokoro + Whisper
               </span>
             </h1>
-            <p className="text-[10px] text-zinc-400">On-device acoustic voice synthesis & live speech transcription</p>
+            <p className="text-[10px] text-zinc-400">On-device acoustic voice synthesis, cloning & live speech transcription</p>
           </div>
         </div>
 
@@ -259,23 +392,34 @@ export default function VoiceStudio() {
         <div className="flex items-center gap-1 bg-zinc-800 p-1 rounded-xl border border-zinc-700">
           <button
             onClick={() => setActiveTab('tts')}
-            className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+            className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
               activeTab === 'tts'
                 ? 'bg-amber-500 text-black shadow-md shadow-amber-500/20'
                 : 'text-zinc-400 hover:text-white'
             }`}
           >
-            Speech Synthesizer
+            Speech
           </button>
           <button
             onClick={() => setActiveTab('stt')}
-            className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+            className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
               activeTab === 'stt'
                 ? 'bg-amber-500 text-black shadow-md shadow-amber-500/20'
                 : 'text-zinc-400 hover:text-white'
             }`}
           >
-            Voice Dictation & STT
+            Dictate
+          </button>
+          <button
+            onClick={() => setActiveTab('cloner')}
+            className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1 ${
+              activeTab === 'cloner'
+                ? 'bg-gradient-to-r from-cyan-500 to-blue-500 text-white shadow-md'
+                : 'text-zinc-400 hover:text-white'
+            }`}
+          >
+            <Sliders className="w-3 h-3" />
+            <span>Cloner</span>
           </button>
         </div>
       </div>
@@ -321,19 +465,29 @@ export default function VoiceStudio() {
 
               {/* Voice Personas */}
               <div className="space-y-1.5 pt-1">
-                <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Acoustic Presets</span>
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Acoustic Presets ({allPresets.length})</span>
+                  <button
+                    onClick={() => setActiveTab('cloner')}
+                    className="text-[10px] text-cyan-400 hover:text-cyan-300 font-bold flex items-center gap-1 cursor-pointer"
+                  >
+                    <Plus className="w-3 h-3" />
+                    <span>Create Custom Profile</span>
+                  </button>
+                </div>
+
                 <div className="grid grid-cols-2 gap-2">
-                  {VOICE_PRESETS.map((voice) => {
+                  {allPresets.map((voice) => {
                     const isSelected = selectedVoiceId === voice.id;
                     return (
-                      <button
+                      <div
                         key={voice.id}
                         onClick={() => {
                           setSelectedVoiceId(voice.id);
                           setPitch(voice.pitch);
                           setRate(voice.rate);
                         }}
-                        className={`p-2 rounded-xl text-left border transition-all cursor-pointer ${
+                        className={`p-2 rounded-xl text-left border transition-all cursor-pointer relative group ${
                           isSelected
                             ? 'bg-amber-500/15 border-amber-500/60 ring-1 ring-amber-500/40'
                             : 'bg-zinc-800/50 border-zinc-800 hover:border-zinc-700'
@@ -348,7 +502,20 @@ export default function VoiceStudio() {
                           </span>
                         </div>
                         <p className="text-[10px] text-zinc-400 mt-1 line-clamp-1">{voice.description}</p>
-                      </button>
+
+                        {voice.isCustom && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteCustomProfile(voice.id);
+                            }}
+                            title="Delete custom voice profile"
+                            className="absolute top-1.5 right-1.5 p-1 rounded-md text-zinc-500 hover:text-rose-400 opacity-0 group-hover:opacity-100 transition-opacity"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        )}
+                      </div>
                     );
                   })}
                 </div>
@@ -428,7 +595,6 @@ export default function VoiceStudio() {
 
             {/* Big Mic Push-to-Talk Zone with Timer & Waveform */}
             <div className="flex flex-col items-center justify-center p-6 bg-zinc-950/60 rounded-xl border border-zinc-800 space-y-3 relative overflow-hidden">
-              {/* Live Waveform Canvas */}
               <canvas
                 ref={canvasRef}
                 width={300}
@@ -448,103 +614,205 @@ export default function VoiceStudio() {
               </button>
 
               <div className="text-center">
-                {isRecording ? (
-                  <div className="flex items-center justify-center gap-1.5 text-rose-400 font-mono font-bold text-xs">
-                    <Clock className="w-3.5 h-3.5 animate-spin" />
-                    <span>Recording: {formatDuration(recordingDuration)}</span>
-                  </div>
-                ) : (
-                  <p className="text-xs font-bold text-white">Tap to start recording</p>
-                )}
-                <p className="text-[10px] text-zinc-400 mt-0.5">
-                  {isRecording ? 'Tap again to stop & transcribe' : 'Speak clearly into your smartphone microphone'}
-                </p>
+                <div className="text-sm font-bold text-zinc-200">
+                  {isRecording ? 'Recording & Transcribing Live...' : 'Tap to Start Dictation'}
+                </div>
+                <div className="text-xs text-zinc-500 font-mono mt-0.5">
+                  {isRecording ? (
+                    <span className="text-rose-400 font-bold flex items-center justify-center gap-1">
+                      <Clock className="w-3 h-3 animate-spin" />
+                      <span>{formatDuration(recordingDuration)}</span>
+                    </span>
+                  ) : (
+                    'Powered by Whisper WebAssembly engine'
+                  )}
+                </div>
               </div>
             </div>
 
-            {/* Transcription Deliverable Box */}
+            {/* Transcribed Text Box */}
             <div className="space-y-2">
-              <div className="flex items-center justify-between text-xs">
-                <span className="font-bold text-zinc-400">Transcript Result:</span>
-                <div className="flex items-center gap-2">
-                  {transcribedText && (
-                    <>
-                      <button
-                        onClick={handleDownloadNote}
-                        className="flex items-center gap-1 text-[11px] text-zinc-400 hover:text-zinc-200 cursor-pointer"
-                        title="Save as TXT file"
-                      >
-                        <Download className="w-3 h-3" />
-                        <span>Export</span>
-                      </button>
-                      <button
-                        onClick={() => setTranscribedText('')}
-                        className="text-[11px] text-zinc-500 hover:text-zinc-300 cursor-pointer"
-                      >
-                        Clear
-                      </button>
-                    </>
-                  )}
-                  <button
-                    onClick={handleCopyTranscription}
-                    disabled={!transcribedText}
-                    className="flex items-center gap-1 px-2 py-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-bold cursor-pointer disabled:opacity-40"
-                  >
-                    {copied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
-                    <span>{copied ? 'Copied' : 'Copy'}</span>
-                  </button>
-                </div>
-              </div>
-
-              <div className="p-3 bg-zinc-950/80 rounded-xl border border-zinc-800 min-h-[100px] text-xs font-mono text-zinc-200 select-text leading-relaxed">
-                {transcribedText || (
-                  <span className="text-zinc-600 italic">No speech recorded yet. Tap the microphone above to begin...</span>
+              <div className="flex items-center justify-between text-xs font-bold text-zinc-300">
+                <span>Transcription Output</span>
+                {transcribedText && (
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={handleCopyTranscription}
+                      className="text-[11px] text-amber-400 hover:text-amber-300 flex items-center gap-1 cursor-pointer"
+                    >
+                      {copied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                      <span>{copied ? 'Copied' : 'Copy'}</span>
+                    </button>
+                    <button
+                      onClick={handleDownloadNote}
+                      className="text-[11px] text-zinc-400 hover:text-zinc-200 flex items-center gap-1 cursor-pointer"
+                    >
+                      <Download className="w-3 h-3" />
+                      <span>Export .txt</span>
+                    </button>
+                  </div>
                 )}
               </div>
 
-              {/* Instant Autonomous AI Prompt Action Chips */}
-              {transcribedText && (
-                <div className="space-y-1.5 pt-1">
-                  <span className="text-[10px] font-bold text-amber-400 uppercase tracking-wider flex items-center gap-1">
-                    <Sparkles className="w-3 h-3" />
-                    <span>Instant AI Meeting Workflows</span>
-                  </span>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              <div className="w-full min-h-[90px] p-3 bg-zinc-950/70 border border-zinc-800 rounded-xl text-xs text-zinc-300 font-mono whitespace-pre-wrap select-text leading-relaxed">
+                {transcribedText || <span className="text-zinc-600 italic">No audio recorded yet. Tap the microphone above to begin speech-to-text.</span>}
+              </div>
+            </div>
+
+            {/* Action Chips */}
+            {transcribedText && (
+              <div className="pt-2 border-t border-zinc-800/80 space-y-2">
+                <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">Agent Action Pipelines</span>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    onClick={() => handleSendToAgent('Please summarize the key takeaways, action items, and decisions from this audio dictation transcript:')}
+                    className="p-2 rounded-xl bg-zinc-800 hover:bg-zinc-700/80 text-left border border-zinc-700/60 flex items-center gap-2 cursor-pointer transition-all"
+                  >
+                    <ListChecks className="w-4 h-4 text-emerald-400 shrink-0" />
+                    <span className="text-[11px] font-bold text-zinc-200">Summarize & Action Items</span>
+                  </button>
+
+                  <button
+                    onClick={() => handleSendToAgent('Transform this transcribed spoken note into a polished professional email:')}
+                    className="p-2 rounded-xl bg-zinc-800 hover:bg-zinc-700/80 text-left border border-zinc-700/60 flex items-center gap-2 cursor-pointer transition-all"
+                  >
+                    <Mail className="w-4 h-4 text-cyan-400 shrink-0" />
+                    <span className="text-[11px] font-bold text-zinc-200">Draft Polished Email</span>
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ========================================================= */}
+        {/* TAB 3: NEURAL VOICE CLONER & ACOUSTIC FORMANT TUNER */}
+        {/* ========================================================= */}
+        {activeTab === 'cloner' && (
+          <div className="bg-zinc-900/80 border border-zinc-800 rounded-2xl p-4 shadow-xl space-y-4">
+            <div className="flex items-center justify-between text-xs font-bold text-zinc-300">
+              <span className="flex items-center gap-1.5 text-cyan-400">
+                <Sliders className="w-3.5 h-3.5" />
+                <span>Neural Voice Profile Cloner & Formant Calibration</span>
+              </span>
+              <span className="text-[10px] text-zinc-500 font-mono">Real-time Spectrum</span>
+            </div>
+
+            {/* Live Audio Spectrum Canvas */}
+            <div className="flex flex-col items-center justify-center p-3 bg-zinc-950/70 rounded-xl border border-zinc-800 relative">
+              <canvas
+                ref={clonerCanvasRef}
+                width={320}
+                height={50}
+                className="w-full h-12 rounded-lg bg-zinc-900/50"
+              />
+              <span className="text-[10px] text-zinc-500 font-mono mt-1">Acoustic Formant Frequency Response (20Hz - 20kHz)</span>
+            </div>
+
+            {/* Profile Creation Form */}
+            <div className="space-y-3">
+              <div>
+                <label className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider block mb-1">
+                  Persona Name
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. Cyberpunk Operator, Late Night Host..."
+                  value={cloneName}
+                  onChange={(e) => setCloneName(e.target.value)}
+                  className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-white placeholder-zinc-500 outline-none focus:border-cyan-500"
+                />
+              </div>
+
+              {/* Formant Presets */}
+              <div>
+                <label className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider block mb-1">
+                  Acoustic Timbre & Formant Filter
+                </label>
+                <div className="grid grid-cols-4 gap-1.5">
+                  {[
+                    { id: 'warm', label: 'Warm', desc: 'Balanced chest tone' },
+                    { id: 'crisp', label: 'Crisp', desc: 'High articulate' },
+                    { id: 'deep', label: 'Deep', desc: 'Authoritative' },
+                    { id: 'fast', label: 'Fast', desc: 'High-tempo' },
+                  ].map((f) => (
                     <button
-                      onClick={() => handleSendToAgent('Extract all action items, assignees, and deadlines from this meeting note in bullet points:')}
-                      className="flex items-center gap-1.5 p-2 rounded-xl bg-zinc-800/80 hover:bg-zinc-700 border border-zinc-700/60 text-left text-xs font-semibold text-zinc-200 cursor-pointer transition-all"
+                      key={f.id}
+                      onClick={() => handleApplyFormantPreset(f.id as any)}
+                      className={`p-1.5 rounded-xl border text-center transition-all cursor-pointer ${
+                        cloneFormant === f.id
+                          ? 'bg-cyan-500/20 border-cyan-500 text-cyan-300 font-bold shadow-sm'
+                          : 'bg-zinc-800 border-zinc-700 text-zinc-400 hover:text-white'
+                      }`}
                     >
-                      <ListChecks className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                      <span className="line-clamp-1">Action Items</span>
+                      <div className="text-xs">{f.label}</div>
+                      <div className="text-[9px] text-zinc-500 line-clamp-1">{f.desc}</div>
                     </button>
-                    <button
-                      onClick={() => handleSendToAgent('Draft a concise professional follow-up email based on the following discussion transcript:')}
-                      className="flex items-center gap-1.5 p-2 rounded-xl bg-zinc-800/80 hover:bg-zinc-700 border border-zinc-700/60 text-left text-xs font-semibold text-zinc-200 cursor-pointer transition-all"
-                    >
-                      <Mail className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
-                      <span className="line-clamp-1">Follow-up Email</span>
-                    </button>
-                    <button
-                      onClick={() => handleSendToAgent('Provide an executive 3-bullet TL;DR summary highlighting key decisions:')}
-                      className="flex items-center gap-1.5 p-2 rounded-xl bg-zinc-800/80 hover:bg-zinc-700 border border-zinc-700/60 text-left text-xs font-semibold text-zinc-200 cursor-pointer transition-all"
-                    >
-                      <Zap className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                      <span className="line-clamp-1">3-Bullet TL;DR</span>
-                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Tuning Sliders */}
+              <div className="grid grid-cols-2 gap-3 pt-2 border-t border-zinc-800/80">
+                <div>
+                  <div className="flex justify-between text-[11px] text-zinc-400 mb-1">
+                    <span>Pitch Calibration</span>
+                    <span className="font-mono text-cyan-400">{clonePitch}</span>
                   </div>
+                  <input
+                    type="range"
+                    min="0.6"
+                    max="1.5"
+                    step="0.05"
+                    value={clonePitch}
+                    onChange={(e) => setClonePitch(parseFloat(e.target.value))}
+                    className="w-full accent-cyan-500 cursor-pointer"
+                  />
+                </div>
+
+                <div>
+                  <div className="flex justify-between text-[11px] text-zinc-400 mb-1">
+                    <span>Cadence Speed</span>
+                    <span className="font-mono text-cyan-400">{cloneRate}x</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0.6"
+                    max="1.8"
+                    step="0.05"
+                    value={cloneRate}
+                    onChange={(e) => setCloneRate(parseFloat(e.target.value))}
+                    className="w-full accent-cyan-500 cursor-pointer"
+                  />
+                </div>
+              </div>
+
+              {saveSuccessMsg && (
+                <div className="p-2 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs font-medium flex items-center gap-1.5">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                  <span>{saveSuccessMsg}</span>
                 </div>
               )}
 
-              {/* Action: Send to Hermes Agent */}
-              {transcribedText && (
+              {/* Action Buttons */}
+              <div className="grid grid-cols-2 gap-2 pt-1">
                 <button
-                  onClick={() => handleSendToAgent()}
-                  className="w-full py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 text-black font-black text-xs flex items-center justify-center gap-2 transition-all cursor-pointer shadow-md shadow-amber-500/20"
+                  onClick={handlePreviewClone}
+                  className="py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer transition-all border border-zinc-700"
                 >
-                  <Send className="w-3.5 h-3.5" />
-                  <span>Send Raw Transcript to Hermes Agent</span>
+                  <Play className="w-3.5 h-3.5 text-cyan-400" />
+                  <span>Test Timbre</span>
                 </button>
-              )}
+
+                <button
+                  onClick={handleSaveCustomProfile}
+                  disabled={!cloneName.trim()}
+                  className="py-2.5 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 disabled:opacity-40 text-white font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-lg shadow-cyan-600/30 transition-all"
+                >
+                  <Bookmark className="w-3.5 h-3.5" />
+                  <span>Save Persona</span>
+                </button>
+              </div>
             </div>
           </div>
         )}
