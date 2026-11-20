@@ -15,6 +15,8 @@ import {
   Edit2,
   Tag,
   Sparkles,
+  Download,
+  FileJson,
 } from 'lucide-react';
 import { useAppStore, ChatSession } from '@/appStore';
 
@@ -42,6 +44,58 @@ export default function ChatHistoryModal({ isOpen, onClose }: ChatHistoryModalPr
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState('');
+
+  const downloadBlob = (content: string, filename: string, mimeType: string) => {
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const stamp = () => {
+    const d = new Date();
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+  };
+
+  const slugify = (title: string) =>
+    title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'conversation';
+
+  // Full backup of BOTH chat and agent histories as a portable JSON file.
+  const handleExportAll = () => {
+    const payload = {
+      app: 'android-hermes-agent-and-llm-ai-models',
+      format: 1,
+      exportedAt: new Date().toISOString(),
+      chatSessions,
+      agentSessions,
+    };
+    downloadBlob(JSON.stringify(payload, null, 2), `hermes-backup-${stamp()}.json`, 'application/json');
+  };
+
+  // Single conversation as a readable markdown transcript.
+  const handleExportSessionMarkdown = (e: React.MouseEvent, s: ChatSession) => {
+    e.stopPropagation();
+    const lines: string[] = [
+      `# ${s.title}`,
+      '',
+      `- Exported: ${new Date().toLocaleString()}`,
+      `- Messages: ${s.messages.length}`,
+      `- Category: ${s.category || 'General'}`,
+      '',
+    ];
+    for (const m of s.messages) {
+      const who = m.role === 'user' ? 'You' : (m.modelUsed || 'Hermes AI');
+      const time = new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      lines.push(`---`, '', `**${who}** _(${time})_`, '', m.content, '');
+    }
+    downloadBlob(lines.join('\n'), `${slugify(s.title)}.md`, 'text/markdown');
+  };
 
   if (!isOpen) return null;
 
@@ -120,6 +174,14 @@ export default function ChatHistoryModal({ isOpen, onClose }: ChatHistoryModalPr
           </div>
 
           <div className="flex items-center gap-1.5">
+            <button
+              onClick={handleExportAll}
+              title="Download a full JSON backup of all chat and agent conversations"
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-bold transition-all cursor-pointer border border-zinc-700"
+            >
+              <FileJson className="w-3.5 h-3.5 text-cyan-400" />
+              <span>Export All</span>
+            </button>
             <button
               onClick={() => {
                 createNewSession();
@@ -284,7 +346,7 @@ export default function ChatHistoryModal({ isOpen, onClose }: ChatHistoryModalPr
                       </div>
                     </div>
 
-                    {/* Actions: Pin & Delete */}
+                    {/* Actions: Pin, Export & Delete */}
                     <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
                       <button
                         onClick={() => togglePinSession(s.id)}
@@ -296,6 +358,14 @@ export default function ChatHistoryModal({ isOpen, onClose }: ChatHistoryModalPr
                         }`}
                       >
                         <Pin className={`w-3.5 h-3.5 ${s.pinned ? 'fill-amber-400' : ''}`} />
+                      </button>
+
+                      <button
+                        onClick={(e) => handleExportSessionMarkdown(e, s)}
+                        title="Export this conversation as a markdown transcript"
+                        className="p-1.5 rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-500 hover:text-cyan-400 hover:border-cyan-500/30 transition-all cursor-pointer"
+                      >
+                        <Download className="w-3.5 h-3.5" />
                       </button>
 
                       {sessionsList.length > 1 && (
