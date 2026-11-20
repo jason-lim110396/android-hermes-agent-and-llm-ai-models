@@ -54,6 +54,7 @@ import {
   FileSpreadsheet,
   History,
   Calculator,
+  Presentation,
 } from 'lucide-react';
 import { useAppStore, Attachment } from '@/appStore';
 import { AVAILABLE_MODELS, ModelSpec } from '@/models';
@@ -63,6 +64,7 @@ import TableSpreadsheetModal from './TableSpreadsheetModal';
 import ChatHistoryModal from './ChatHistoryModal';
 import ExportDocumentModal from './ExportDocumentModal';
 import MathFormulaModal from './MathFormulaModal';
+import SlideDeckModal from './SlideDeckModal';
 
 export default function ChatView() {
   const hardwareProfile = useAppStore((s) => s.hardwareProfile);
@@ -167,6 +169,18 @@ export default function ChatView() {
     }
     setIsMathModalOpen(true);
     if (navigator.vibrate) navigator.vibrate(20);
+  };
+
+  // Offline Presentation Slide Deck State
+  const [isSlideDeckOpen, setIsSlideDeckOpen] = useState(false);
+  const [slideDeckContent, setSlideDeckContent] = useState('');
+  const [slideDeckTitle, setSlideDeckTitle] = useState('Hermes Neural Presentation');
+
+  const handleOpenSlideDeck = (content: string) => {
+    setSlideDeckContent(content);
+    setSlideDeckTitle('Hermes AI Presentation');
+    setIsSlideDeckOpen(true);
+    if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(20);
   };
 
   // Smart Prompt Snippets & System Directives State
@@ -1650,6 +1664,18 @@ export default function ChatView() {
                       </button>
                     )}
 
+                    {/* View / Present as Offline Slide Deck */}
+                    {(msg.content.includes('# ') || msg.content.includes('## ') || msg.content.includes('---')) && (
+                      <button
+                        onClick={() => handleOpenSlideDeck(msg.content)}
+                        title="Present message as interactive slide deck carousel"
+                        className="flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold bg-blue-950/70 hover:bg-blue-900/80 text-blue-300 hover:text-white border border-blue-700/80 transition-all cursor-pointer shadow-sm"
+                      >
+                        <Presentation className="w-3 h-3 text-blue-400" />
+                        <span>Present Deck</span>
+                      </button>
+                    )}
+
                     {/* Star / Bookmark Button */}
                     <button
                       onClick={() => toggleStarMessage(msg.id)}
@@ -2440,6 +2466,14 @@ export default function ChatView() {
         isOpen={isMathModalOpen}
         initialLatex={mathModalLatex}
         onClose={() => setIsMathModalOpen(false)}
+      />
+
+      {/* Offline Markdown Presentation Slide Deck Modal */}
+      <SlideDeckModal
+        isOpen={isSlideDeckOpen}
+        initialContent={slideDeckContent}
+        deckTitle={slideDeckTitle}
+        onClose={() => setIsSlideDeckOpen(false)}
       />
     </div>
   );
