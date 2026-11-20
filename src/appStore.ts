@@ -217,25 +217,47 @@ const STOPPED_MARKERS = ['*[Stopped by user]*', '*[Task stopped by user]*'];
 const FAILED_MARKER_RE = /^\*\[Generation failed: .*\]\*$/;
 
 /** Strips the blockquote fallback/privacy notices and the stopped/failed
- * markers that were rendered into a past assistant reply. */
+ * markers that were rendered into a past assistant reply. Returns the
+ * content unchanged when nothing was stripped. */
 export function stripPromptNotices(content: string): string {
   if (!content) return content;
-  const kept = content.split('\n').filter((line) => {
+  const lines = content.split('\n');
+  const kept = lines.filter((line) => {
     const trimmed = line.trim();
     if (STOPPED_MARKERS.includes(trimmed)) return false;
     if (FAILED_MARKER_RE.test(trimmed)) return false;
     return !PROMPT_NOTICE_PREFIXES.some((p) => trimmed.startsWith(p));
   });
+  if (kept.length === lines.length) return content;
   // Drop the blank separator line the notice was appended with.
   while (kept.length > 0 && kept[kept.length - 1].trim() === '') kept.pop();
   return kept.join('\n');
 }
 
+/** Leading UI announcements the runtimes prepend to a stored reply
+ * (attachment receipt / multimodal-visual notice). */
+const ANNOUNCEMENT_PREFIX_RES = [
+  /^\*Received \d+ attachment\(s\)[^\n]*\*\n+/,
+  /^### 👁️ Multimodal Visual Context Ingested\n[^\n]*\n+/,
+];
+
 /** True when the whole message is an on-device error display, not a real
  * model reply, so it must not enter the conversation history the next
- * request is built from. */
+ * request is built from. A turn with attachments stores the error display
+ * behind the announcement prefix, so look past it before testing. */
 export function isErrorDisplayMessage(content: string): boolean {
-  const trimmed = (content || '').trimStart();
+  let trimmed = (content || '').trim();
+  let stripped = true;
+  while (stripped) {
+    stripped = false;
+    for (const re of ANNOUNCEMENT_PREFIX_RES) {
+      const next = trimmed.replace(re, '');
+      if (next !== trimmed) {
+        trimmed = next.trim();
+        stripped = true;
+      }
+    }
+  }
   return (
     trimmed.startsWith('⚠️ **On-Device LLM Inference Error**') ||
     trimmed.startsWith('⚠️ **CPU (WASM) Inference Error**')
@@ -1193,7 +1215,12 @@ export const useAppStore = create<AppStore>((set, get) => ({
         err?.name === 'AbortError' ||
         err?.name === 'WllamaAbortError' ||
         (typeof err?.message === 'string' && /stopped by user|abort/i.test(err.message));
-      const failureReason = String(err?.message || err || 'unknown error').replace(/`/g, "'");
+      const failureReason = String(err?.message || err || 'unknown error')
+        .replace(/[\r\n]+/g, ' ')
+        .replace(/`/g, "'")
+        // One line only: a multi-line reason would break the single-line
+        // marker that stripPromptNotices must match on the next turn.
+        .slice(0, 200);
       const stoppedSuffix = isUserStop ? '*[Stopped by user]*' : `*[Generation failed: ${failureReason}]*`;
       const emptyStopped = isUserStop ? '*[Task stopped by user]*' : `*[Generation failed: ${failureReason}]*`;
       // Look the message up in the session captured at send time, not the
