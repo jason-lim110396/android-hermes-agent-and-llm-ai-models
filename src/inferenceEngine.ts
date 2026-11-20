@@ -1,6 +1,6 @@
 import type { MLCEngine, InitProgressReport } from '@mlc-ai/web-llm';
 import { AVAILABLE_MODELS, ModelSpec } from './models';
-import { describeLimitFailure, isUsageLimitFailure } from './utils/modelFallback';
+import { describeLimitFailure } from './utils/modelFallback';
 import {
   isCpuModelCached,
   downloadCpuModelWeights,
@@ -492,17 +492,20 @@ export async function callRealLLMInference({
             onStreamChunk
           );
           if (text) {
-            if (i > 0 && lastFailure instanceof RemoteEndpointError) {
-              const reason = describeLimitFailure(lastFailure.status, lastFailure.detail);
+            if (i > 0) {
+              const reason =
+                lastFailure instanceof RemoteEndpointError
+                  ? describeLimitFailure(lastFailure.status, lastFailure.detail)
+                  : (lastFailure?.message || 'unavailable');
               try {
                 config.onFallback?.({ from: candidates[0].label, to: candidate.label, reason });
               } catch (_) {}
             }
             return text;
           }
-          // A 200 with no streamed content is not a limit - do not send the
-          // same prompt to another provider.
-          break;
+          // An empty 200 is not a useful answer. Keep switching so one bad
+          // provider cannot stop the whole chain.
+          console.warn(`Inference endpoint "${candidate.label}" returned an empty answer, trying next in chain.`);
         } catch (err: unknown) {
           if (signal.aborted) throw err;
           lastFailure = err as Error;
@@ -510,16 +513,23 @@ export async function callRealLLMInference({
           // with the next endpoint's output. The store callbacks must honour
           // this empty write without throttling it.
           try { onStreamChunk(''); } catch (_) {}
-          const isLimit = lastFailure instanceof RemoteEndpointError &&
-            isUsageLimitFailure(lastFailure.status, lastFailure.detail);
-          if (!isLimit) {
+          // Only a bad API key (401) is terminal: forwarding the same prompt
+          // would not help. Every other failure (limit, quota, outage, 404,
+          // 5xx, network) keeps the chain moving so the app does not stop.
+          const isBadKey =
+            lastFailure instanceof RemoteEndpointError && lastFailure.status === 401;
+          if (isBadKey) {
             console.warn(
-              `Inference endpoint "${candidate.label}" failed with a non-limit error; not sending the prompt to another provider:`,
+              `Inference endpoint "${candidate.label}" rejected the API key (401); not sending the prompt to another provider:`,
               err
             );
             break;
           }
-          console.warn(`Inference endpoint "${candidate.label}" hit a usage limit, trying next in chain:`, err);
+          const reason =
+            lastFailure instanceof RemoteEndpointError
+              ? describeLimitFailure(lastFailure.status, lastFailure.detail)
+              : (lastFailure?.message || 'unavailable');
+          console.warn(`Inference endpoint "${candidate.label}" failed (${reason}), trying next in chain:`, err);
         }
       }
 
