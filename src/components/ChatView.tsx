@@ -353,7 +353,31 @@ export default function ChatView() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<any>(null);
+
+  // Mobile UX: soft keyboard awareness (Capacitor Android WebView) + jump-to-latest tracking
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const [isAwayFromBottom, setIsAwayFromBottom] = useState(false);
+
+  // Keyboard-aware composer: when the visual viewport is shorter than the layout
+  // viewport by more than ~120px, treat the gap as the soft keyboard height so the
+  // composer can pad itself up and stay visible above the keyboard.
+  React.useEffect(() => {
+    if (typeof window === 'undefined' || !window.visualViewport) return;
+    const viewport = window.visualViewport;
+    const updateKeyboardHeight = () => {
+      const keyboardGap = window.innerHeight - viewport.height;
+      setKeyboardHeight(keyboardGap > 120 ? keyboardGap : 0);
+    };
+    updateKeyboardHeight();
+    viewport.addEventListener('resize', updateKeyboardHeight);
+    viewport.addEventListener('scroll', updateKeyboardHeight);
+    return () => {
+      viewport.removeEventListener('resize', updateKeyboardHeight);
+      viewport.removeEventListener('scroll', updateKeyboardHeight);
+    };
+  }, []);
 
   // Current session & messages depending on operating mode
   const currentSession = operatingMode === 'agent'
@@ -1365,7 +1389,14 @@ export default function ChatView() {
 
 
       {/* MAIN VIEW: MESSAGES TIMELINE */}
-      <div className="flex-1 overflow-y-auto p-3 space-y-3">
+      <div
+        ref={messagesContainerRef}
+        onScroll={(e) => {
+          const el = e.currentTarget;
+          setIsAwayFromBottom(el.scrollHeight - el.scrollTop - el.clientHeight > 250);
+        }}
+        className="flex-1 overflow-y-auto p-3 space-y-3"
+      >
             {messages.length === 0 && (
               <div className="h-full flex flex-col items-center justify-center text-center p-6 space-y-4 max-w-md mx-auto">
                 <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-cyan-500/20 via-indigo-500/20 to-purple-500/20 border border-cyan-500/30 flex items-center justify-center text-cyan-400 shadow-xl shadow-cyan-500/10">
@@ -1903,6 +1934,20 @@ export default function ChatView() {
         </div>
       </div>
 
+      {/* Jump-to-Latest: floating pill shown when scrolled away from bottom */}
+      {isAwayFromBottom && (
+        <button
+          onClick={() => {
+            messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+            if (navigator.vibrate) navigator.vibrate(10);
+          }}
+          title="Jump to latest message"
+          className="absolute bottom-36 right-4 z-30 w-10 h-10 rounded-full bg-zinc-900 border border-cyan-500/40 hover:border-cyan-400 text-cyan-400 shadow-xl shadow-cyan-500/10 flex items-center justify-center transition-all cursor-pointer active:scale-95 animate-in fade-in slide-in-from-bottom duration-200"
+        >
+          <ChevronDown className="w-5 h-5" />
+        </button>
+      )}
+
       {/* Pending Attachments Tray */}
       {pendingAttachments.length > 0 && (
         <div className="px-3 py-1.5 bg-zinc-900 border-t border-zinc-800 flex items-center gap-2 overflow-x-auto">
@@ -1932,7 +1977,10 @@ export default function ChatView() {
       )}
 
       {/* Bottom Input Area */}
-      <div className="p-2 bg-zinc-950 border-t border-zinc-800 z-20 shrink-0">
+      <div
+        className="p-2 bg-zinc-950 border-t border-zinc-800 z-20 shrink-0"
+        style={{ paddingBottom: keyboardHeight > 0 ? `${keyboardHeight}px` : undefined }}
+      >
         {/* Mobile Quick Hardware & Intent Bar */}
         <div className="flex items-center gap-1.5 overflow-x-auto pb-1.5 pt-0.5 mb-1 no-scrollbar">
           <button
