@@ -72,7 +72,14 @@ export function loadFallbackSettings(): FallbackSettings {
             model: typeof e.model === 'string' ? e.model : undefined,
           }))
       : [];
-    return { enabled: parsed.enabled !== false, chain };
+    // Duplicate ids would produce duplicate React keys in Settings.
+    const seen = new Set<string>();
+    const unique = chain.filter((e) => {
+      if (seen.has(e.id)) return false;
+      seen.add(e.id);
+      return true;
+    });
+    return { enabled: parsed.enabled !== false, chain: unique };
   } catch (_) {
     return fallback;
   }
@@ -102,7 +109,6 @@ export function saveFallbackSettings(settings: FallbackSettings): boolean {
   }
 }
 
-const LIMIT_STATUS = new Set([402, 403, 429, 503]);
 const LIMIT_HINTS = [
   'rate limit',
   'rate_limit',
@@ -120,17 +126,23 @@ const LIMIT_HINTS = [
  * so a different endpoint is likely to succeed.
  */
 export function isUsageLimitFailure(status: number, detail: string): boolean {
-  if (LIMIT_STATUS.has(status)) return true;
+  // 429 (rate limit) and 402 (payment required) are unambiguous.
+  if (status === 429 || status === 402) return true;
+  // 401 is a bad key; 500 is a server fault. Neither means "try a different
+  // provider" - sending the same prompt elsewhere would hide the real error.
+  if (status === 401 || status < 400 || status >= 600) return false;
   const body = (detail || '').toLowerCase();
+  // 403 / 503 / 4xx only count when the provider actually says quota or limit.
   return LIMIT_HINTS.some((hint) => body.includes(hint));
 }
 
 export function describeLimitFailure(status: number, detail: string): string {
+  const body = (detail || '').toLowerCase();
+  const hint = LIMIT_HINTS.find((h) => body.includes(h));
+  if (hint) return `limit: ${hint}`;
   if (status === 429) return 'rate limit';
   if (status === 402) return 'payment required';
   if (status === 403) return 'quota / tier blocked';
   if (status === 503) return 'provider unavailable';
-  const body = (detail || '').toLowerCase();
-  const hint = LIMIT_HINTS.find((h) => body.includes(h));
-  return hint ? `limit: ${hint}` : `HTTP ${status}`;
+  return `HTTP ${status}`;
 }
