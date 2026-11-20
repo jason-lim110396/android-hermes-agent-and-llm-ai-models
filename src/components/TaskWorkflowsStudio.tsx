@@ -52,7 +52,7 @@ const PRESET_WORKFLOWS: WorkflowTemplate[] = [
     id: 'expense-auditor',
     title: 'Automated Receipt & Expense Auditor',
     category: 'Finance & OCR',
-    description: 'Scans device camera folder for receipt images, runs OCR to extract totals and merchants, generates a CSV spreadsheet, and triggers WhatsApp share.',
+    description: 'Searches app-local files for receipt and expense notes. No real receipts found? The CSV is clearly labeled as sample data - never presented as your own spending.',
     stepsCount: 4,
     icon: FileSpreadsheet,
     color: 'from-emerald-500 to-teal-600',
@@ -62,7 +62,7 @@ const PRESET_WORKFLOWS: WorkflowTemplate[] = [
     id: 'morning-briefing',
     title: 'Executive Voice & System Briefing',
     category: 'Audio & Intelligence',
-    description: 'Audits phone battery and network health, gathers top tech headlines via web search, synthesizes voice briefing with Kokoro TTS, and schedules a reminder.',
+    description: 'Audits phone battery and network health with measured values, gathers top tech headlines via a real web search, speaks the briefing via the Web Speech API (where the WebView supports it), and schedules a real reminder.',
     stepsCount: 4,
     icon: Volume2,
     color: 'from-amber-500 to-orange-600',
@@ -70,10 +70,10 @@ const PRESET_WORKFLOWS: WorkflowTemplate[] = [
   },
   {
     id: 'meeting-transcriber',
-    title: 'Voice Memo Transcriber & Action Items',
+    title: 'Voice Memo & Meeting Notes Pipeline',
     category: 'Productivity',
-    description: 'Locates recent meeting voice memos, transcribes speech, extracts key action items with deadlines, arms phone reminders, and exports Markdown.',
-    stepsCount: 4,
+    description: 'Runs the general on-device pipeline for this goal: real hardware diagnostics, an app-local file search, and a haptic alert. A WebView cannot read system voice recordings, so no transcription is claimed.',
+    stepsCount: 3,
     icon: Clock,
     color: 'from-blue-500 to-indigo-600',
     defaultPrompt: 'Find recent voice memo recordings, transcribe speech notes, extract bulleted action items, and arm phone reminders.',
@@ -82,7 +82,7 @@ const PRESET_WORKFLOWS: WorkflowTemplate[] = [
     id: 'storage-cache-cleaner',
     title: 'Phone Storage & Cache Optimizer',
     category: 'System Maintenance',
-    description: 'Audits IndexedDB large model weights, calculates storage usage, cleans temporary cache, and triggers a tactile haptic buzz alert.',
+    description: 'Reports the real browser storage quota and usage via the Storage API, checks app-local files, and vibrates when done. No cache buffers are actually deleted in this scripted pipeline.',
     stepsCount: 3,
     icon: HardDrive,
     color: 'from-purple-500 to-pink-600',
@@ -92,7 +92,7 @@ const PRESET_WORKFLOWS: WorkflowTemplate[] = [
     id: 'meeting-calendar-scheduler',
     title: 'Meeting Minutes & Calendar Action Items',
     category: 'Productivity & Calendar',
-    description: 'Extracts decisions and action items from notes, sets reminder alarms, and generates an importable .ics calendar event file.',
+    description: 'Searches app-local files for meeting notes and generates an importable .ics example. The sample decisions and assignees are labeled as examples unless real notes are found.',
     stepsCount: 4,
     icon: Calendar,
     color: 'from-cyan-500 to-blue-600',
@@ -102,7 +102,7 @@ const PRESET_WORKFLOWS: WorkflowTemplate[] = [
     id: 'tax-expense-exporter',
     title: 'Year-End Tax & Deductible Expense Ledger',
     category: 'Finance & Tax',
-    description: 'Scans device receipt scans, classifies expense categories (Office, Travel, Software, Meals), verifies tax deduction eligibility, and exports a tax-compliant CSV.',
+    description: 'Demonstrates a tax-deductible CSV ledger format. The expense rows are clearly labeled sample data - a WebView cannot scan your real receipt photos.',
     stepsCount: 4,
     icon: FileSpreadsheet,
     color: 'from-amber-500 to-emerald-600',
@@ -110,9 +110,9 @@ const PRESET_WORKFLOWS: WorkflowTemplate[] = [
   },
   {
     id: 'battery-thermal-audit',
-    title: 'Battery Drain & Deep Sleep Thermal Audit',
+    title: 'Battery & Power Reality Check',
     category: 'Hardware & Diagnostics',
-    description: 'Profiles real-time discharge rates (%/hr), reads SoC core thermistors, checks CPU thermal throttling thresholds, and exports an actionable battery longevity report.',
+    description: 'Reports genuinely measured values: Battery API level and charging state, storage quota, RAM ceiling. Anything a WebView cannot measure (SoC temperature, discharge curves) is reported as not measurable.',
     stepsCount: 4,
     icon: BatteryCharging,
     color: 'from-rose-500 to-amber-600',
@@ -122,7 +122,7 @@ const PRESET_WORKFLOWS: WorkflowTemplate[] = [
     id: 'git-diff-auditor',
     title: 'Git Diff & Code Patch Review Automator',
     category: 'Developer & Code Audit',
-    description: 'Parses unified git diffs, verifies patch line metrics (+/-), audits additions for secret leaks, memory leaks, and generates an automated markdown PR code review.',
+    description: 'Paste a unified git diff into the goal box, then tap Execute on this card - or tap Run Task, which auto-detects pasted diffs. File count, +/- line metrics and a secret-pattern scan are computed from YOUR diff. No diff pasted means nothing is analyzed.',
     stepsCount: 4,
     icon: GitPullRequest,
     color: 'from-violet-500 to-indigo-600',
@@ -130,9 +130,9 @@ const PRESET_WORKFLOWS: WorkflowTemplate[] = [
   },
   {
     id: 'memory-leak-gc-sweeper',
-    title: 'App Memory Leak & Garbage Collection Diagnostic Sweeper',
+    title: 'App Memory & Heap Reality Check',
     category: 'Performance & Profiling',
-    description: 'Profiles JS heap limits, scans for detached DOM elements and unrevoked object URLs, runs generational GC sweep, and exports an actionable mobile memory telemetry report.',
+    description: 'Reports the real JS heap size when the WebView exposes performance.memory, plus honest limits: a page cannot enumerate detached DOM nodes or force GC. No invented "reclaimed MB" numbers.',
     stepsCount: 4,
     icon: Activity,
     color: 'from-emerald-500 to-teal-600',
@@ -140,9 +140,9 @@ const PRESET_WORKFLOWS: WorkflowTemplate[] = [
   },
   {
     id: 'privacy-telemetry-audit',
-    title: 'Sovereign Local Storage & Privacy Zero-Egress Auditor',
+    title: 'Local Storage & Privacy Design Audit',
     category: 'Privacy & Security',
-    description: 'Audits IndexedDB stores, LocalStorage key integrity, active sockets, and verifies strict zero-cloud data egress across all on-device AI operations.',
+    description: 'Reports measured storage usage and the app codebase design facts (no analytics SDKs, local-first storage). Design facts are stated as design facts - not "cryptographically verified" claims.',
     stepsCount: 4,
     icon: ShieldCheck,
     color: 'from-emerald-600 to-cyan-600',
@@ -152,7 +152,7 @@ const PRESET_WORKFLOWS: WorkflowTemplate[] = [
     id: 'batch-content-redactor',
     title: 'Multi-File Batch Content Redactor & Anonymizer',
     category: 'Privacy & Security',
-    description: 'Scans multiple on-device documents for sensitive PII (names, emails, phones, financial accounts) and outputs cryptographically sanitized redaction bundles.',
+    description: 'Demonstrates a PII redaction report format with clearly labeled sample rows. No documents on your phone are read by this scripted pipeline.',
     stepsCount: 4,
     icon: EyeOff,
     color: 'from-purple-600 to-indigo-600',
@@ -162,7 +162,7 @@ const PRESET_WORKFLOWS: WorkflowTemplate[] = [
     id: 'dependency-compliance-audit',
     title: 'Code Dependency Vulnerability & License Compliance Checker',
     category: 'Development & DevOps',
-    description: 'Audits package manifests (package.json, lockfiles) for CVE vulnerabilities, incompatible copyleft GPL licenses, and orphaned subdependencies.',
+    description: 'Formats an example SBOM report. A real CVE audit needs a live vulnerability database, which this offline pipeline does not query - the sample says so plainly.',
     stepsCount: 4,
     icon: ShieldAlert,
     color: 'from-amber-600 to-rose-600',
@@ -170,10 +170,10 @@ const PRESET_WORKFLOWS: WorkflowTemplate[] = [
   },
   {
     id: 'spatial-sensor-telemetry',
-    title: 'Spatial Sensor & Environmental Telemetry Audit',
+    title: 'Spatial Sensor Goal Pipeline',
     category: 'Hardware & Spatial Sensing',
-    description: 'Polls real-time gyroscope orientation, battery discharge curves, GPS coordinates, ambient lux levels, and outputs a signed mobile sensor certificate.',
-    stepsCount: 4,
+    description: 'Runs the general on-device pipeline: real hardware diagnostics, an app-local search for your goal, and a haptic alert. GPS/lux telemetry is not claimed - this scripted path does not read them.',
+    stepsCount: 3,
     icon: Compass,
     color: 'from-teal-500 to-cyan-600',
     defaultPrompt: 'Audit mobile device spatial sensors, read orientation angles, check battery discharge telemetry, locate GPS accuracy, and produce a signed sensor certificate.',
@@ -188,8 +188,17 @@ interface ExecutionLog {
   result?: string;
 }
 
+/** True when the text looks like a unified git diff (header or +/- hunk
+ * markers), so Run Task can route a pasted diff to the diff auditor. */
+function looksLikeUnifiedDiff(text: string): boolean {
+  const t = text.trim();
+  if (!t) return false;
+  if (t.startsWith('diff --git ')) return true;
+  const lines = t.split(/\r?\n/);
+  return lines.some((l) => l.startsWith('+++ ')) && lines.some((l) => l.startsWith('--- '));
+}
+
 export default function TaskWorkflowsStudio() {
-  const hardwareProfile = useAppStore((s) => s.hardwareProfile);
   const speakText = useAppStore((s) => s.speakText);
 
   const [activeWorkflowId, setActiveWorkflowId] = useState<string>('expense-auditor');
@@ -223,43 +232,57 @@ export default function TaskWorkflowsStudio() {
     setGeneratedFile(null);
     setLogs([]);
 
-    const prompt = customPrompt || currentTemplate.defaultPrompt;
+    // A pasted unified diff in the goal box routes to the diff auditor: Run
+    // Task auto-detects diff-looking text, and the auditor card's Execute
+    // passes the goal text, so the real diff parser is reachable from both
+    // entry points instead of being dead code behind a "custom" pipeline.
+    if (workflowId === 'custom' && looksLikeUnifiedDiff(customPrompt || '')) {
+      workflowId = 'git-diff-auditor';
+    }
+
+    // Resolve the template from the workflowId argument, not from
+    // currentTemplate: the Execute button can fire for a card whose
+    // setActiveWorkflowId has not re-rendered yet, which previously ran the
+    // goal under the previous workflow's default prompt.
+    const template = PRESET_WORKFLOWS.find((w) => w.id === workflowId);
+    const prompt = customPrompt || (template ? template.defaultPrompt : currentTemplate.defaultPrompt);
 
     if (workflowId === 'expense-auditor') {
       // Step 1: Find Receipts
-      const step1: ExecutionLog = { step: 1, toolName: 'find_device_files', status: 'running', detail: 'Scanning phone storage (/DCIM/Camera) for receipt and invoice images...' };
+      const step1: ExecutionLog = { step: 1, toolName: 'find_device_files', status: 'running', detail: 'Searching app-local files for receipt and invoice notes (a WebView cannot read /DCIM)...' };
       setLogs([step1]);
       setCurrentStepIndex(1);
       await new Promise((r) => setTimeout(r, 600));
 
       const findTool = AGENT_TOOLS.find((t) => t.name === 'find_device_files');
-      const filesResult = findTool ? await findTool.execute({ query: 'store receipt invoice tax grocery', file_type: 'image' }) : 'Files located.';
+      const filesResult = findTool ? await findTool.execute({ query: 'store receipt invoice tax grocery', file_type: 'image' }) : 'App-local search unavailable.';
       step1.status = 'completed';
       step1.result = filesResult;
 
-      // Step 2: Document OCR Extraction
-      const step2: ExecutionLog = { step: 2, toolName: 'document_analyzer', status: 'running', detail: 'Running MiniCPM-V OCR extraction on receipt text and line items...' };
+      // Step 2: No on-device OCR engine runs in this WebView: the rows below
+      // are sample data, stated as sample data, never as the user's receipts.
+      const step2: ExecutionLog = { step: 2, toolName: 'document_analyzer', status: 'running', detail: 'No on-device OCR engine is available in this WebView - preparing clearly-labeled sample expense rows...' };
       setLogs([step1, step2]);
       setCurrentStepIndex(2);
       await new Promise((r) => setTimeout(r, 700));
 
-      const ocrResult = `[OCR Receipt Extraction Results]\n1. Supermarket Store #402: $48.50 (Tax: $4.20) - 2026-10-18\n2. Hardware Depot: $124.90 (Tax: $11.00) - 2026-10-16\n3. City Coffee & Bakery: $14.25 (Tax: $1.15) - 2026-10-14`;
+      const ocrResult = `[Sample Expense Rows - not read from any receipt on this phone]\n1. Supermarket Store #402: $48.50 (Tax: $4.20)\n2. Hardware Depot: $124.90 (Tax: $11.00)\n3. City Coffee & Bakery: $14.25 (Tax: $1.15)`;
       step2.status = 'completed';
       step2.result = ocrResult;
 
       // Step 3: Compute Math & Generate CSV
-      const step3: ExecutionLog = { step: 3, toolName: 'code_interpreter', status: 'running', detail: 'Calculating total expenditure, tax deductions, and compiling CSV table...' };
+      const step3: ExecutionLog = { step: 3, toolName: 'code_interpreter', status: 'running', detail: 'Compiling the labeled sample rows into a CSV spreadsheet...' };
       setLogs([step1, step2, step3]);
       setCurrentStepIndex(3);
       await new Promise((r) => setTimeout(r, 600));
 
-      const csvContent = `Merchant,Date,Category,Amount,Tax\nSupermarket Store #402,2026-10-18,Groceries,48.50,4.20\nHardware Depot,2026-10-16,Supplies,124.90,11.00\nCity Coffee & Bakery,2026-10-14,Meals,14.25,1.15\nTOTAL,,,$187.65,$16.35`;
+      const csvContent = `# SAMPLE DATA - not read from any receipt on this phone\nMerchant,Date,Category,Amount,Tax\nSupermarket Store #402,2026-10-18,Groceries,48.50,4.20\nHardware Depot,2026-10-16,Supplies,124.90,11.00\nCity Coffee & Bakery,2026-10-14,Meals,14.25,1.15\nTOTAL,,,$187.65,$16.35`;
       const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
       const csvUrl = URL.createObjectURL(blob);
-      setGeneratedFile({ name: 'Hermes_Expense_Report_2026.csv', url: csvUrl, size: '240 bytes' });
+      setGeneratedFile({ name: 'Hermes_Expense_Report_SAMPLE.csv', url: csvUrl, size: '260 bytes' });
 
       step3.status = 'completed';
-      step3.result = `Total Computed: $187.65 (Tax deductible: $16.35). Generated "Hermes_Expense_Report_2026.csv".`;
+      step3.result = `Sample-row total computed: $187.65 (Tax: $16.35). Generated "Hermes_Expense_Report_SAMPLE.csv" with a SAMPLE DATA header.`;
 
       // Step 4: Native Share & Haptic Alert
       const step4: ExecutionLog = { step: 4, toolName: 'haptic_vibration & native_share', status: 'running', detail: 'Triggering tactile haptic alert and preparing Android native share sheet...' };
@@ -271,9 +294,9 @@ export default function TaskWorkflowsStudio() {
         navigator.vibrate([150, 100, 150]);
       }
       step4.status = 'completed';
-      step4.result = `Tactile haptic pulse dispatched. Expense CSV armed for 1-tap WhatsApp/Android Share.`;
+      step4.result = `Tactile haptic pulse dispatched. Sample CSV armed for 1-tap Android Share.`;
 
-      setFinalOutput(`✅ **Autonomous Expense Audit Completed Successfully!**\n\n- **Total Audited**: $187.65\n- **Tax Deductions**: $16.35\n- **Receipts Processed**: 3 items\n- **Export**: Real \`Hermes_Expense_Report_2026.csv\` created.`);
+      setFinalOutput(`✅ **Expense pipeline finished - the numbers below are SAMPLE data.**\n\n- **OCR**: not available in this WebView; no receipt on this phone was read\n- **Sample Total**: $187.65 (Tax: $16.35)\n- **Export**: \`Hermes_Expense_Report_SAMPLE.csv\` - the file itself carries a SAMPLE DATA header row`);
     } else if (workflowId === 'morning-briefing') {
       // Step 1: Device Diagnostics
       const step1: ExecutionLog = { step: 1, toolName: 'device_diagnostics', status: 'running', detail: 'Querying smartphone battery status, memory headroom, and WebGPU backend...' };
@@ -293,20 +316,21 @@ export default function TaskWorkflowsStudio() {
       await new Promise((r) => setTimeout(r, 700));
 
       const searchTool = AGENT_TOOLS.find((t) => t.name === 'web_search');
-      const searchResult = searchTool ? await searchTool.execute({ query: 'latest AI tech release updates' }) : 'Headlines retrieved.';
+      const searchResult = searchTool ? await searchTool.execute({ query: 'latest AI tech release updates' }) : 'Web search tool unavailable.';
       step2.status = 'completed';
       step2.result = searchResult;
 
-      // Step 3: Kokoro Neural Voice Synthesis
-      const step3: ExecutionLog = { step: 3, toolName: 'voice_studio (Kokoro TTS)', status: 'running', detail: 'Synthesizing conversational audio briefing with Kokoro TTS engine...' };
+      // Step 3: Voice briefing via the Web Speech API (what actually runs;
+      // there is no Kokoro engine behind this button).
+      const step3: ExecutionLog = { step: 3, toolName: 'voice_studio (Web Speech API)', status: 'running', detail: 'Handing the briefing text to the Web Speech API (it speaks only where this WebView provides speech synthesis)...' };
       setLogs([step1, step2, step3]);
       setCurrentStepIndex(3);
       await new Promise((r) => setTimeout(r, 600));
 
-      const speechBrief = 'Good morning. Your smartphone hardware diagnostics are optimal with normal battery and WebGPU active. Today in tech: on-device sovereign AI models continue rapid mobile deployment.';
+      const speechBrief = 'Good morning. Your device check has finished; measured battery, memory, storage and network values are listed in the briefing panel. Top tech headlines from the live web search are listed below as well.';
       speakText(speechBrief);
       step3.status = 'completed';
-      step3.result = `Audio briefing synthesized and currently playing through phone speaker.`;
+      step3.result = 'Briefing text handed to the Web Speech API. It plays aloud only if this WebView provides speech synthesis.';
 
       // Step 4: Schedule Reminder
       const step4: ExecutionLog = { step: 4, toolName: 'device_reminder', status: 'running', detail: 'Arming daily automated check reminder in local device storage...' };
@@ -315,38 +339,44 @@ export default function TaskWorkflowsStudio() {
       await new Promise((r) => setTimeout(r, 400));
 
       const remTool = AGENT_TOOLS.find((t) => t.name === 'device_reminder');
-      const remResult = remTool ? await remTool.execute({ title: 'Daily AI Briefing Check', due_time: 'Tomorrow 9:00 AM' }) : 'Reminder set.';
+      const remResult = remTool ? await remTool.execute({ title: 'Daily AI Briefing Check', due_time: 'Tomorrow 9:00 AM' }) : 'Reminder tool unavailable.';
       step4.status = 'completed';
       step4.result = remResult;
 
-      setFinalOutput(`🎙️ **Morning Executive Briefing Complete!**\n\n${speechBrief}\n\n- **Device State**: Optimal (${hardwareProfile?.estimatedRamGB || 4} GB RAM, WebGPU Active)\n- **Daily Reminder**: Scheduled for Tomorrow 9:00 AM.`);
+      setFinalOutput(`🎙️ **Morning Briefing Complete (measured values only)**\n\n- **Device State (measured)**: ${diagResult}\n- **Live Search**: ${searchResult}\n- **Daily Reminder**: ${remResult}`);
     } else if (workflowId === 'meeting-calendar-scheduler') {
-      // Step 1: Ingest notes
-      const step1: ExecutionLog = { step: 1, toolName: 'find_device_files', status: 'running', detail: 'Locating meeting notes and agenda transcripts on phone storage...' };
+      // Step 1: Ingest notes - a real app-local search. A WebView cannot read
+      // system folders, and the result below is whatever was actually found.
+      const step1: ExecutionLog = { step: 1, toolName: 'find_device_files', status: 'running', detail: 'Searching app-local files for meeting notes and agenda transcripts (a WebView cannot read system folders)...' };
       setLogs([step1]);
       setCurrentStepIndex(1);
       await new Promise((r) => setTimeout(r, 600));
+      const findTool1 = AGENT_TOOLS.find((t) => t.name === 'find_device_files');
+      const notesResult = findTool1 ? await findTool1.execute({ query: 'meeting notes minutes agenda sprint decisions action items' }) : 'App-local search unavailable.';
       step1.status = 'completed';
-      step1.result = 'Meeting transcript ingested: "Sprint Review & Q4 Milestone Planning"';
+      step1.result = notesResult;
 
-      // Step 2: Reasoning & Action Item Matrix
-      const step2: ExecutionLog = { step: 2, toolName: 'deep_reasoning', status: 'running', detail: 'Deconstructing discussions into key decisions, owners, and deadlines...' };
+      // Step 2: Action Item Matrix - no reasoning model runs in this scripted
+      // step, so the items below are labeled examples, never claimed extracts.
+      const step2: ExecutionLog = { step: 2, toolName: 'deep_reasoning', status: 'running', detail: 'No reasoning model runs in this scripted step - preparing clearly-labeled example action items...' };
       setLogs([step1, step2]);
       setCurrentStepIndex(2);
       await new Promise((r) => setTimeout(r, 700));
       step2.status = 'completed';
-      step2.result = 'Extracted 3 core decisions and 4 assigned action items.';
+      step2.result = 'Example action items (no notes were reasoned over): 1. Validate WebGPU benchmark 2. Deploy mobile studios 3. Review offline weights.';
 
-      // Step 3: Arm Notification Reminder
-      const step3: ExecutionLog = { step: 3, toolName: 'device_reminder', status: 'running', detail: 'Arming local phone alarm for milestone checkpoint...' };
+      // Step 3: Arm Notification Reminder (real local alarm)
+      const step3: ExecutionLog = { step: 3, toolName: 'device_reminder', status: 'running', detail: 'Arming a real local phone alarm for the milestone checkpoint...' };
       setLogs([step1, step2, step3]);
       setCurrentStepIndex(3);
       await new Promise((r) => setTimeout(r, 500));
+      const remTool2 = AGENT_TOOLS.find((t) => t.name === 'device_reminder');
+      const remResult2 = remTool2 ? await remTool2.execute({ title: 'Meeting action-item checkpoint', due_time: 'Today 2:00 PM' }) : 'Reminder tool unavailable.';
       step3.status = 'completed';
-      step3.result = 'Reminder armed: "Sprint Review Milestones" set for 2:00 PM.';
+      step3.result = remResult2;
 
-      // Step 4: Generate .ics iCalendar file
-      const step4: ExecutionLog = { step: 4, toolName: 'generate_calendar_ics', status: 'running', detail: 'Generating standard .ics calendar event file for phone calendar import...' };
+      // Step 4: Generate .ics iCalendar file from the labeled example items
+      const step4: ExecutionLog = { step: 4, toolName: 'generate_calendar_ics', status: 'running', detail: 'Generating an example .ics calendar file for phone calendar import...' };
       setLogs([step1, step2, step3, step4]);
       setCurrentStepIndex(4);
       await new Promise((r) => setTimeout(r, 600));
@@ -354,13 +384,13 @@ export default function TaskWorkflowsStudio() {
       const icsContent = [
         'BEGIN:VCALENDAR',
         'VERSION:2.0',
-        'PRODID:-//Hermes AI//Android Autonomous Meeting Scheduler//EN',
+        'PRODID:-//Hermes AI//Android Meeting Scheduler (example)//EN',
         'BEGIN:VEVENT',
-        'SUMMARY:Sprint Review & Milestone Action Items',
-        'DESCRIPTION:Hermes AI Action Items:\\n1. Validate WebGPU benchmark\\n2. Deploy mobile studios\\n3. Review offline weights.',
+        'SUMMARY:Example: Sprint Review & Milestone Action Items',
+        'DESCRIPTION:Hermes AI example action items (sample data):\\n1. Validate WebGPU benchmark\\n2. Deploy mobile studios\\n3. Review offline weights.',
         'DTSTART:20261120T140000Z',
         'DTEND:20261120T150000Z',
-        'STATUS:CONFIRMED',
+        'STATUS:TENTATIVE',
         'BEGIN:VALARM',
         'TRIGGER:-PT15M',
         'ACTION:DISPLAY',
@@ -373,63 +403,66 @@ export default function TaskWorkflowsStudio() {
       const icsBlob = new Blob([icsContent], { type: 'text/calendar;charset=utf-8' });
       const icsUrl = URL.createObjectURL(icsBlob);
       setGeneratedFile({
-        name: 'meeting_action_items.ics',
+        name: 'meeting_action_items_example.ics',
         url: icsUrl,
         size: '1.2 KB',
       });
 
       step4.status = 'completed';
-      step4.result = 'meeting_action_items.ics generated and ready for 1-tap phone import.';
+      step4.result = 'meeting_action_items_example.ics generated (example items) and ready for 1-tap phone import.';
 
       setFinalOutput(
-        `### 📅 Meeting Minutes & Autonomous Action Plan\n\n` +
-        `**Meeting Subject**: Sprint Review & Q4 Milestone Planning\n` +
-        `**Status**: 100% Processed Locally\n\n` +
-        `#### 🎯 Key Decisions:\n` +
+        `### 📅 Meeting Minutes & Action Plan - EXAMPLE DATA\n\n` +
+        `**Notes search (real)**: ${notesResult}\n\n` +
+        `#### 🎯 Example Decisions (not read from your notes):\n` +
         `- WebGPU hardware acceleration approved as primary inference pipeline.\n` +
-        `- All data storage and vector searches must stay 100% offline on device.\n\n` +
-        `#### 📋 Action Items:\n` +
+        `- All data storage and vector searches stay 100% offline on device.\n\n` +
+        `#### 📋 Example Action Items:\n` +
         `| Assignee | Action Item | Deadline | Priority |\n` +
         `| :--- | :--- | :--- | :--- |\n` +
         `| Alex | Benchmark Llama 3.2 1B & 3B WebGPU throughput | Today 4:00 PM | High |\n` +
         `| Jordan | Audit privacy EXIF scrubber on camera snaps | Tomorrow | High |\n` +
         `| Sam | Verify .ics calendar import on Samsung/Google Calendar | Friday | Medium |\n\n` +
-        `> **Deliverable Ready**: Tap **Download .ics** below to import these tasks directly into your smartphone calendar with pre-configured alarms.`
+        `**Reminder (real)**: ${remResult2}\n\n` +
+        `> **Deliverable**: Tap **Download .ics** below to import the example tasks into your calendar.`
       );
     } else if (workflowId === 'tax-expense-exporter') {
-      // Step 1: Scan Tax Folders
-      const step1: ExecutionLog = { step: 1, toolName: 'find_device_files', status: 'running', detail: 'Locating receipt scans in /Documents/Receipts and /DCIM/Invoices...' };
+      // Step 1: Scan Tax Folders - real app-local search, honestly reported.
+      const step1: ExecutionLog = { step: 1, toolName: 'find_device_files', status: 'running', detail: 'Searching app-local files for receipt and expense notes (a WebView cannot read /Documents or /DCIM)...' };
       setLogs([step1]);
       setCurrentStepIndex(1);
       await new Promise((r) => setTimeout(r, 600));
+      const taxFindTool = AGENT_TOOLS.find((t) => t.name === 'find_device_files');
+      const taxFilesResult = taxFindTool ? await taxFindTool.execute({ query: 'receipt invoice tax expense deductible' }) : 'App-local search unavailable.';
       step1.status = 'completed';
-      step1.result = 'Located 8 annual receipt proofs and payment vouchers.';
+      step1.result = taxFilesResult;
 
-      // Step 2: MiniCPM-V Tax Classification
-      const step2: ExecutionLog = { step: 2, toolName: 'document_analyzer (MiniCPM-V)', status: 'running', detail: 'Classifying expense categories, tax IDs, and deductibility ratios...' };
+      // Step 2: Tax Classification - no OCR engine runs here; the rows below
+      // are sample data, stated as sample data.
+      const step2: ExecutionLog = { step: 2, toolName: 'document_analyzer (MiniCPM-V)', status: 'running', detail: 'No OCR engine runs in this WebView - preparing clearly-labeled sample expense classifications...' };
       setLogs([step1, step2]);
       setCurrentStepIndex(2);
       await new Promise((r) => setTimeout(r, 700));
       step2.status = 'completed';
-      step2.result = 'Identified $2,026.00 total spend across 4 standard tax deduction categories.';
+      step2.result = 'Sample data: $2,026.00 total spend across 4 tax deduction categories (not read from any receipt on this phone).';
 
-      // Step 3: Compile Certified Tax CSV
-      const step3: ExecutionLog = { step: 3, toolName: 'code_interpreter', status: 'running', detail: 'Calculating write-off amounts and formatting certified tax CSV...' };
+      // Step 3: Compile Sample Tax CSV
+      const step3: ExecutionLog = { step: 3, toolName: 'code_interpreter', status: 'running', detail: 'Formatting the sample rows into a CSV ledger...' };
       setLogs([step1, step2, step3]);
       setCurrentStepIndex(3);
       await new Promise((r) => setTimeout(r, 600));
 
-      const taxCsvContent = `Date,Merchant,Category,Deductible Rate,Gross Amount,Tax Write-Off\n2026-01-15,AWS Cloud Infrastructure,Software Hosting,100%,450.00,450.00\n2026-03-20,Apple Store (MacBook Charger),Office Equipment,100%,89.00,89.00\n2026-05-12,United Airlines,Business Travel,100%,620.00,620.00\n2026-07-04,Hilton Downtown Hotel,Lodging,100%,380.00,380.00\n2026-09-18,GitHub Enterprise,Software Tools,100%,210.00,210.00\n2026-11-02,Client Working Dinner,Meals (Business),50%,160.00,80.00\n2026-11-14,Google Workspace,Software Tools,100%,72.00,72.00\n2026-11-19,FedEx Office Shipping,Office Supplies,100%,45.00,45.00\nTOTAL,,,,$2,026.00,$1,946.00`;
+      const taxCsvContent = `# SAMPLE DATA - not read from any receipt on this phone\nDate,Merchant,Category,Deductible Rate,Gross Amount,Tax Write-Off\n2026-01-15,AWS Cloud Infrastructure,Software Hosting,100%,450.00,450.00\n2026-03-20,Apple Store (MacBook Charger),Office Equipment,100%,89.00,89.00\n2026-05-12,United Airlines,Business Travel,100%,620.00,620.00\n2026-07-04,Hilton Downtown Hotel,Lodging,100%,380.00,380.00\n2026-09-18,GitHub Enterprise,Software Tools,100%,210.00,210.00\n2026-11-02,Client Working Dinner,Meals (Business),50%,160.00,80.00\n2026-11-14,Google Workspace,Software Tools,100%,72.00,72.00\n2026-11-19,FedEx Office Shipping,Office Supplies,100%,45.00,45.00\nTOTAL,,,,$2,026.00,$1,946.00`;
 
       const taxBlob = new Blob([taxCsvContent], { type: 'text/csv;charset=utf-8;' });
       const taxUrl = URL.createObjectURL(taxBlob);
       setGeneratedFile({
-        name: 'Hermes_Tax_Deductible_Ledger_2026.csv',
+        name: 'Hermes_Tax_Deductible_Ledger_SAMPLE.csv',
         url: taxUrl,
-        size: '512 bytes',
+        size: '540 bytes',
       });
       step3.status = 'completed';
-      step3.result = 'Generated certified tax ledger CSV with $1,946.00 allowable deductions.';
+      step3.result = 'Generated SAMPLE tax ledger CSV ($1,946.00 in sample write-offs; a SAMPLE DATA header is included).';
 
       // Step 4: Haptic Dispatch & Ready to Share
       const step4: ExecutionLog = { step: 4, toolName: 'haptic_vibration & native_share', status: 'running', detail: 'Arming export sheet and physical haptic alert...' };
@@ -443,77 +476,100 @@ export default function TaskWorkflowsStudio() {
       step4.result = 'Ready for immediate dispatch to CPA accountant or cloud tax portal.';
 
       setFinalOutput(
-        `### 💼 Annual Tax-Deductible Expense Ledger (2026)\n\n` +
-        `**Audit Status**: Verified by MiniCPM-V & On-Device Rule Engine\n` +
-        `**Total Gross Expenses**: **$2,026.00**\n` +
-        `**Allowable Tax Write-Offs**: **$1,946.00 (96.0% deductible ratio)**\n\n` +
-        `#### 📊 Expense Category Breakdown:\n` +
+        `### 💼 Tax-Deductible Expense Ledger - SAMPLE DATA (2026)\n\n` +
+        `**App-local search (real)**: ${taxFilesResult}\n\n` +
+        `**Sample Totals**: Gross $2,026.00 - sample write-offs $1,946.00. No receipt on this phone was scanned; every row is labeled sample data.\n\n` +
+        `#### 📊 Sample Expense Category Breakdown:\n` +
         `- **Software & Cloud Infrastructure**: $732.00 (100% deductible)\n` +
         `- **Business Travel & Lodging**: $1,000.00 (100% deductible)\n` +
         `- **Office Supplies & Equipment**: $134.00 (100% deductible)\n` +
         `- **Client Business Meals**: $160.00 (50% statutory rate: $80.00)\n\n` +
-        `> **Ready to Export**: Download \`Hermes_Tax_Deductible_Ledger_2026.csv\` below or tap Share to send directly to your accountant via email or WhatsApp.`
+        `> **Ready to Export**: Download \`Hermes_Tax_Deductible_Ledger_SAMPLE.csv\` below or tap Share to send via email or WhatsApp.`
       );
     } else if (workflowId === 'battery-thermal-audit') {
-      // Step 1: Battery Telemetry & Discharge Rate
-      const step1: ExecutionLog = { step: 1, toolName: 'battery_telemetry', status: 'running', detail: 'Sampling battery state of charge, discharge curve, and current draw...' };
+      // Only genuinely measured values are reported. A WebView cannot read
+      // SoC thermistors, voltage, or discharge curves: those are reported as
+      // "not measurable", never invented.
+      const step1: ExecutionLog = { step: 1, toolName: 'device_diagnostics', status: 'running', detail: 'Reading the real Battery API level and charging state...' };
       setLogs([step1]);
       setCurrentStepIndex(1);
       await new Promise((r) => setTimeout(r, 600));
+      const diagBatteryTool = AGENT_TOOLS.find((t) => t.name === 'device_diagnostics');
+      const batteryResult = diagBatteryTool ? await diagBatteryTool.execute({ metric: 'battery' }) : 'Diagnostics unavailable.';
       step1.status = 'completed';
-      step1.result = 'Battery capacity: 84% | Discharge rate: 3.8%/hr active, 0.3%/hr sleep | Voltage: 3.92V';
+      step1.result = batteryResult;
 
-      // Step 2: Thermal Governor & Core Thermistors
-      const step2: ExecutionLog = { step: 2, toolName: 'thermal_governor', status: 'running', detail: 'Polling SoC cluster thermistors and CPU thermal throttling governor...' };
+      // Step 2: Thermal - honestly not measurable from a WebView.
+      const step2: ExecutionLog = { step: 2, toolName: 'thermal_governor', status: 'running', detail: 'Checking what thermal data this WebView can actually expose...' };
       setLogs([step1, step2]);
       setCurrentStepIndex(2);
       await new Promise((r) => setTimeout(r, 700));
       step2.status = 'completed';
-      step2.result = 'SoC Temp: 39.4°C (Normal) | Thermal Governor: Dynamic Balanced | Throttle Margin: +10.6°C';
+      step2.result = 'Not measurable: a WebView cannot read SoC or battery thermistors. No temperature is invented.';
 
-      // Step 3: Wake-lock & Background Buffer Auditor
-      const step3: ExecutionLog = { step: 3, toolName: 'wakelock_auditor', status: 'running', detail: 'Scanning active background timers, partial wake-locks, and RAM buffer leaks...' };
+      // Step 3: Memory & storage (real measured values)
+      const step3: ExecutionLog = { step: 3, toolName: 'device_diagnostics', status: 'running', detail: 'Reading the real RAM ceiling, CPU cores, and storage quota...' };
       setLogs([step1, step2, step3]);
       setCurrentStepIndex(3);
       await new Promise((r) => setTimeout(r, 600));
+      const memLines = diagBatteryTool ? await diagBatteryTool.execute({ metric: 'memory' }) : 'Diagnostics unavailable.';
+      const storeLines = diagBatteryTool ? await diagBatteryTool.execute({ metric: 'storage' }) : '';
       step3.status = 'completed';
-      step3.result = 'Zero orphaned wake-locks. Hermes model buffers cleanly suspended in deep sleep.';
+      step3.result = `${memLines}\n${storeLines}`.trim();
 
       // Step 4: Generate Audit Report & Haptic Confirmation
-      const step4: ExecutionLog = { step: 4, toolName: 'export_audit_json', status: 'running', detail: 'Generating comprehensive battery & thermal diagnostic report...' };
+      const step4: ExecutionLog = { step: 4, toolName: 'export_audit_json', status: 'running', detail: 'Generating the measured-values-only battery & power report...' };
       setLogs([step1, step2, step3, step4]);
       setCurrentStepIndex(4);
       await new Promise((r) => setTimeout(r, 500));
 
+      // Structured re-read of the same APIs for the JSON report, so the
+      // export carries real numbers instead of the step log's prose.
+      const batteryJson: Record<string, unknown> = { source: 'Battery API not exposed by this WebView' };
+      const nav = typeof navigator !== 'undefined' ? (navigator as Navigator & { getBattery?: () => Promise<{ level: number; charging: boolean }> }) : undefined;
+      if (nav && typeof nav.getBattery === 'function') {
+        try {
+          const b = await nav.getBattery();
+          batteryJson.levelPercent = Math.round(b.level * 100);
+          batteryJson.charging = !!b.charging;
+          batteryJson.source = 'navigator.getBattery (measured)';
+        } catch (_) {
+          batteryJson.source = 'Battery API refused the request';
+        }
+      }
+      const storageJson: Record<string, unknown> = { source: 'storage.estimate not exposed by this WebView' };
+      if (typeof navigator !== 'undefined' && navigator.storage?.estimate) {
+        try {
+          const { quota = 0, usage = 0 } = await navigator.storage.estimate();
+          const mb = (v: number) => Math.max(0, Math.round(v / (1024 * 1024)));
+          storageJson.usedMB = mb(usage);
+          storageJson.quotaMB = mb(quota);
+          storageJson.source = 'navigator.storage.estimate (measured)';
+        } catch (_) {
+          storageJson.source = 'storage estimate request failed';
+        }
+      }
       const auditData = {
         timestamp: new Date().toISOString(),
-        device: 'Android Mobile Workstation',
-        battery: {
-          levelPercent: 84,
-          chargingState: 'Discharging',
-          healthStatus: 'Good (96% Cycle Life)',
-          voltageVolts: 3.92,
-          activeDischargeRatePercentPerHour: 3.8,
-          idleDischargeRatePercentPerHour: 0.3,
+        measured: {
+          battery: batteryJson,
+          storage: storageJson,
         },
-        thermal: {
-          socTemperatureC: 39.4,
-          batteryTemperatureC: 33.1,
-          throttlingState: 'None',
-          thermalHeadroomC: 10.6,
-          governorPolicy: 'Dynamic Balanced',
-        },
-        powerRecommendations: [
-          'Enable AMOLED Pure Black mode in Settings to save up to 35% display power.',
-          'Hermes 3B batch size capped at 16 tokens for optimal thermal curve during continuous chat.',
-          'Model weights cleanly evictable via IndexedDB LRU manager without background leak.',
+        notMeasurableInWebView: [
+          'SoC temperature',
+          'battery temperature',
+          'voltage',
+          'discharge rate (%/hr)',
+          'thermal throttling state',
+          'wake-lock inventory',
         ],
+        note: 'Only genuinely measured values appear in this report. Everything a WebView cannot expose is listed as not measurable - no value is invented.',
       };
 
       const auditBlob = new Blob([JSON.stringify(auditData, null, 2)], { type: 'application/json' });
       const auditUrl = URL.createObjectURL(auditBlob);
       setGeneratedFile({
-        name: 'Hermes_Battery_Thermal_Audit_2026.json',
+        name: 'Hermes_Battery_Power_Report.json',
         url: auditUrl,
         size: '1.1 KB',
       });
@@ -522,172 +578,244 @@ export default function TaskWorkflowsStudio() {
         navigator.vibrate([60, 40, 60]);
       }
       step4.status = 'completed';
-      step4.result = 'Hermes_Battery_Thermal_Audit_2026.json generated and ready for export.';
+      step4.result = 'Hermes_Battery_Power_Report.json generated from measured values only.';
 
       setFinalOutput(
-        `### 🔋 Autonomous Battery Drain & Thermal Throttling Audit\n\n` +
-        `**Audit Verdict**: ✅ **Grade A- (Healthy & Thermally Stable)**\n\n` +
-        `#### ⚡ Battery Telemetry:\n` +
-        `- **State of Charge**: 84% (Estimated ~14.2 hours mixed usage remaining)\n` +
-        `- **Active AI Inference Drain**: ~3.8% / hour (quantized WebGPU tensor efficiency)\n` +
-        `- **Deep Sleep Standby Drain**: ~0.3% / hour (zero orphaned CPU wake-locks)\n\n` +
-        `#### 🌡️ Thermal & SoC Throttling:\n` +
-        `- **SoC Package Temperature**: **39.4°C** (Normal operating range < 50°C)\n` +
-        `- **Thermal Headroom**: **+10.6°C** before clock frequency throttling triggers\n` +
-        `- **Governor Profile**: \`Dynamic Balanced\` with adaptive frequency scaling\n\n` +
-        `#### 💡 Recommended Power Optimizations:\n` +
+        `### 🔋 Battery & Power Reality Check (measured values only)\n\n` +
+        `#### ⚡ Battery (measured):\n` +
+        `- ${batteryResult}\n\n` +
+        `#### 🧠 Memory & Storage (measured):\n` +
+        `- ${step3.result}\n\n` +
+        `#### 🌡️ Thermal:\n` +
+        `- Not measurable in a WebView: SoC/battery temperature, voltage, discharge rate, throttling state. No number is invented for them.\n\n` +
+        `#### 💡 Power Tips (advice, not measurements):\n` +
         `1. Keep **AMOLED Pure Black Mode** active when chatting in low-light environments.\n` +
-        `2. Enable **Wi-Fi Only Mode** in Model Hub to avoid high cellular modem transceiver drain.\n` +
-        `3. Tap **Download Report** below for the full JSON telemetry payload.`
+        `2. Enable **Wi-Fi Only Mode** in Model Hub to avoid cellular modem drain during model downloads.\n` +
+        `3. Tap **Download Report** below for the measured-values-only JSON report.`
       );
     } else if (workflowId === 'git-diff-auditor') {
+      // The pasted goal text IS the diff: file counts, +/- metrics, and a
+      // secret-pattern scan are computed from the user's own input. With no
+      // diff pasted, nothing is analyzed and the run says so.
+      const diffText = (customPrompt || '').trim();
       const step1: ExecutionLog = {
         step: 1,
         toolName: 'parse_git_diff',
         status: 'running',
-        detail: 'Parsing unified git patch headers, inspecting hunks and modified file paths...',
+        detail: diffText
+          ? 'Parsing the pasted unified diff: headers, hunks, and modified file paths...'
+          : 'No diff was pasted into the goal box - nothing will be analyzed or claimed.',
       };
       setLogs([step1]);
       setCurrentStepIndex(1);
       await new Promise((r) => setTimeout(r, 650));
-      step1.status = 'completed';
-      step1.result = 'Parsed 3 modified files (src/components/AudioEngine.ts, src/utils/webgpuOptimizer.ts, src/hooks/useBatteryGovernor.ts): +142 / -28 lines.';
 
+      const diffLines = diffText ? diffText.split(/\r?\n/) : [];
+      const filesChanged = new Set<string>();
+      let additions = 0;
+      let deletions = 0;
+      for (const line of diffLines) {
+        if (line.startsWith('+++ ') && !line.startsWith('+++ /dev/null')) {
+          filesChanged.add(line.slice(4).split('\t')[0].replace(/^b\//, ''));
+        } else if (line.startsWith('+') && !line.startsWith('+++')) {
+          additions++;
+        } else if (line.startsWith('-') && !line.startsWith('---')) {
+          deletions++;
+        }
+      }
+      const hasDiff = filesChanged.size > 0 || additions > 0 || deletions > 0;
+      step1.status = 'completed';
+      step1.result = hasDiff
+        ? `Parsed your diff: ${filesChanged.size} modified file(s): +${additions} / -${deletions} lines.`
+        : 'Nothing parsed: no diff was provided (or it contained no +/- hunks).';
+
+      // Step 2: Secret-pattern scan over the added lines of the user's diff.
       const step2: ExecutionLog = {
         step: 2,
         toolName: 'security_leak_scanner',
         status: 'running',
-        detail: 'Scanning additions for API secret leaks, plaintext credentials, and unescaped HTML injections...',
+        detail: hasDiff
+          ? 'Pattern-scanning the added lines for API keys, tokens, passwords, and private keys...'
+          : 'Skipped: no diff provided to scan.',
       };
       setLogs([step1, step2]);
       setCurrentStepIndex(2);
       await new Promise((r) => setTimeout(r, 700));
-      step2.status = 'completed';
-      step2.result = 'Zero hardcoded secrets or credential tokens detected. Entropy threshold passed.';
 
+      const secretPatterns: Array<{ name: string; re: RegExp }> = [
+        { name: 'AWS access key id', re: /\bAKIA[0-9A-Z]{16}\b/ },
+        { name: 'private key header', re: /-----BEGIN [A-Z ]*PRIVATE KEY-----/ },
+        { name: 'api key/secret/token/password assignment', re: /\b(api[_-]?key|secret|token|password|passwd|auth)\b\s*[:=]\s*['"][^'"]{8,}['"]/i },
+        { name: 'bearer credential', re: /bearer\s+[A-Za-z0-9._~+/-]{16,}/i },
+      ];
+      const secretFindings: Array<{ pattern: string; line: number }> = [];
+      if (hasDiff) {
+        let addedLineNo = 0;
+        for (const line of diffLines) {
+          if (line.startsWith('+') && !line.startsWith('+++')) {
+            addedLineNo++;
+            for (const p of secretPatterns) {
+              // Only the pattern name and line number are reported; the
+              // matched secret itself is never echoed into the log or file.
+              if (p.re.test(line)) {
+                secretFindings.push({ pattern: p.name, line: addedLineNo });
+                break;
+              }
+            }
+          }
+        }
+      }
+      step2.status = 'completed';
+      step2.result = hasDiff
+        ? secretFindings.length === 0
+          ? 'Pattern scan of the added lines found no hardcoded credentials. (Static pattern scan only - not a full security audit.)'
+          : `Pattern scan flagged ${secretFindings.length} added line(s): ${secretFindings.map((f) => `${f.pattern} (added line ${f.line})`).join('; ')}. The secret values themselves are not echoed.`
+        : 'Skipped: no diff provided.';
+
+      // Step 3: honest capability note - no semantic model runs here.
       const step3: ExecutionLog = {
         step: 3,
         toolName: 'hermes_code_analyzer',
         status: 'running',
-        detail: 'Running on-device Hermes code analysis: verifying TypeScript typing, async exception handling, and GC memory leaks...',
+        detail: hasDiff ? 'Noting analysis limits: this step runs no semantic code model...' : 'Skipped: no diff provided.',
       };
       setLogs([step1, step2, step3]);
       setCurrentStepIndex(3);
       await new Promise((r) => setTimeout(r, 750));
       step3.status = 'completed';
-      step3.result = 'Type safety verified. Cleanup lifecycle in hooks validated; URL.revokeObjectURL confirmed.';
+      step3.result = hasDiff
+        ? 'Capability note: no semantic code analysis model runs in this scripted step. The report covers static metrics and pattern findings only - no typing or architecture claims are made.'
+        : 'Skipped: no diff provided.';
 
+      // Step 4: report built from the real metrics.
       const step4: ExecutionLog = {
         step: 4,
         toolName: 'generate_review_report',
         status: 'running',
-        detail: 'Synthesizing automated Pull Request code review report and exporting markdown patch review...',
+        detail: hasDiff ? 'Exporting the markdown report built from your diff metrics...' : 'Nothing to export: no diff was provided.',
       };
       setLogs([step1, step2, step3, step4]);
       setCurrentStepIndex(4);
       await new Promise((r) => setTimeout(r, 600));
 
-      const reviewMarkdown = [
-        '# 🔍 Hermes AI Automated Code Review & Patch Audit',
-        `**Generated**: ${new Date().toISOString()}`,
-        '**Reviewer**: Hermes 3B On-Device Mobile Autonomous Agent',
-        '**Review Verdict**: ✅ **Approved with Minor Suggestions (LGTM)**',
-        '',
-        '## 📊 Patch Metrics',
-        '- **Files Changed**: 3 files',
-        '- **Lines Added**: `+142`',
-        '- **Lines Removed**: `-28`',
-        '- **Net Delta**: `+114 lines`',
-        '',
-        '## 🛡️ Security & Privacy Analysis',
-        '- **API Keys / Secrets Scan**: ✅ Clean (0 leaks detected)',
-        '- **DOM Sanitization**: ✅ No unsafe innerHTML injections found',
-        '- **Sandboxed Web Worker Execution**: ✅ WebGPU compute pipeline isolated',
-        '',
-        '## ⚡ Mobile Performance & Memory Audit',
-        '- **Garbage Collection Risk**: Low. Explicit object URL revoking implemented.',
-        '- **UI Thread Blocking**: Zero synchronous loops exceeding 16ms frame budget.',
-        '- **Battery Impact**: Minimized with event-driven WebGPU wake/sleep cycles.',
-        '',
-        '## 💡 Code Quality Suggestions',
-        '1. `src/utils/webgpuOptimizer.ts`: Consider wrapping adapter request in a fallback retry for thermal throttling recovery.',
-        '2. `src/hooks/useBatteryGovernor.ts`: Add listener cleanup on component unmount.',
-        '',
-        '---',
-        '*Reviewed autonomously by Hermes 3 (3B) on Android Mobile System.*',
-      ].join('\n');
+      if (!hasDiff) {
+        step4.status = 'completed';
+        step4.result = 'No report generated: there was no diff to review.';
+        setFinalOutput(
+          `### 🔍 Git Diff Review - nothing analyzed\n\n` +
+          `No diff was pasted into the goal box, so no metrics, scan results, or review claims are shown.\n\n` +
+          `Paste a unified git diff and run again for real file/line metrics and a secret-pattern scan.`
+        );
+      } else {
+        const reviewMarkdown = [
+          '# 🔍 Hermes AI Patch Metrics Report',
+          `**Generated**: ${new Date().toISOString()}`,
+          '**Scope**: static metrics + pattern scan of the pasted diff (no semantic model ran)',
+          '',
+          '## 📊 Patch Metrics (computed from your diff)',
+          `- **Files Changed**: ${filesChanged.size} file(s)`,
+          `- **Lines Added**: +${additions}`,
+          `- **Lines Removed**: -${deletions}`,
+          `- **Net Delta**: ${additions - deletions >= 0 ? '+' : ''}${additions - deletions} lines`,
+          '',
+          '## 🛡️ Secret-Pattern Scan (added lines)',
+          secretFindings.length === 0
+            ? '- No hardcoded credential patterns detected. (Static pattern scan only - not a full security audit.)'
+            : secretFindings.map((f) => `- ⚠️ ${f.pattern} on added line ${f.line} (value not echoed)`).join('\n'),
+          '',
+          '---',
+          '*Static metrics computed on-device from the pasted diff. No LGTM/approval verdict is issued by a scripted report.*',
+        ].join('\n');
 
-      const reviewBlob = new Blob([reviewMarkdown], { type: 'text/markdown;charset=utf-8' });
-      const reviewUrl = URL.createObjectURL(reviewBlob);
-      setGeneratedFile({
-        name: 'Hermes_Code_Review_Audit.patch.md',
-        url: reviewUrl,
-        size: '1.4 KB',
-      });
+        const reviewBlob = new Blob([reviewMarkdown], { type: 'text/markdown;charset=utf-8' });
+        const reviewUrl = URL.createObjectURL(reviewBlob);
+        setGeneratedFile({
+          name: 'Hermes_Patch_Metrics_Report.md',
+          url: reviewUrl,
+          size: `${Math.max(1, Math.round(reviewMarkdown.length / 1024))} KB`,
+        });
 
-      if (typeof navigator !== 'undefined' && navigator.vibrate) {
-        navigator.vibrate([60, 40, 60]);
+        if (typeof navigator !== 'undefined' && navigator.vibrate) {
+          navigator.vibrate([60, 40, 60]);
+        }
+        step4.status = 'completed';
+        step4.result = 'Hermes_Patch_Metrics_Report.md generated from your diff.';
+
+        setFinalOutput(
+          `### 🔍 Git Diff Metrics - computed from YOUR diff\n\n` +
+          `#### 📊 Patch Metrics:\n` +
+          `- **Files Changed**: ${filesChanged.size} (${[...filesChanged].slice(0, 5).map((f) => `\`${f.split('/').pop()}\``).join(', ')}${filesChanged.size > 5 ? ', ...' : ''})\n` +
+          `- **Line Delta**: **+${additions}** additions / **-${deletions}** deletions (Net: ${additions - deletions >= 0 ? '+' : ''}${additions - deletions})\n` +
+          `- **Secret-Pattern Scan**: ${secretFindings.length === 0 ? 'no credential patterns matched (static scan only)' : `${secretFindings.length} finding(s) - see the report; values are not echoed`}\n\n` +
+          `#### ⚠️ Honest limits:\n` +
+          `- No semantic code model ran: this report contains static metrics and pattern findings only, and issues no LGTM verdict.\n\n` +
+          `Tap **Download Report** below for the full markdown export.`
+        );
       }
-      step4.status = 'completed';
-      step4.result = 'Hermes_Code_Review_Audit.patch.md generated and ready for export.';
-
-      setFinalOutput(
-        `### 🔍 Autonomous Git Diff & Code Patch Review\n\n` +
-        `**Audit Verdict**: ✅ **Approved with Minor Suggestions (LGTM)**\n\n` +
-        `#### 📊 Patch Metrics:\n` +
-        `- **Files Analyzed**: 3 (\`AudioEngine.ts\`, \`webgpuOptimizer.ts\`, \`useBatteryGovernor.ts\`)\n` +
-        `- **Line Delta**: **+142** additions / **-28** deletions (Net: +114 lines)\n` +
-        `- **Entropy & Secrets Scan**: Zero hardcoded credentials or API tokens\n\n` +
-        `#### 🛡️ Quality & Architecture Checks:\n` +
-        `- **Memory & GC Audit**: Clean. Object URLs and AudioContext nodes properly closed.\n` +
-        `- **Frame Budget**: 60fps compliant. Heavy computations offloaded to worker threads.\n` +
-        `- **TypeScript Strict Mode**: Fully typed with zero \`any\` assertions.\n\n` +
-        `#### 💡 Suggestions:\n` +
-        `1. Wrap WebGPU adapter acquisition in a 3-retry backoff in case of OS GPU preemption.\n` +
-        `2. Tap **Download Report** below for the full markdown PR audit export.`
-      );
     } else if (workflowId === 'memory-leak-gc-sweeper') {
+      // Real heap numbers when the WebView exposes performance.memory, and
+      // honest "not measurable" statements for what a page cannot do (force
+      // GC, enumerate detached nodes). No invented reclaimed-MB figures.
       const step1: ExecutionLog = {
         step: 1,
         toolName: 'heap_snapshot_audit',
         status: 'running',
-        detail: 'Capturing JavaScript heap snapshot, measuring allocated V8/JSC memory buffers...',
+        detail: 'Reading the real JS heap size via performance.memory (when this WebView exposes it)...',
       };
       setLogs([step1]);
       setCurrentStepIndex(1);
       await new Promise((r) => setTimeout(r, 650));
+
+      interface PerfMemory { usedJSHeapSize: number; totalJSHeapSize: number; jsHeapSizeLimit: number }
+      const perf = (typeof performance !== 'undefined' ? (performance as Performance & { memory?: PerfMemory }) : undefined)?.memory;
+      const mb = (v: number) => Math.round((v / (1024 * 1024)) * 10) / 10;
+      const heapSummary = perf
+        ? `JS heap (measured): ${mb(perf.usedJSHeapSize)} MB in use of a ${mb(perf.jsHeapSizeLimit)} MB reported limit (performance.memory).`
+        : 'JS heap: unknown - this WebView does not expose performance.memory. No heap number is invented.';
       step1.status = 'completed';
-      step1.result = 'Heap snapshot captured: 52.4 MB total allocated (Limit: 128 MB). WebGPU tensor buffer: 18.2 MB.';
+      step1.result = heapSummary;
 
       const step2: ExecutionLog = {
         step: 2,
         toolName: 'orphaned_reference_detector',
         status: 'running',
-        detail: 'Scanning for detached DOM tree nodes, unclosed Web Audio contexts, and unrevoked Blob object URLs...',
+        detail: 'Checking what orphan detection a web page can actually perform...',
       };
       setLogs([step1, step2]);
       setCurrentStepIndex(2);
       await new Promise((r) => setTimeout(r, 700));
       step2.status = 'completed';
-      step2.result = 'Identified 3 orphaned object URLs and 1 idle AudioContext node eligible for recycling.';
+      step2.result = 'Not measurable: JavaScript in a WebView cannot enumerate detached DOM nodes, other pages audio contexts, or unrevoked Blob URLs. No orphan count is claimed.';
 
       const step3: ExecutionLog = {
         step: 3,
         toolName: 'generational_gc_sweep',
         status: 'running',
-        detail: 'Triggering generational mark-sweep GC, closing suspended audio pipelines, and purging unreferenced WASM caches...',
+        detail: 'Checking whether this WebView allows an explicit GC trigger...',
       };
       setLogs([step1, step2, step3]);
       setCurrentStepIndex(3);
       await new Promise((r) => setTimeout(r, 750));
-      step3.status = 'completed';
-      step3.result = 'GC sweep completed. Reclaimed 14.8 MB memory. Post-sweep heap size: 37.6 MB (-28.2% reduction).';
+      const gcAvailable = typeof window !== 'undefined' && typeof (window as unknown as { gc?: unknown }).gc === 'function';
+      if (gcAvailable) {
+        try {
+          (window as unknown as { gc: () => void }).gc();
+          step3.status = 'completed';
+          step3.result = 'An explicit GC pass ran (window.gc is exposed with dev tooling). Heap sizes after the pass are in the report.';
+        } catch (_) {
+          step3.status = 'completed';
+          step3.result = 'window.gc exists but refused the request. Nothing was reclaimed.';
+        }
+      } else {
+        step3.status = 'completed';
+        step3.result = 'No GC was forced: this WebView does not expose window.gc. Nothing was reclaimed; no reclaimed-MB figure is invented.';
+      }
 
       const step4: ExecutionLog = {
         step: 4,
         toolName: 'export_memory_report',
         status: 'running',
-        detail: 'Compiling structured memory diagnostic telemetry and generating exportable JSON report...',
+        detail: 'Compiling the measured-values-only memory report...',
       };
       setLogs([step1, step2, step3, step4]);
       setCurrentStepIndex(4);
@@ -695,29 +823,27 @@ export default function TaskWorkflowsStudio() {
 
       const reportData = {
         timestamp: new Date().toISOString(),
-        device: 'Android Mobile Workstation',
-        heapAudit: {
-          initialAllocatedMB: 52.4,
-          postSweepAllocatedMB: 37.6,
-          reclaimedMB: 14.8,
-          reductionPercent: 28.2,
-          heapLimitMB: 128.0,
-          heapHeadroomMB: 90.4,
-          webGpuTensorBufferMB: 18.2,
-          wasmLinearMemoryMB: 12.0,
-        },
-        reclaimedResources: [
-          '3 unreferenced Blob object URLs revoked via URL.revokeObjectURL()',
-          '1 suspended Web Audio AudioContext released to OS',
-          '2 stale IndexedDB transaction cursors garbage collected',
+        measured: perf
+          ? {
+              usedJSHeapMB: mb(perf.usedJSHeapSize),
+              totalJSHeapMB: mb(perf.totalJSHeapSize),
+              jsHeapSizeLimitMB: mb(perf.jsHeapSizeLimit),
+              source: 'performance.memory (measured)',
+            }
+          : { source: 'performance.memory not exposed by this WebView' },
+        forcedGcRan: gcAvailable,
+        notMeasurableFromPage: [
+          'detached DOM node inventory',
+          'other documents audio contexts',
+          'unrevoked Blob URL inventory',
         ],
-        verdict: 'Healthy - No Chronic Memory Leaks Detected',
+        note: 'Only genuinely measured values appear. A web page cannot force GC (without dev tooling) or enumerate detached nodes, so no leak verdict or reclaimed-memory figure is claimed.',
       };
 
       const reportBlob = new Blob([JSON.stringify(reportData, null, 2)], { type: 'application/json' });
       const reportUrl = URL.createObjectURL(reportBlob);
       setGeneratedFile({
-        name: 'Hermes_Memory_GC_Diagnostic_Report.json',
+        name: 'Hermes_Memory_Report.json',
         url: reportUrl,
         size: '1.2 KB',
       });
@@ -726,167 +852,178 @@ export default function TaskWorkflowsStudio() {
         navigator.vibrate([60, 40, 60]);
       }
       step4.status = 'completed';
-      step4.result = 'Hermes_Memory_GC_Diagnostic_Report.json generated and ready for export.';
+      step4.result = 'Hermes_Memory_Report.json generated from measured values only.';
 
       setFinalOutput(
-        `### 🧹 Autonomous App Memory Leak & GC Diagnostic Sweeper\n\n` +
-        `**Audit Verdict**: ✅ **Healthy — No Chronic Memory Leaks Detected**\n\n` +
-        `#### 📊 Memory Allocation Metrics:\n` +
-        `- **Initial Heap Size**: **52.4 MB** / 128 MB system ceiling\n` +
-        `- **Post-Sweep Heap Size**: **37.6 MB** (**-28.2% reduction**)\n` +
-        `- **Net Reclaimed Memory**: **+14.8 MB** freed back to Android OS\n` +
-        `- **Available Headroom**: **90.4 MB** safe headroom for on-device inference\n\n` +
-        `#### 🔍 Scanned Resource Breakdown:\n` +
-        `- **Blob Object URLs**: 3 orphaned URLs revoked successfully\n` +
-        `- **Web Audio Contexts**: 1 idle audio pipeline cleanly released\n` +
-        `- **WebGPU Tensors**: 18.2 MB contiguous buffers validated with zero fragmentation\n\n` +
-        `#### 💡 Recommendations:\n` +
-        `1. App memory pressure is optimal. No background leak mitigation required.\n` +
-        `2. Tap **Download Report** below to export the certified JSON audit log.`
+        `### 🧹 App Memory Reality Check (measured values only)\n\n` +
+        `#### 📊 Heap (measured):\n` +
+        `- ${heapSummary}\n\n` +
+        `#### 🔍 Orphan detection:\n` +
+        `- Not measurable from inside a page: detached DOM nodes, other pages audio contexts, Blob URL inventories. No counts are claimed.\n\n` +
+        `#### ♻️ GC:\n` +
+        `- ${step3.result}\n\n` +
+        `#### 💡 What this means:\n` +
+        `1. No "healthy/no-leak" verdict is issued - a page cannot measure that honestly.\n` +
+        `2. Tap **Download Report** below for the measured-values-only JSON report.`
       );
     } else if (workflowId === 'privacy-telemetry-audit') {
+      // Measured where possible; the app's design facts are stated as design
+      // facts - never dressed up as a "cryptographically verified" audit. A
+      // page cannot prove zero egress, so no such claim is made.
       const step1: ExecutionLog = {
         step: 1,
-        toolName: 'indexeddb_storage_auditor',
+        toolName: 'storage_auditor',
         status: 'running',
-        detail: 'Inspecting IndexedDB object stores (hermes_vector_db, hermes_model_cache, hermes_chat_history)...',
+        detail: 'Counting the real localStorage keys and measuring browser storage usage...',
       };
       setLogs([step1]);
       setCurrentStepIndex(1);
       await new Promise((r) => setTimeout(r, 650));
+
+      let localKeys = 0;
+      let localBytes = 0;
+      try {
+        for (let i = 0; i < window.localStorage.length; i++) {
+          const k = window.localStorage.key(i);
+          localKeys++;
+          if (k) localBytes += k.length + (window.localStorage.getItem(k)?.length || 0);
+        }
+      } catch (_) {
+        // Access blocked: report unknown instead of guessing.
+      }
+      let quotaText = 'unknown (storage.estimate not exposed or refused)';
+      if (typeof navigator !== 'undefined' && navigator.storage?.estimate) {
+        try {
+          const { quota = 0, usage = 0 } = await navigator.storage.estimate();
+          quotaText = `${Math.max(0, Math.round(usage / (1024 * 1024)))} MB used of a ${Math.max(0, Math.round(quota / (1024 * 1024)))} MB quota (measured)`;
+        } catch (_) {}
+      }
+      const storageAccessible = localKeys > 0 || localBytes > 0;
       step1.status = 'completed';
-      step1.result = 'Audited 4 local IndexedDB stores: 100% on-device residency confirmed. AES-256 encryption verified.';
+      step1.result = storageAccessible
+        ? `Measured: ${localKeys} localStorage keys holding roughly ${Math.max(1, Math.round(localBytes / 1024))} KB; browser storage: ${quotaText}.`
+        : `Measured: browser storage: ${quotaText}. localStorage access was blocked or empty, so key counts are unknown.`;
 
       const step2: ExecutionLog = {
         step: 2,
-        toolName: 'network_socket_egress_guard',
+        toolName: 'design_facts_review',
         status: 'running',
-        detail: 'Auditing active HTTP fetch handlers, WebSockets, and WebRTC channels for unauthorized data outbound egress...',
+        detail: 'Stating the app design facts that are checkable from the codebase (not runtime measurements)...',
       };
       setLogs([step1, step2]);
       setCurrentStepIndex(2);
       await new Promise((r) => setTimeout(r, 700));
       step2.status = 'completed';
-      step2.result = 'Zero outbound network connections detected during AI inference. Strict air-gap sovereign sandbox passed.';
+      step2.result = 'Design facts (from the app source, not a runtime audit): no analytics or crash-reporting SDK is embedded; chats, notes, alarms and settings are stored locally; network requests are made only to model endpoints the user configures.';
 
       const step3: ExecutionLog = {
         step: 3,
-        toolName: 'clipboard_pii_memory_scrubber',
+        toolName: 'capability_limits',
         status: 'running',
-        detail: 'Scanning clipboard transient buffers, memory scratchpads, and prompt templates for sensitive unredacted PII...',
+        detail: 'Checking what a web page cannot observe...',
       };
       setLogs([step1, step2, step3]);
       setCurrentStepIndex(3);
       await new Promise((r) => setTimeout(r, 700));
       step3.status = 'completed';
-      step3.result = 'Transient buffers sanitized. Zero residual PII tokens or exposed API keys identified.';
+      step3.result = 'Not observable from inside a page: OS-level network traffic, other apps sockets, clipboard contents outside this app. No claims are made about them.';
 
       const step4: ExecutionLog = {
         step: 4,
-        toolName: 'export_privacy_certificate',
+        toolName: 'export_privacy_report',
         status: 'running',
-        detail: 'Compiling cryptographic zero-egress audit verification certificate with SHA-256 integrity hash...',
+        detail: 'Compiling the measured-storage plus design-facts report...',
       };
       setLogs([step1, step2, step3, step4]);
       setCurrentStepIndex(4);
       await new Promise((r) => setTimeout(r, 600));
 
-      const certificateData = {
-        certificateId: `SOV-PRIV-${Date.now().toString(36).toUpperCase()}`,
+      const privacyReport = {
+        reportId: `PRIV-${Date.now().toString(36).toUpperCase()}`,
         timestamp: new Date().toISOString(),
-        device: 'Android Mobile System (Hermes 3B Local Neural Workstation)',
-        sovereigntyStatus: '100% AIR-GAPPED ZERO-EGRESS VERIFIED',
-        auditedDatastores: [
-          { name: 'hermes_vector_db', location: 'IndexedDB', encryption: 'AES-GCM-256', cloudSync: false },
-          { name: 'hermes_model_cache', location: 'CacheStorage/OPFS', encryption: 'Sandboxed', cloudSync: false },
-          { name: 'hermes_chat_sessions', location: 'IndexedDB', encryption: 'AES-GCM-256', cloudSync: false },
-          { name: 'hermes_audio_db', location: 'IndexedDB', encryption: 'Local Blob', cloudSync: false },
+        measured: {
+          localStorageKeys: localKeys,
+          approxLocalStorageKB: Math.max(1, Math.round(localBytes / 1024)),
+          browserStorage: quotaText,
+        },
+        designFacts: [
+          'No analytics or crash-reporting SDK is embedded in the app source.',
+          'Chats, notes, alarms and settings are stored locally (localStorage / IndexedDB).',
+          'Network requests go only to model endpoints the user configures.',
         ],
-        networkTelemetryAudit: {
-          activeOutboundSockets: 0,
-          backgroundTelemetryTrackers: 0,
-          analyticsServicesBlocked: ['Google Analytics', 'Firebase Crashlytics', 'Telemetry Pings', 'Sentry'],
-          egressFirewallStatus: 'Strict Block (Local Loopback Only)',
-        },
-        clipboardAndBufferSanitization: {
-          piiScrubbed: true,
-          ephemeralScratchpadPurged: true,
-        },
-        integritySignature: 'SHA256:7f83b1657ff1fc53b92dc18148a1d65dfc2d4b1fa3d677284addd200126d9069',
+        notObservableFromPage: ['OS-level network traffic', 'other apps sockets', 'system clipboard outside this app'],
+        note: 'This report contains measured values and stated design facts only. A web page cannot cryptographically prove data-egress behavior, so no verification or integrity seal is claimed.',
       };
 
-      const certBlob = new Blob([JSON.stringify(certificateData, null, 2)], { type: 'application/json' });
+      const certBlob = new Blob([JSON.stringify(privacyReport, null, 2)], { type: 'application/json' });
       const certUrl = URL.createObjectURL(certBlob);
       setGeneratedFile({
-        name: 'Hermes_Zero_Egress_Privacy_Certificate.json',
+        name: 'Hermes_Local_Storage_Privacy_Report.json',
         url: certUrl,
-        size: '1.5 KB',
+        size: '1.2 KB',
       });
 
       if (typeof navigator !== 'undefined' && navigator.vibrate) {
         navigator.vibrate([60, 40, 60]);
       }
       step4.status = 'completed';
-      step4.result = 'Hermes_Zero_Egress_Privacy_Certificate.json generated and cryptographically signed.';
+      step4.result = 'Hermes_Local_Storage_Privacy_Report.json generated (measured values + design facts).';
 
       setFinalOutput(
-        `### 🛡️ Sovereign Local Storage & Privacy Zero-Egress Audit\n\n` +
-        `**Audit Verdict**: ✅ **100% SOVEREIGN — ZERO DATA EGRESS VERIFIED**\n\n` +
-        `#### 🔒 Local Storage & Data Store Audit:\n` +
-        `- **Datastores Inspected**: 4 (\`hermes_vector_db\`, \`hermes_model_cache\`, \`hermes_chat_sessions\`, \`hermes_audio_db\`)\n` +
-        `- **Data Residency**: **100% On-Device**. Zero external cloud sync or remote backup leaks\n` +
-        `- **Encryption Layer**: AES-GCM-256 cryptographic partition isolation\n\n` +
-        `#### 🌐 Network Telemetry & Socket Inspection:\n` +
-        `- **Active Outbound Sockets**: **0** (All LLM inference runs locally in WebGPU/WASM)\n` +
-        `- **Telemetry & Trackers**: **0 Detected** (Air-gapped by design)\n` +
-        `- **Clipboard & PII Buffer**: Ephemeral scratchpad sanitized and verified clean\n\n` +
-        `#### 📜 Cryptographic Proof of Sovereignty:\n` +
-        `- **Certificate ID**: \`${certificateData.certificateId}\`\n` +
-        `- **Integrity Seal**: \`SHA256:7f83b1...d9069\`\n` +
-        `- Tap **Download Report** below to export the signed JSON sovereignty certificate.`
+        `### 🛡️ Local Storage & Privacy Report\n\n` +
+        `#### 🔒 Measured Storage:\n` +
+        `- ${step1.result}\n\n` +
+        `#### 🧱 Design Facts (from the app source, not a runtime audit):\n` +
+        `- No analytics or crash-reporting SDK is embedded\n` +
+        `- Chats, notes, alarms and settings stay in local storage\n` +
+        `- Network requests go only to the model endpoints you configure\n\n` +
+        `#### ⚠️ Honest limits:\n` +
+        `- A page cannot observe OS-level traffic or other apps, and cannot cryptographically prove "zero egress". This report makes no such claim.\n\n` +
+        `- **Report ID**: \`${privacyReport.reportId}\`\n` +
+        `- Tap **Download Report** below to export the JSON report.`
       );
     } else if (workflowId === 'batch-content-redactor') {
       const step1: ExecutionLog = {
         step: 1,
         toolName: 'discover_batch_files',
         status: 'running',
-        detail: 'Scanning local directories for candidate text documents, transcripts, and logs...',
+        detail: 'Preparing clearly-labeled example documents (no files on this phone are read)...',
       };
       setLogs([step1]);
       setCurrentStepIndex(1);
       await new Promise((r) => setTimeout(r, 650));
       step1.status = 'completed';
-      step1.result = 'Located 4 local documents (support_chat_q4.txt, vendor_agreement.md, crash_trace.log, customer_feedback.csv): 8.4 KB total.';
+      step1.result = 'Example documents (sample data - nothing on this phone was read): support_chat_q4.txt, vendor_agreement.md, crash_trace.log, customer_feedback.csv.';
 
       const step2: ExecutionLog = {
         step: 2,
         toolName: 'ner_pii_entity_detector',
         status: 'running',
-        detail: 'Executing Named Entity Recognition (NER) to isolate PII (emails, phone numbers, SSNs, credit cards, real names)...',
+        detail: 'No NER model runs in this scripted step - counting entities in the labeled example set...',
       };
       setLogs([step1, step2]);
       setCurrentStepIndex(2);
       await new Promise((r) => setTimeout(r, 700));
       step2.status = 'completed';
-      step2.result = 'Identified 28 sensitive entities: 8 emails, 5 phone numbers, 3 credit card numbers, 12 personal full names.';
+      step2.result = 'Sample data: 28 entities in the example set (8 emails, 5 phone numbers, 3 credit cards, 12 full names).';
 
       const step3: ExecutionLog = {
         step: 3,
         toolName: 'pseudonymization_engine',
         status: 'running',
-        detail: 'Replacing PII with deterministic synthetic pseudo-tokens preserving context and schema consistency...',
+        detail: 'Showing how the example entities would map to masked pseudo-tokens...',
       };
       setLogs([step1, step2, step3]);
       setCurrentStepIndex(3);
       await new Promise((r) => setTimeout(r, 700));
       step3.status = 'completed';
-      step3.result = 'All 28 PII entities replaced with masked pseudonyms (e.g. [EMAIL_USER_1], [PHONE_SAFE_A], [PERSON_SIGMA]).';
+      step3.result = 'Sample mapping: the 28 example entities map to masked pseudonyms (e.g. [EMAIL_USER_1], [PHONE_SAFE_A], [PERSON_SIGMA]). No real document was changed.';
 
       const step4: ExecutionLog = {
         step: 4,
         toolName: 'export_redacted_bundle',
         status: 'running',
-        detail: 'Packaging sanitized documents into exportable zip bundle and computing differential privacy audit seal...',
+        detail: 'Packaging the example rows into an exportable JSON report...',
       };
       setLogs([step1, step2, step3, step4]);
       setCurrentStepIndex(4);
@@ -895,7 +1032,8 @@ export default function TaskWorkflowsStudio() {
       const redactionReport = {
         redactionId: `RED-${Date.now().toString(36).toUpperCase()}`,
         timestamp: new Date().toISOString(),
-        engine: 'Hermes 3B Mobile Sovereign NER Redactor',
+        sampleData: true,
+        note: 'All rows below are example data. No document on this phone was read, scanned, or modified by this scripted pipeline.',
         summary: {
           filesProcessed: 4,
           totalPiiEntitiesScrubbed: 28,
@@ -905,21 +1043,19 @@ export default function TaskWorkflowsStudio() {
             creditCards: 3,
             fullNames: 12,
           },
-          privacyComplianceScore: '100% Zero-Leak Certified',
         },
         processedFiles: [
-          { filename: 'support_chat_q4.sanitized.txt', piiCount: 11, status: 'Anonymized' },
-          { filename: 'vendor_agreement.sanitized.md', piiCount: 7, status: 'Anonymized' },
-          { filename: 'crash_trace.sanitized.log', piiCount: 4, status: 'Anonymized' },
-          { filename: 'customer_feedback.sanitized.csv', piiCount: 6, status: 'Anonymized' },
+          { filename: 'support_chat_q4.sanitized.txt (example)', piiCount: 11, status: 'Example row' },
+          { filename: 'vendor_agreement.sanitized.md (example)', piiCount: 7, status: 'Example row' },
+          { filename: 'crash_trace.sanitized.log (example)', piiCount: 4, status: 'Example row' },
+          { filename: 'customer_feedback.sanitized.csv (example)', piiCount: 6, status: 'Example row' },
         ],
-        cryptographicProof: 'SHA256:d89f2a71b40283c812d091eef19284ba391c5a9102847120dbca881726a10291',
       };
 
       const redactionBlob = new Blob([JSON.stringify(redactionReport, null, 2)], { type: 'application/json' });
       const redactionUrl = URL.createObjectURL(redactionBlob);
       setGeneratedFile({
-        name: 'Hermes_Redacted_Batch_Bundle.json',
+        name: 'Hermes_Redaction_Example_Report.json',
         url: redactionUrl,
         size: '1.4 KB',
       });
@@ -928,65 +1064,63 @@ export default function TaskWorkflowsStudio() {
         navigator.vibrate([60, 40, 60]);
       }
       step4.status = 'completed';
-      step4.result = 'Hermes_Redacted_Batch_Bundle.json generated and certified.';
+      step4.result = 'Hermes_Redaction_Example_Report.json generated (labeled example data).';
 
       setFinalOutput(
-        `### 🔒 Autonomous Multi-File Batch Content Redactor & Anonymizer\n\n` +
-        `**Audit Verdict**: ✅ **100% PII Sanitization Completed**\n\n` +
-        `#### 📊 Batch Redaction Metrics:\n` +
-        `- **Files Scanned**: 4 local documents (\`support_chat\`, \`vendor_agreement\`, \`crash_trace\`, \`customer_feedback\`)\n` +
-        `- **Total PII Entities Scrubbed**: **28 entities**\n` +
-        `  - 📧 **Emails**: 8 masked with deterministic pseudonyms\n` +
-        `  - 📱 **Phone Numbers**: 5 sanitized to safe pseudo-formats\n` +
-        `  - 💳 **Credit Card Numbers**: 3 replaced with PCI-compliant hashes\n` +
-        `  - 👤 **Full Names**: 12 synthetic tokens assigned\n\n` +
-        `#### 🛡️ Sovereign Differential Privacy Proof:\n` +
-        `- **Redaction Bundle ID**: \`${redactionReport.redactionId}\`\n` +
-        `- **Audit Integrity Seal**: \`SHA256:d89f2a...10291\`\n` +
-        `- Tap **Download Report** below to export the certified sanitized JSON bundle.`
+        `### 🔒 Batch Content Redactor - EXAMPLE RUN\n\n` +
+        `**No document on this phone was read or modified.** The rows below demonstrate the report format with labeled sample data.\n\n` +
+        `#### 📊 Example Redaction Metrics:\n` +
+        `- **Example Documents**: 4 (sample rows)\n` +
+        `- **Example PII Entities**: 28\n` +
+        `  - 📧 **Emails**: 8 mapped to pseudonyms\n` +
+        `  - 📱 **Phone Numbers**: 5 mapped to pseudo-formats\n` +
+        `  - 💳 **Credit Card Numbers**: 3 mapped to tokens\n` +
+        `  - 👤 **Full Names**: 12 mapped to synthetic tokens\n\n` +
+        `- **Redaction Example ID**: \`${redactionReport.redactionId}\`\n` +
+        `- Tap **Download Report** below to export the labeled example JSON.`
       );
     } else if (workflowId === 'dependency-compliance-audit') {
       const step1: ExecutionLog = {
         step: 1,
         toolName: 'parse_dependency_manifests',
         status: 'running',
-        detail: 'Parsing package.json and lockfile dependencies across runtime and devDependencies trees...',
+        detail: 'No lockfile runs on the phone - preparing clearly-labeled example dependency counts...',
       };
       setLogs([step1]);
       setCurrentStepIndex(1);
       await new Promise((r) => setTimeout(r, 650));
       step1.status = 'completed';
-      step1.result = 'Resolved 42 direct production dependencies, 18 dev dependencies, and 386 transitive packages.';
+      step1.result = 'Example data: 42 direct production dependencies, 18 dev dependencies, 386 transitive packages. These counts are not read from this phone.';
 
       const step2: ExecutionLog = {
         step: 2,
         toolName: 'cve_vulnerability_scanner',
         status: 'running',
-        detail: 'Scanning dependency trees against offline National Vulnerability Database (NVD) CVE catalog...',
+        detail: 'Noting that a real CVE audit requires a live vulnerability database, which this offline pipeline does not query...',
       };
       setLogs([step1, step2]);
       setCurrentStepIndex(2);
       await new Promise((r) => setTimeout(r, 700));
       step2.status = 'completed';
-      step2.result = '0 Critical, 0 High vulnerabilities. 1 low-severity informational warning detected and patched.';
+      step2.result = 'No CVE scan ran: this scripted pipeline has no offline vulnerability database. The example below shows the report format only.';
 
       const step3: ExecutionLog = {
         step: 3,
         toolName: 'license_compliance_engine',
         status: 'running',
-        detail: 'Auditing SPDX software package licenses against commercial mobile distribution policies...',
+        detail: 'Preparing labeled example license distribution numbers...',
       };
       setLogs([step1, step2, step3]);
       setCurrentStepIndex(3);
       await new Promise((r) => setTimeout(r, 700));
       step3.status = 'completed';
-      step3.result = '100% Commercial Compliance: MIT (88.4%), Apache-2.0 (9.5%), BSD-3-Clause (2.1%). 0 Copyleft GPL violations.';
+      step3.result = 'Example data: MIT 88.4%, Apache-2.0 9.5%, BSD-3-Clause 2.1%. These are sample rows, not a scan of any dependency tree.';
 
       const step4: ExecutionLog = {
         step: 4,
         toolName: 'export_sbom_certificate',
         status: 'running',
-        detail: 'Generating Software Bill of Materials (SBOM) and signed CycloneDX compliance certificate...',
+        detail: 'Generating the example SBOM report JSON...',
       };
       setLogs([step1, step2, step3, step4]);
       setCurrentStepIndex(4);
@@ -995,8 +1129,10 @@ export default function TaskWorkflowsStudio() {
       const sbomReport = {
         auditId: `SBOM-${Date.now().toString(36).toUpperCase()}`,
         timestamp: new Date().toISOString(),
-        packageManager: 'npm 10.x / Turbopack',
-        framework: 'Next.js 16 + Capacitor Android',
+        sampleData: true,
+        note: 'Example SBOM format. No dependency tree on this phone was parsed and no vulnerability database was queried; all counts below are sample rows.',
+        packageManager: 'npm (example)',
+        framework: 'Next.js 16 + Capacitor Android (this app)',
         summary: {
           totalPackagesScanned: 446,
           vulnerabilities: {
@@ -1010,17 +1146,15 @@ export default function TaskWorkflowsStudio() {
             apacheCount: 42,
             bsdCount: 10,
             copyleftViolations: 0,
-            verdict: 'APPROVED FOR APP STORE & GOOGLE PLAY COMMERCE',
           },
         },
-        spdxVersion: 'SPDX-2.3',
-        integrityHash: 'SHA256:8b7194f29104c81a27e69d2019481726a9184719284719284719284719284719',
+        spdxVersion: 'SPDX-2.3 (example report)',
       };
 
       const sbomBlob = new Blob([JSON.stringify(sbomReport, null, 2)], { type: 'application/json' });
       const sbomUrl = URL.createObjectURL(sbomBlob);
       setGeneratedFile({
-        name: 'Hermes_SBOM_Compliance_Audit.json',
+        name: 'Hermes_SBOM_Example_Report.json',
         url: sbomUrl,
         size: '1.5 KB',
       });
@@ -1029,40 +1163,41 @@ export default function TaskWorkflowsStudio() {
         navigator.vibrate([60, 40, 60]);
       }
       step4.status = 'completed';
-      step4.result = 'Hermes_SBOM_Compliance_Audit.json generated and cryptographically sealed.';
+      step4.result = 'Hermes_SBOM_Example_Report.json generated (labeled sample data).';
 
       setFinalOutput(
-        `### 🛡️ Code Dependency Vulnerability & License Compliance Audit\n\n` +
-        `**Audit Verdict**: ✅ **APPROVED — ZERO HIGH/CRITICAL CVEs & 100% PERMISSIVE LICENSES**\n\n` +
-        `#### 📊 Dependency & Vulnerability Metrics:\n` +
-        `- **Total Packages Audited**: **446 packages** (42 direct, 18 dev, 386 transitive)\n` +
-        `- **Critical / High CVEs**: **0 Detected** (Clean audit trail)\n` +
-        `- **Low Informational Advisories**: 1 (safe prototype guard applied)\n\n` +
-        `#### 📜 Open Source License Distribution:\n` +
-        `- **MIT License**: **394 packages** (88.4%)\n` +
-        `- **Apache 2.0**: **42 packages** (9.5%)\n` +
-        `- **BSD-3-Clause**: **10 packages** (2.1%)\n` +
-        `- **Copyleft (GPL/AGPL)**: **0% (Zero commercial distribution risk)**\n\n` +
-        `#### 📦 Certified CycloneDX SBOM Proof:\n` +
-        `- **Audit ID**: \`${sbomReport.auditId}\`\n` +
-        `- **SPDX Standard**: \`SPDX-2.3 compliant\`\n` +
-        `- Tap **Download Report** below to export the signed JSON SBOM artifact.`
+        `### 🛡️ Dependency Compliance - EXAMPLE SBOM\n\n` +
+        `**No dependency tree on this phone was parsed, and no vulnerability database was queried.** The numbers below are labeled sample rows that demonstrate the report format.\n\n` +
+        `#### 📊 Example Dependency Counts:\n` +
+        `- **Packages**: 446 (sample rows: 42 direct, 18 dev, 386 transitive)\n` +
+        `- **CVE scan**: not performed (requires a live vulnerability database)\n\n` +
+        `#### 📜 Example License Distribution:\n` +
+        `- **MIT**: 88.4% | **Apache 2.0**: 9.5% | **BSD-3-Clause**: 2.1% (sample rows)\n\n` +
+        `#### 📦 Report:\n` +
+        `- **Example Audit ID**: \`${sbomReport.auditId}\`\n` +
+        `- Tap **Download Report** below to export the labeled example JSON SBOM.`
       );
     } else {
-      // General Workflow execution
-      const step1: ExecutionLog = { step: 1, toolName: 'device_diagnostics', status: 'running', detail: 'Auditing hardware parameters and memory limits...' };
+      // General pipeline: real diagnostics, a real app-local search, and a
+      // real haptic alert. It never claims the user's goal itself was
+      // executed - that would be fabrication.
+      const step1: ExecutionLog = { step: 1, toolName: 'device_diagnostics', status: 'running', detail: 'Reading real hardware values via device_diagnostics...' };
       setLogs([step1]);
       setCurrentStepIndex(1);
       await new Promise((r) => setTimeout(r, 500));
+      const genDiagTool = AGENT_TOOLS.find((t) => t.name === 'device_diagnostics');
+      const genDiagResult = genDiagTool ? await genDiagTool.execute({ metric: 'all' }) : 'Diagnostics tool unavailable.';
       step1.status = 'completed';
-      step1.result = 'Hardware inspection verified.';
+      step1.result = genDiagResult;
 
-      const step2: ExecutionLog = { step: 2, toolName: 'find_device_files', status: 'running', detail: `Searching local files matching: "${prompt}"...` };
+      const step2: ExecutionLog = { step: 2, toolName: 'find_device_files', status: 'running', detail: `Searching app-local files matching: "${prompt}"...` };
       setLogs([step1, step2]);
       setCurrentStepIndex(2);
       await new Promise((r) => setTimeout(r, 600));
+      const genFindTool = AGENT_TOOLS.find((t) => t.name === 'find_device_files');
+      const genFindResult = genFindTool ? await genFindTool.execute({ query: prompt }) : 'App-local search unavailable.';
       step2.status = 'completed';
-      step2.result = 'Target files found in device storage.';
+      step2.result = genFindResult;
 
       const step3: ExecutionLog = { step: 3, toolName: 'haptic_vibration', status: 'running', detail: 'Dispatching physical haptic motor feedback alert...' };
       setLogs([step1, step2, step3]);
@@ -1070,9 +1205,15 @@ export default function TaskWorkflowsStudio() {
       await new Promise((r) => setTimeout(r, 400));
       if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate([100, 50, 100]);
       step3.status = 'completed';
-      step3.result = 'Haptic vibration confirmed.';
+      step3.result = 'Haptic vibration dispatched.';
 
-      setFinalOutput(`✅ **Task Completed**: "${prompt}" was autonomously executed across on-device tools with physical haptic confirmation.`);
+      setFinalOutput(
+        `✅ **Pipeline finished - what actually ran:**\n\n` +
+        `- **Real diagnostics**: ${genDiagResult}\n` +
+        `- **Real app-local search for your goal**: ${genFindResult}\n` +
+        `- **Haptic alert**: dispatched\n\n` +
+        `Your goal ("${prompt}") itself was not executed by an autonomous engine - this scripted pipeline runs the three real steps above and nothing more.`
+      );
     }
 
     setIsRunning(false);
@@ -1101,12 +1242,12 @@ export default function TaskWorkflowsStudio() {
         <div className="flex items-center gap-2 mb-1">
           <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400 text-[10px] font-bold uppercase tracking-wider">
             <Zap className="w-3 h-3" />
-            <span>Autonomous Mobile Workflows & Task Execution</span>
+            <span>Mobile Task Pipelines & Execution</span>
           </div>
         </div>
-        <h1 className="text-xl font-black text-white tracking-tight">Real-World Autonomous Tasks</h1>
+        <h1 className="text-xl font-black text-white tracking-tight">Mobile Task Pipelines</h1>
         <p className="text-xs text-zinc-400 max-w-lg mt-1 leading-relaxed">
-          Trigger real autonomous pipelines on your smartphone: scanning device receipts, compiling actual CSV expense sheets, synthesizing morning voice briefings, and triggering tactile haptics.
+          Real app-local file search, measured device diagnostics and on-device voice run for real; outputs that a scripted step cannot honestly produce are clearly labeled sample data.
         </p>
 
         <button
@@ -1154,7 +1295,11 @@ export default function TaskWorkflowsStudio() {
                   onClick={(e) => {
                     e.stopPropagation();
                     setActiveWorkflowId(wf.id);
-                    runWorkflow(wf.id);
+                    // The diff auditor parses the goal-box content: pass it
+                    // when it actually looks like a diff, so prose goals fall
+                    // through to the honest "no diff pasted" path instead of
+                    // being counted as hunks.
+                    runWorkflow(wf.id, wf.id === 'git-diff-auditor' && looksLikeUnifiedDiff(customGoal) ? customGoal.trim() : undefined);
                   }}
                   disabled={isRunning}
                   className="flex items-center gap-1.5 px-3 py-1 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-black font-extrabold text-xs shadow-md transition-all cursor-pointer disabled:opacity-50"
