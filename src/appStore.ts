@@ -1249,6 +1249,9 @@ async function executeHermesAgent(
       apiEndpoint,
       apiKey,
       ...resolveFallbackConfig(get),
+      onPrivacyRedaction: (count: number) => {
+        get().setFallbackNotice(`Privacy guard redacted ${count} high-confidence secret value${count === 1 ? '' : 's'} before the remote request.`);
+      },
     },
     onProgress: (statusText, pct) => {
       updateMsg(assistantMsgId, steps, `${visualPrefix}*[Autonomous Agent Reasoning: ${pct}% - ${statusText}]*`, true, set, get, 'agent', sessionId);
