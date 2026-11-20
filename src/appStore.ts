@@ -824,6 +824,13 @@ export const useAppStore = create<AppStore>((set, get) => ({
     };
 
     const assistantMsgId = `asst-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
+
+    // Capture the sessions that own this assistant message at creation time:
+    // every streaming write below must target these, even if the user switches
+    // to another session while generation is still running.
+    const owningChatSessionId = activeChatSessionId;
+    const owningAgentSessionId = activeAgentSessionId;
+
     const assistantMessage: ChatMessage = {
       id: assistantMsgId,
       role: 'assistant',
@@ -878,33 +885,35 @@ export const useAppStore = create<AppStore>((set, get) => ({
     try {
       if (operatingMode === 'image-gen' || (currentModel?.category === 'image' && operatingMode !== 'agent')) {
         // Dedicated on-device image generation studio
-        updateMsg(assistantMsgId, [], '*[🎨 Generating AI Image via Diffusion Studio...]*', true, set, get, 'chat');
+        updateMsg(assistantMsgId, [], '*[🎨 Generating AI Image via Diffusion Studio...]*', true, set, get, 'chat', owningChatSessionId);
         const cleanPrompt = userText.trim();
         const imgDataUrl = await generateOnDeviceAIImage(cleanPrompt, currentModel?.name || 'Diffusion Studio');
         const finalContent = `![Generated Image](${imgDataUrl})\n\n**Prompt:** "${cleanPrompt}"\n*Generated locally with ${currentModel?.name || 'On-Device Diffusion Engine'}*`;
-        updateMsg(assistantMsgId, [], finalContent, false, set, get, 'chat');
+        updateMsg(assistantMsgId, [], finalContent, false, set, get, 'chat', owningChatSessionId);
       } else if (operatingMode === 'agent') {
-        await executeHermesAgent(userText, pendingAttachments, assistantMsgId, switchedNotice, activeModelId, set, get, options?.isLive);
+        await executeHermesAgent(userText, pendingAttachments, assistantMsgId, switchedNotice, owningAgentSessionId, activeModelId, set, get, options?.isLive);
       } else {
-        await executeDirectChat(userText, pendingAttachments, assistantMsgId, switchedNotice, activeModelId, set, get, options?.isLive);
+        await executeDirectChat(userText, pendingAttachments, assistantMsgId, switchedNotice, owningChatSessionId, activeModelId, set, get, options?.isLive);
       }
     } catch (err: any) {
       console.warn('Execution stopped or encountered error:', err?.message || err);
-      // Ensure streaming message shows stopped notice if aborted
-      const activeAgentId = get().activeAgentSessionId;
-      const activeChatId = get().activeChatSessionId;
+      // Ensure streaming message shows stopped notice if aborted. Look the
+      // message up in the session captured at send time, not the currently
+      // active one (the user may have switched sessions mid-stream).
+      const activeAgentId = owningAgentSessionId;
+      const activeChatId = owningChatSessionId;
       const op = get().operatingMode;
       if (op === 'agent') {
         const sess = get().agentSessions[activeAgentId];
         const target = sess?.messages.find((m) => m.id === assistantMsgId);
         if (target && target.isStreaming) {
-          updateMsg(assistantMsgId, target.agentSteps || [], target.content ? `${target.content}\n\n*[Stopped by user]*` : '*[Task stopped by user]*', false, set, get, 'agent');
+          updateMsg(assistantMsgId, target.agentSteps || [], target.content ? `${target.content}\n\n*[Stopped by user]*` : '*[Task stopped by user]*', false, set, get, 'agent', activeAgentId);
         }
       } else {
         const sess = get().chatSessions[activeChatId];
         const target = sess?.messages.find((m) => m.id === assistantMsgId);
         if (target && target.isStreaming) {
-          updateMsg(assistantMsgId, [], target.content ? `${target.content}\n\n*[Stopped by user]*` : '*[Task stopped by user]*', false, set, get, 'chat');
+          updateMsg(assistantMsgId, [], target.content ? `${target.content}\n\n*[Stopped by user]*` : '*[Task stopped by user]*', false, set, get, 'chat', activeChatId);
         }
       }
     } finally {
@@ -929,6 +938,7 @@ async function executeHermesAgent(
   attachments: Attachment[],
   assistantMsgId: string,
   prefixNotice: string,
+  sessionId: string,
   modelId: string,
   set: any,
   get: any,
@@ -1014,7 +1024,7 @@ async function executeHermesAgent(
     thought: initialThought,
   };
   steps.push(planStep);
-  updateMsg(assistantMsgId, steps, prefixNotice, true, set, get, 'agent');
+  updateMsg(assistantMsgId, steps, prefixNotice, true, set, get, 'agent', sessionId);
 
   // Multi-step Tool Execution
   const toolObservations: string[] = [];
@@ -1074,7 +1084,7 @@ async function executeHermesAgent(
       },
     };
     steps.push(currentStep);
-    updateMsg(assistantMsgId, steps, prefixNotice, true, set, get, 'agent');
+    updateMsg(assistantMsgId, steps, prefixNotice, true, set, get, 'agent', sessionId);
 
     await new Promise((r) => setTimeout(r, 400));
     let toolResult = await tool.execute(args);
@@ -1090,7 +1100,7 @@ async function executeHermesAgent(
 
     currentStep.toolResult = toolResult;
     toolObservations.push(`[Tool Observation from ${tool.name}]:\n${toolResult}`);
-    updateMsg(assistantMsgId, steps, prefixNotice, true, set, get, 'agent');
+    updateMsg(assistantMsgId, steps, prefixNotice, true, set, get, 'agent', sessionId);
   }
 
   // Step 3: Synthesis & Final Answer with Real Inference Engine
@@ -1124,8 +1134,9 @@ async function executeHermesAgent(
     visualPrefix += `### 👁️ Multimodal Visual Context Ingested\nInspected image attachments via **${model?.name}** with clear visual features.\n\n`;
   }
 
-  // Retrieve prior conversation history in active session for multi-turn LLM reasoning
-  const activeAgentId = get().activeAgentSessionId;
+  // Retrieve prior conversation history in the session that owns this stream
+  // (captured at send time), not whatever session is active right now.
+  const activeAgentId = sessionId;
   const currentAgentSess = get().agentSessions[activeAgentId];
   
   // LIVE MODE: Auto-clear / trim context window to prevent memory overflow during continuous spoken conversation
@@ -1169,7 +1180,7 @@ async function executeHermesAgent(
       apiKey,
     },
     onProgress: (statusText, pct) => {
-      updateMsg(assistantMsgId, steps, `${visualPrefix}*[Autonomous Agent Reasoning: ${pct}% - ${statusText}]*`, true, set, get, 'agent');
+      updateMsg(assistantMsgId, steps, `${visualPrefix}*[Autonomous Agent Reasoning: ${pct}% - ${statusText}]*`, true, set, get, 'agent', sessionId);
     },
     onStreamChunk: (chunkText) => {
       // Throttled store write: batch per-token updates into ~11fps UI refreshes.
@@ -1178,7 +1189,7 @@ async function executeHermesAgent(
       const now = performance.now();
       if (now - agentStreamLastFlush >= STREAM_FLUSH_MS) {
         agentStreamLastFlush = now;
-        updateMsg(assistantMsgId, steps, visualPrefix + chunkText, true, set, get, 'agent');
+        updateMsg(assistantMsgId, steps, visualPrefix + chunkText, true, set, get, 'agent', sessionId);
       }
     },
   });
@@ -1186,7 +1197,7 @@ async function executeHermesAgent(
   // Finalize from the engine's return value: it always carries the full text
   // (or the error display text on fallback paths), never the throttled tail.
   const finalText = visualPrefix + (typeof fullResult === 'string' ? fullResult : '');
-  updateMsg(assistantMsgId, steps, finalText, false, set, get, 'agent');
+  updateMsg(assistantMsgId, steps, finalText, false, set, get, 'agent', sessionId);
 
   // Trigger optional speech readout
   if ((get().isVoiceOutputEnabled || get().operatingMode === 'voice') && finalText) {
@@ -1200,6 +1211,7 @@ async function executeDirectChat(
   attachments: Attachment[],
   assistantMsgId: string,
   prefixNotice: string,
+  sessionId: string,
   modelId: string,
   set: any,
   get: any,
@@ -1213,8 +1225,9 @@ async function executeDirectChat(
     attachPrefix += `*Received ${attachments.length} attachment(s) (${attachments.map((a) => a.name || a.type).join(', ')})*\n\n`;
   }
 
-  // Retrieve prior conversation history in active chat session
-  const activeChatId = get().activeChatSessionId;
+  // Retrieve prior conversation history in the session that owns this stream
+  // (captured at send time), not whatever session is active right now.
+  const activeChatId = sessionId;
   const currentChatSess = get().chatSessions[activeChatId];
   
   // LIVE MODE: Auto-clear / trim context window to prevent memory overflow during continuous spoken conversation
@@ -1278,7 +1291,7 @@ async function executeDirectChat(
       apiKey,
     },
     onProgress: (statusText, pct) => {
-      updateMsg(assistantMsgId, [], `${attachPrefix}*[Loading On-Device Model Weights: ${pct}% - ${statusText}]*`, true, set, get, 'chat');
+      updateMsg(assistantMsgId, [], `${attachPrefix}*[Loading On-Device Model Weights: ${pct}% - ${statusText}]*`, true, set, get, 'chat', sessionId);
     },
     onStreamChunk: (chunkText) => {
       tokenCount++;
@@ -1293,7 +1306,7 @@ async function executeDirectChat(
         if (elapsedSec > 0.3) {
           set({ liveTps: Math.round((tokenCount / elapsedSec) * 10) / 10 });
         }
-        updateMsg(assistantMsgId, [], attachPrefix + chunkText, true, set, get, 'chat');
+        updateMsg(assistantMsgId, [], attachPrefix + chunkText, true, set, get, 'chat', sessionId);
       }
     },
   });
@@ -1301,7 +1314,7 @@ async function executeDirectChat(
   // Finalize from the engine's return value: it always carries the full text
   // (or the error display text on fallback paths), never the throttled tail.
   const finalText = attachPrefix + (typeof fullResult === 'string' ? fullResult : '');
-  updateMsg(assistantMsgId, [], finalText, false, set, get, 'chat');
+  updateMsg(assistantMsgId, [], finalText, false, set, get, 'chat', sessionId);
 
   // Trigger spoken readout if in voice synthesis mode or voice output is enabled
   const opMode = get().operatingMode;
@@ -1317,10 +1330,14 @@ function updateMsg(
   isStreaming: boolean,
   set: any,
   get: any,
-  mode: 'chat' | 'agent'
+  mode: 'chat' | 'agent',
+  sessionId?: string
 ) {
+  // sessionId (captured when the assistant message was created) pins the write
+  // to the session that owns the stream, so switching sessions mid-generation
+  // no longer redirects chunks (or drops them + leaves isStreaming:true).
   if (mode === 'agent') {
-    const activeId = get().activeAgentSessionId;
+    const activeId = sessionId || get().activeAgentSessionId;
     const sess = get().agentSessions[activeId];
     if (!sess) return;
     const msgs = sess.messages.map((m: ChatMessage) => {
@@ -1344,7 +1361,7 @@ function updateMsg(
       },
     });
   } else {
-    const activeId = get().activeChatSessionId;
+    const activeId = sessionId || get().activeChatSessionId;
     const sess = get().chatSessions[activeId];
     if (!sess) return;
     const msgs = sess.messages.map((m: ChatMessage) => {

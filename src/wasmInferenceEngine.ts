@@ -369,6 +369,11 @@ export async function callCpuLLMInference({
       },
     });
 
+    // wllama can resolve normally after a user stop (the onData handler just
+    // stops emitting). Without this check the caller would treat the aborted
+    // generation as a completed one and overwrite the stopped notice.
+    if (cpuInferenceAborted) throw new Error('Task stopped by user');
+
     return fullGenerated;
   } catch (err: any) {
     if (cpuInferenceAborted || err?.name === 'AbortError' || err?.name === 'WllamaAbortError') {
