@@ -38,6 +38,7 @@ import {
   Volume2,
 } from 'lucide-react';
 import { useAppStore, Attachment } from '@/appStore';
+import { downsampleImageFile } from '@/utils/imageOptimizer';
 import { AVAILABLE_MODELS } from '@/models';
 import { speakGuarded } from '@/utils/speechGuard';
 import CameraModal from './CameraModal';
@@ -272,24 +273,31 @@ export default function VisionStudio() {
 
   const currentPage = scannedPages[selectedPageIndex] || scannedPages[0];
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
+    // Allow picking the same file again later: reset the input's value so a
+    // repeat pick of the same path still fires onChange.
+    e.target.value = '';
 
-    Array.from(files).forEach((file, idx) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const newPage: ScannedPage = {
-          id: `page-${Date.now()}-${idx}`,
-          name: file.name,
-          dataUrl: reader.result as string,
-          isHighContrast: false,
-        };
-        setScannedPages((prev) => [...prev, newPage]);
-        setAnalysisResult(null);
+    for (const [idx, file] of Array.from(files).entries()) {
+      // Route every picked image through the same mobile-safe downsample the
+      // chat attachment path uses: a 12-50MP phone photo stored as raw base64
+      // exhausts WebView RAM, lags the thumbnail strip, and makes every
+      // debounced session persist re-serialize multi-MB strings on the main
+      // thread. downsampleImageFile never rejects and falls back to the
+      // original bytes when optimization is impossible.
+      const optimized = await downsampleImageFile(file);
+      if (!optimized.dataUrl) continue;
+      const newPage: ScannedPage = {
+        id: `page-${Date.now()}-${idx}`,
+        name: file.name,
+        dataUrl: optimized.dataUrl,
+        isHighContrast: false,
       };
-      reader.readAsDataURL(file);
-    });
+      setScannedPages((prev) => [...prev, newPage]);
+      setAnalysisResult(null);
+    }
   };
 
   const handleCameraSnap = (att: Attachment) => {
@@ -315,15 +323,24 @@ export default function VisionStudio() {
     if (!currentPage) return;
     const img = new Image();
     img.crossOrigin = 'anonymous';
+    img.onerror = () => {
+      setAnalysisResult('Image decode failed: cannot enhance this page.');
+    };
     img.src = currentPage.dataUrl;
     img.onload = () => {
       const canvas = document.createElement('canvas');
-      canvas.width = img.width;
-      canvas.height = img.height;
+      // Cap the filter working size: getImageData on a full 50MP decode
+      // allocates a ~200MB ImageData on the main thread and kills low-RAM
+      // WebView renderers. 1600px longest edge is plenty for document OCR prep.
+      const HC_MAX_EDGE = 1600;
+      const longest = Math.max(img.width, img.height);
+      const scale = longest > HC_MAX_EDGE ? HC_MAX_EDGE / longest : 1;
+      canvas.width = Math.max(1, Math.round(img.width * scale));
+      canvas.height = Math.max(1, Math.round(img.height * scale));
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
 
-      ctx.drawImage(img, 0, 0);
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
       const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
       const d = imgData.data;
 
@@ -407,13 +424,18 @@ export default function VisionStudio() {
 
   const handleSendAllToAgent = () => {
     scannedPages.forEach((p, idx) => {
+      // Base64 inflates ~4/3 over decoded bytes; exclude the data: prefix.
+      const commaIdx = p.dataUrl.indexOf(',');
+      const sizeBytes = commaIdx > 0
+        ? Math.max(1, Math.round(((p.dataUrl.length - commaIdx - 1) * 3) / 4))
+        : p.dataUrl.length;
       addAttachment({
         id: `scan-${Date.now()}-${idx}`,
         type: 'image',
         name: p.name,
         dataUrl: p.dataUrl,
-        mimeType: 'image/jpeg',
-        sizeBytes: 15000,
+        mimeType: p.dataUrl.startsWith('data:image/webp') ? 'image/webp' : 'image/jpeg',
+        sizeBytes,
       });
     });
     sendMessage('Analyze this multi-page document bundle, extract all key data, and prepare a structured summary:');
@@ -826,10 +848,11 @@ export default function VisionStudio() {
                     className="hidden"
                     onChange={(e) => {
                       const f = e.target.files?.[0];
+                      e.target.value = '';
                       if (f) {
-                        const r = new FileReader();
-                        r.onload = () => setDocAUrl(r.result as string);
-                        r.readAsDataURL(f);
+                        downsampleImageFile(f).then((optimized) => {
+                          if (optimized.dataUrl) setDocAUrl(optimized.dataUrl);
+                        });
                       }
                     }}
                   />
@@ -856,10 +879,11 @@ export default function VisionStudio() {
                     className="hidden"
                     onChange={(e) => {
                       const f = e.target.files?.[0];
+                      e.target.value = '';
                       if (f) {
-                        const r = new FileReader();
-                        r.onload = () => setDocBUrl(r.result as string);
-                        r.readAsDataURL(f);
+                        downsampleImageFile(f).then((optimized) => {
+                          if (optimized.dataUrl) setDocBUrl(optimized.dataUrl);
+                        });
                       }
                     }}
                   />
