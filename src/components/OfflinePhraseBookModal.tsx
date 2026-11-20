@@ -17,6 +17,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { cancelSpeech, speakGuarded } from '@/utils/speechGuard';
+import { useBackButtonClose } from '@/utils/backButton';
 
 interface Phrase {
   id: string;
@@ -112,6 +113,8 @@ interface OfflinePhraseBookModalProps {
 }
 
 export default function OfflinePhraseBookModal({ isOpen, onClose }: OfflinePhraseBookModalProps) {
+  useBackButtonClose(isOpen, onClose);
+
   const [selectedLang, setSelectedLang] = useState(LANGUAGES[0]);
   const [showLangPicker, setShowLangPicker] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');

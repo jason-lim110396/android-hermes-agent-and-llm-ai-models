@@ -23,6 +23,7 @@ import {
   Activity,
 } from 'lucide-react';
 import { Attachment } from '@/appStore';
+import { useBackButtonClose } from '@/utils/backButton';
 
 interface CameraModalProps {
   isOpen: boolean;
@@ -31,6 +32,8 @@ interface CameraModalProps {
 }
 
 export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalProps) {
+  useBackButtonClose(isOpen, onClose);
+
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);

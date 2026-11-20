@@ -23,6 +23,7 @@ import {
   Clock,
   Filter,
 } from 'lucide-react';
+import { useBackButtonClose } from '@/utils/backButton';
 
 interface ClipEntry {
   id: string;
@@ -119,6 +120,8 @@ export default function ClipboardVaultModal({
   onInsert,
   onAuditWithAgent,
 }: ClipboardVaultModalProps) {
+  useBackButtonClose(isOpen, onClose);
+
   const [entries, setEntries] = useState<ClipEntry[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<ClipEntry['type'] | 'all'>('all');

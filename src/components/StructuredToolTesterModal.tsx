@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { AGENT_TOOLS, AgentTool } from '@/agentTools';
 import { useAppStore } from '@/appStore';
+import { useBackButtonClose } from '@/utils/backButton';
 
 interface StructuredToolTesterModalProps {
   isOpen: boolean;
@@ -26,6 +27,8 @@ interface StructuredToolTesterModalProps {
 }
 
 export default function StructuredToolTesterModal({ isOpen, onClose }: StructuredToolTesterModalProps) {
+  useBackButtonClose(isOpen, onClose);
+
   const sendMessage = useAppStore((s) => s.sendMessage);
   const setCurrentTab = useAppStore((s) => s.setCurrentTab);
 

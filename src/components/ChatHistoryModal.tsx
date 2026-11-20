@@ -19,6 +19,7 @@ import {
   FileJson,
 } from 'lucide-react';
 import { useAppStore, ChatSession } from '@/appStore';
+import { useBackButtonClose } from '@/utils/backButton';
 
 interface ChatHistoryModalProps {
   isOpen: boolean;
@@ -28,6 +29,8 @@ interface ChatHistoryModalProps {
 const CATEGORIES = ['All', 'General', 'Work', 'Coding', 'Research', 'Creative'];
 
 export default function ChatHistoryModal({ isOpen, onClose }: ChatHistoryModalProps) {
+  useBackButtonClose(isOpen, onClose);
+
   const operatingMode = useAppStore((s) => s.operatingMode);
   const chatSessions = useAppStore((s) => s.chatSessions);
   const agentSessions = useAppStore((s) => s.agentSessions);

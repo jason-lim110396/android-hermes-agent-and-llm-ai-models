@@ -15,6 +15,7 @@ import {
   Maximize2,
   Trash2,
 } from 'lucide-react';
+import { useBackButtonClose } from '@/utils/backButton';
 
 interface CodeSandboxModalProps {
   initialCode?: string;
@@ -259,6 +260,8 @@ export default function CodeSandboxModal({
   isOpen,
   onClose,
 }: CodeSandboxModalProps) {
+  useBackButtonClose(isOpen, onClose);
+
   const [code, setCode] = useState<string>(initialCode || TEMPLATES[0].code);
   const [activeTab, setActiveTab] = useState<'preview' | 'code' | 'console'>('preview');
   const [logs, setLogs] = useState<ConsoleEntry[]>([]);

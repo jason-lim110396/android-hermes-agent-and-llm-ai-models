@@ -20,6 +20,7 @@ import {
   Eye,
 } from 'lucide-react';
 import { generateQRCode } from '@/utils/qrEncoder';
+import { useBackButtonClose } from '@/utils/backButton';
 
 type PayloadMode = 'wifi' | 'url' | 'text' | 'contact' | 'crypto';
 
@@ -50,6 +51,8 @@ export default function QRCodeStudioModal({
   onInsertIntoChat?: (text: string) => void;
   onAuditWithAgent?: (prompt: string) => void;
 }) {
+  useBackButtonClose(isOpen, onClose);
+
   const [mode, setMode] = useState<PayloadMode>('wifi');
   const [selectedTheme, setSelectedTheme] = useState<ColorTheme>(COLOR_THEMES[0]);
   const [roundedDots, setRoundedDots] = useState(false);

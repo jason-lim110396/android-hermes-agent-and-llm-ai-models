@@ -20,6 +20,7 @@ import {
   BookOpen,
   ArrowRight,
 } from 'lucide-react';
+import { useBackButtonClose } from '@/utils/backButton';
 
 export interface MobileNote {
   id: string;
@@ -74,6 +75,8 @@ export default function MarkdownNotepadModal({
   onInsertIntoChat?: (text: string) => void;
   onAuditWithAgent?: (prompt: string) => void;
 }) {
+  useBackButtonClose(isOpen, onClose);
+
   const [notes, setNotes] = useState<MobileNote[]>([]);
   const [activeNoteId, setActiveNoteId] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState('');

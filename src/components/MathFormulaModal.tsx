@@ -14,6 +14,7 @@ import {
   Sigma,
 } from 'lucide-react';
 import { useAppStore } from '@/appStore';
+import { useBackButtonClose } from '@/utils/backButton';
 
 interface MathFormulaModalProps {
   isOpen: boolean;
@@ -100,6 +101,8 @@ export default function MathFormulaModal({
   onClose,
   initialLatex,
 }: MathFormulaModalProps) {
+  useBackButtonClose(isOpen, onClose);
+
   const sendMessage = useAppStore((s) => s.sendMessage);
   const setCurrentTab = useAppStore((s) => s.setCurrentTab);
 
