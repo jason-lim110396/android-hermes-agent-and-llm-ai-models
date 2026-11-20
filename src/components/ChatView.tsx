@@ -78,6 +78,7 @@ import ClipboardVaultModal from './ClipboardVaultModal';
 import OfflinePhraseBookModal from './OfflinePhraseBookModal';
 import SensorSpatialModal from './SensorSpatialModal';
 import NetworkSpeedModal from './NetworkSpeedModal';
+import { abortAllInference } from '@/inferenceEngine';
 import MarkdownNotepadModal from './MarkdownNotepadModal';
 import QRCodeStudioModal from './QRCodeStudioModal';
 
@@ -576,23 +577,18 @@ export default function ChatView() {
     return () => {
       isVoiceMountedRef.current = false;
       const store = useAppStore.getState();
-      const opMode = store.operatingMode;
-      if (opMode === 'agent') {
-        const activeId = store.activeAgentSessionId;
-        const sess = store.agentSessions[activeId];
-        if (sess && sess.messages.some((m: any) => m.isStreaming)) {
-          const msgs = sess.messages.map((m: any) => m.isStreaming ? { ...m, isStreaming: false, content: m.content ? m.content + String.fromCharCode(10,10) + '*[Stopped: view unmounted]*' : '*[Task stopped: view unmounted]*' } : m);
-          useAppStore.setState({ agentSessions: { ...store.agentSessions, [activeId]: { ...sess, messages: msgs } } });
-        }
-      } else {
-        const activeId = store.activeChatSessionId;
-        const sess = store.chatSessions[activeId];
-        if (sess && sess.messages.some((m: any) => m.isStreaming)) {
-          const msgs = sess.messages.map((m: any) => m.isStreaming ? { ...m, isStreaming: false, content: m.content ? m.content + String.fromCharCode(10,10) + '*[Stopped: view unmounted]*' : '*[Task stopped: view unmounted]*' } : m);
-          useAppStore.setState({ chatSessions: { ...store.chatSessions, [activeId]: { ...sess, messages: msgs } } });
-        }
+      // A generation still running must be REALLY stopped, not cosmetically
+      // marked: the old hand-rolled surgery left the inference loop alive in
+      // the background (CPU/GPU/battery burn), the next throttled store flush
+      // overwrote the "*[Stopped: view unmounted]*" marker and resurrected
+      // isStreaming, and isGenerating was force-false so a second generation
+      // could be started on return with no Stop button. Aborting inference
+      // makes sendMessage's own catch/finally finalize the streaming message
+      // coherently and reset flags - without the emergency-stop's side effect
+      // of killing an unrelated background model download in progress.
+      if (store.isGenerating) {
+        try { abortAllInference(); } catch (_) {}
       }
-      if (store.isGenerating) useAppStore.setState({ isGenerating: false });
       voiceRequestIdRef.current++;
       if (voiceTimerRef.current) clearInterval(voiceTimerRef.current);
       if (recognitionRef.current) {
@@ -1722,7 +1718,10 @@ export default function ChatView() {
                       <button
                         key={idx}
                         onClick={() => {
-                          setInputVal(qp.prompt);
+                          // Send straight from the chip: the prompt is already
+                          // visible in the sent bubble, and leaving it in the
+                          // composer invited a one-tap double-send.
+                          setInputVal('');
                           sendMessage(qp.prompt);
                         }}
                         className="text-left p-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-850 border border-zinc-800 hover:border-cyan-500/50 text-xs transition-all group cursor-pointer"
