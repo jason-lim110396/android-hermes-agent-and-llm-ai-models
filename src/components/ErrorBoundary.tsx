@@ -36,14 +36,13 @@ export function registerGlobalCrashHandlers() {
   if (typeof window === 'undefined' || globalHandlersRegistered) return;
   globalHandlersRegistered = true;
 
+  // Capture phase: resource-load <error> events do not bubble, so only a capturing
+  // listener sees them; script errors dispatched at window still arrive in the target phase
   window.addEventListener('error', (event: ErrorEvent) => {
     // Resource-load failures (script/img/link/svg) arrive with the failing element as
     // the event target and an empty message, instead of a script error on window
     const target = event.target as EventTarget | null;
-    const isResourceLoadFailure =
-      (target !== null && target !== window) ||
-      (!event.message && (target instanceof HTMLElement || target instanceof SVGElement));
-    if (isResourceLoadFailure) {
+    if (target !== null && target !== window) {
       const element = target as HTMLElement | SVGElement;
       const url = (element as HTMLImageElement).src || (element as HTMLLinkElement).href || '';
       recordError(
@@ -53,7 +52,7 @@ export function registerGlobalCrashHandlers() {
       return;
     }
     recordError(event.message || 'Unknown script error', 'window.onerror');
-  });
+  }, true);
 
   window.addEventListener('unhandledrejection', (event: PromiseRejectionEvent) => {
     const reason = event.reason instanceof Error ? event.reason.message : String(event.reason ?? 'unknown rejection');
@@ -76,14 +75,13 @@ interface ErrorBoundaryState {
   hasError: boolean;
   errorMessage: string;
   isRepeatCrash: boolean;
-  recoveredAt: number | null;
 }
 
-// Snapshot of the most recent recovery. getDerivedStateFromError is static and cannot
-// read instance state, so this mirror lets it detect repeat crashes atomically while
-// the fallback is still being derived, before anything paints.
-let lastRecoveryAt: number | null = null;
-let lastRecoveredFingerprint = '';
+// Recovery timestamps keyed by fault fingerprint (error message). getDerivedStateFromError
+// is static and cannot read instance state, so this map lets it detect repeat crashes
+// atomically while the fallback is still being derived, before anything paints. Keying by
+// fingerprint keeps recoveries isolated per fault instead of one global slot masking others.
+const recentRecoveries = new Map<string, number>();
 
 export default class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
   constructor(props: ErrorBoundaryProps) {
@@ -92,19 +90,17 @@ export default class ErrorBoundary extends React.Component<ErrorBoundaryProps, E
       hasError: false,
       errorMessage: '',
       isRepeatCrash: false,
-      recoveredAt: null,
     };
   }
 
   static getDerivedStateFromError(error: Error): Partial<ErrorBoundaryState> {
     const message = error.message || String(error);
     // Computed during the render phase so a repeat crash paints the Full Reload button
-    // immediately with no one-render flash. Only the exact same fault (matching
-    // message) resurfacing within the window after a recovery counts as a repeat.
+    // immediately with no one-render flash. Only this exact fault (matching message)
+    // recovered within the window counts as a repeat.
+    const recoveredAt = recentRecoveries.get(message);
     const isRepeatCrash =
-      lastRecoveryAt !== null &&
-      Date.now() - lastRecoveryAt < REPEAT_CRASH_WINDOW_MS &&
-      message === lastRecoveredFingerprint;
+      recoveredAt !== undefined && Date.now() - recoveredAt < REPEAT_CRASH_WINDOW_MS;
     return {
       hasError: true,
       errorMessage: message,
@@ -117,14 +113,21 @@ export default class ErrorBoundary extends React.Component<ErrorBoundaryProps, E
   }
 
   handleRecovery = () => {
-    // Remember the fault this boundary just recovered from so a matching resurface is a repeat
-    lastRecoveryAt = Date.now();
-    lastRecoveredFingerprint = this.state.errorMessage;
+    const fingerprint = this.state.errorMessage;
+    if (fingerprint) {
+      const now = Date.now();
+      // Opportunistically prune entries older than the window so the map cannot grow unboundedly
+      recentRecoveries.forEach((timestamp, key) => {
+        if (now - timestamp >= REPEAT_CRASH_WINDOW_MS) {
+          recentRecoveries.delete(key);
+        }
+      });
+      recentRecoveries.set(fingerprint, now);
+    }
     this.setState({
       hasError: false,
       errorMessage: '',
       isRepeatCrash: false,
-      recoveredAt: lastRecoveryAt,
     });
   };
 
