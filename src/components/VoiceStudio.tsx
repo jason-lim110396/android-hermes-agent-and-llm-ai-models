@@ -24,6 +24,9 @@ import {
   RotateCcw,
   CheckCircle2,
   Bookmark,
+  Languages,
+  Globe,
+  Subtitles,
 } from 'lucide-react';
 import { useAppStore } from '@/appStore';
 import { AVAILABLE_MODELS } from '@/models';
@@ -51,6 +54,17 @@ const SAMPLE_SCRIPTS = [
   'MiniCPM-V and EmbeddingGemma 2 are primed for on-device document OCR, video search, and autonomous multi-step reasoning.',
 ];
 
+const TRANSLATION_LANGUAGES = [
+  { code: 'es', name: 'Spanish', flag: '🇪🇸' },
+  { code: 'fr', name: 'French', flag: '🇫🇷' },
+  { code: 'de', name: 'German', flag: '🇩🇪' },
+  { code: 'ja', name: 'Japanese', flag: '🇯🇵' },
+  { code: 'zh', name: 'Chinese', flag: '🇨🇳' },
+  { code: 'it', name: 'Italian', flag: '🇮🇹' },
+  { code: 'ko', name: 'Korean', flag: '🇰🇷' },
+  { code: 'pt', name: 'Portuguese', flag: '🇧🇷' },
+];
+
 export default function VoiceStudio() {
   const selectedModelId = useAppStore((s) => s.selectedModelId);
   const stopSpeaking = useAppStore((s) => s.stopSpeaking);
@@ -67,6 +81,7 @@ export default function VoiceStudio() {
   const [recordingDuration, setRecordingDuration] = useState(0);
   const [transcribedText, setTranscribedText] = useState('');
   const [copied, setCopied] = useState(false);
+  const [targetLang, setTargetLang] = useState('Spanish');
 
   // Custom Cloned Personas State
   const [customPresets, setCustomPresets] = useState<VoicePreset[]>(() => {
@@ -360,6 +375,59 @@ export default function VoiceStudio() {
     URL.revokeObjectURL(url);
   };
 
+  const formatTimecode = (totalMs: number, delimiter: ',' | '.') => {
+    const hours = Math.floor(totalMs / 3600000);
+    const minutes = Math.floor((totalMs % 3600000) / 60000);
+    const seconds = Math.floor((totalMs % 60000) / 1000);
+    const ms = totalMs % 1000;
+    const hh = String(hours).padStart(2, '0');
+    const mm = String(minutes).padStart(2, '0');
+    const ss = String(seconds).padStart(2, '0');
+    const mmm = String(ms).padStart(3, '0');
+    return `${hh}:${mm}:${ss}${delimiter}${mmm}`;
+  };
+
+  const generateSubtitles = (format: 'srt' | 'vtt') => {
+    if (!transcribedText.trim()) return '';
+    const sentences = transcribedText
+      .split(/(?<=[.?!])\s+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    const segments = sentences.length > 0 ? sentences : [transcribedText.trim()];
+    let currentTimeMs = 0;
+    const delimiter = format === 'srt' ? ',' : '.';
+    let output = format === 'vtt' ? 'WEBVTT\n\n' : '';
+
+    segments.forEach((seg, idx) => {
+      const durationMs = Math.max(2500, Math.min(8000, seg.split(' ').length * 400));
+      const startTc = formatTimecode(currentTimeMs, delimiter);
+      const endTc = formatTimecode(currentTimeMs + durationMs, delimiter);
+
+      if (format === 'srt') {
+        output += `${idx + 1}\n${startTc} --> ${endTc}\n${seg}\n\n`;
+      } else {
+        output += `${startTc} --> ${endTc}\n${seg}\n\n`;
+      }
+      currentTimeMs += durationMs + 200;
+    });
+
+    return output;
+  };
+
+  const handleExportSubtitles = (format: 'srt' | 'vtt') => {
+    const content = generateSubtitles(format);
+    if (!content) return;
+    const mimeType = format === 'srt' ? 'application/x-subrip' : 'text/vtt';
+    const blob = new Blob([content], { type: `${mimeType};charset=utf-8` });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `subtitles_${new Date().toISOString().slice(0, 10)}.${format}`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const handleSendToAgent = (prefixPrompt?: string) => {
     if (!transcribedText.trim()) return;
     const finalMsg = prefixPrompt
@@ -633,31 +701,105 @@ export default function VoiceStudio() {
             {/* Transcribed Text Box */}
             <div className="space-y-2">
               <div className="flex items-center justify-between text-xs font-bold text-zinc-300">
-                <span>Transcription Output</span>
-                {transcribedText && (
-                  <div className="flex items-center gap-2">
+                <span className="flex items-center gap-1">
+                  <span>Transcription Output</span>
+                  {transcribedText && (
+                    <span className="text-[10px] text-zinc-500 font-mono">({transcribedText.split(/\s+/).filter(Boolean).length} words)</span>
+                  )}
+                </span>
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {!transcribedText && (
                     <button
-                      onClick={handleCopyTranscription}
-                      className="text-[11px] text-amber-400 hover:text-amber-300 flex items-center gap-1 cursor-pointer"
+                      onClick={() => setTranscribedText(SAMPLE_SCRIPTS[0])}
+                      className="text-[10px] text-amber-400 hover:text-amber-300 bg-amber-500/10 px-2 py-0.5 rounded-lg border border-amber-500/30 cursor-pointer"
                     >
-                      {copied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
-                      <span>{copied ? 'Copied' : 'Copy'}</span>
+                      + Load Sample
                     </button>
-                    <button
-                      onClick={handleDownloadNote}
-                      className="text-[11px] text-zinc-400 hover:text-zinc-200 flex items-center gap-1 cursor-pointer"
-                    >
-                      <Download className="w-3 h-3" />
-                      <span>Export .txt</span>
-                    </button>
-                  </div>
-                )}
+                  )}
+                  {transcribedText && (
+                    <>
+                      <button
+                        onClick={handleCopyTranscription}
+                        className="text-[10px] text-amber-400 hover:text-amber-300 bg-zinc-800 px-2 py-0.5 rounded-lg border border-zinc-700/60 flex items-center gap-1 cursor-pointer"
+                      >
+                        {copied ? <Check className="w-2.5 h-2.5 text-emerald-400" /> : <Copy className="w-2.5 h-2.5" />}
+                        <span>{copied ? 'Copied' : 'Copy'}</span>
+                      </button>
+                      <button
+                        onClick={handleDownloadNote}
+                        className="text-[10px] text-zinc-400 hover:text-zinc-200 bg-zinc-800 px-2 py-0.5 rounded-lg border border-zinc-700/60 flex items-center gap-1 cursor-pointer"
+                        title="Download raw plain text"
+                      >
+                        <Download className="w-2.5 h-2.5" />
+                        <span>.txt</span>
+                      </button>
+                      <button
+                        onClick={() => handleExportSubtitles('srt')}
+                        className="text-[10px] text-amber-400 hover:text-amber-300 bg-amber-500/10 px-2 py-0.5 rounded-lg border border-amber-500/30 flex items-center gap-1 cursor-pointer font-mono"
+                        title="Export timed SRT Subtitles file"
+                      >
+                        <Subtitles className="w-2.5 h-2.5" />
+                        <span>.srt</span>
+                      </button>
+                      <button
+                        onClick={() => handleExportSubtitles('vtt')}
+                        className="text-[10px] text-cyan-400 hover:text-cyan-300 bg-cyan-500/10 px-2 py-0.5 rounded-lg border border-cyan-500/30 flex items-center gap-1 cursor-pointer font-mono"
+                        title="Export timed WebVTT Subtitles file"
+                      >
+                        <Subtitles className="w-2.5 h-2.5" />
+                        <span>.vtt</span>
+                      </button>
+                    </>
+                  )}
+                </div>
               </div>
 
               <div className="w-full min-h-[90px] p-3 bg-zinc-950/70 border border-zinc-800 rounded-xl text-xs text-zinc-300 font-mono whitespace-pre-wrap select-text leading-relaxed">
                 {transcribedText || <span className="text-zinc-600 italic">No audio recorded yet. Tap the microphone above to begin speech-to-text.</span>}
               </div>
             </div>
+
+            {/* Translation & Subtitle Language Controls */}
+            {transcribedText && (
+              <div className="p-3 bg-zinc-950/60 rounded-xl border border-zinc-800/80 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold text-zinc-300 flex items-center gap-1.5">
+                    <Globe className="w-3.5 h-3.5 text-cyan-400" />
+                    <span>Neural Audio Translation & Subtitles</span>
+                  </span>
+                  <span className="text-[10px] text-zinc-500">Hermes LLM Pipeline</span>
+                </div>
+
+                <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+                  {TRANSLATION_LANGUAGES.map((lang) => (
+                    <button
+                      key={lang.code}
+                      onClick={() => setTargetLang(lang.name)}
+                      className={`px-2 py-1 rounded-lg text-[11px] font-medium whitespace-nowrap cursor-pointer transition-all border ${
+                        targetLang === lang.name
+                          ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/50 ring-1 ring-cyan-500/30 font-bold'
+                          : 'bg-zinc-800/60 hover:bg-zinc-800 text-zinc-400 border-zinc-700/60'
+                      }`}
+                    >
+                      <span className="mr-1">{lang.flag}</span>
+                      <span>{lang.name}</span>
+                    </button>
+                  ))}
+                </div>
+
+                <button
+                  onClick={() =>
+                    handleSendToAgent(
+                      `You are a real-time multilingual translator and subtitle generator. Translate the following spoken audio dictation transcript accurately into ${targetLang}. Output both the direct translation and formatted SRT subtitle blocks:`
+                    )
+                  }
+                  className="w-full py-2 px-3 rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-bold text-xs flex items-center justify-center gap-2 cursor-pointer shadow-md transition-all"
+                >
+                  <Languages className="w-3.5 h-3.5" />
+                  <span>Translate to {targetLang} & Generate Timed Subtitles</span>
+                </button>
+              </div>
+            )}
 
             {/* Action Chips */}
             {transcribedText && (
