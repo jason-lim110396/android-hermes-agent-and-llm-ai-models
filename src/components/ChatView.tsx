@@ -57,6 +57,8 @@ import {
   Presentation,
   Minimize2,
   Compass,
+  Clipboard,
+  Globe,
 } from 'lucide-react';
 import { useAppStore, Attachment } from '@/appStore';
 import { AVAILABLE_MODELS, ModelSpec } from '@/models';
@@ -68,6 +70,8 @@ import ExportDocumentModal from './ExportDocumentModal';
 import MathFormulaModal from './MathFormulaModal';
 import SlideDeckModal from './SlideDeckModal';
 import ContextCompressorModal from './ContextCompressorModal';
+import ClipboardVaultModal from './ClipboardVaultModal';
+import OfflinePhraseBookModal from './OfflinePhraseBookModal';
 import SensorSpatialModal from './SensorSpatialModal';
 
 export default function ChatView() {
@@ -136,6 +140,8 @@ export default function ChatView() {
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [isCompressorModalOpen, setIsCompressorModalOpen] = useState(false);
   const [isSensorModalOpen, setIsSensorModalOpen] = useState(false);
+  const [isClipboardVaultOpen, setIsClipboardVaultOpen] = useState(false);
+  const [isPhraseBookOpen, setIsPhraseBookOpen] = useState(false);
 
   // AI Code Playground & Sandbox State
   const [isCodeSandboxOpen, setIsCodeSandboxOpen] = useState(false);
@@ -1228,6 +1234,26 @@ export default function ChatView() {
           >
             <Compass className="w-3.5 h-3.5 text-teal-400" />
             <span>Sensors</span>
+          </button>
+
+          {/* Smart Clipboard Vault */}
+          <button
+            onClick={() => setIsClipboardVaultOpen(true)}
+            title="Smart Clipboard Vault — type-aware history with AI analysis"
+            className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-violet-300 hover:border-violet-500/40 text-[10px] font-bold transition-all cursor-pointer"
+          >
+            <Clipboard className="w-3.5 h-3.5 text-violet-400" />
+            <span>Clipboard</span>
+          </button>
+
+          {/* Offline Travel Phrase Book */}
+          <button
+            onClick={() => setIsPhraseBookOpen(true)}
+            title="Offline Travel Phrase Book — 8 languages, TTS pronunciation"
+            className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-emerald-300 hover:border-emerald-500/40 text-[10px] font-bold transition-all cursor-pointer"
+          >
+            <Globe className="w-3.5 h-3.5 text-emerald-400" />
+            <span>Phrases</span>
           </button>
         </div>
       </div>
@@ -2515,6 +2541,20 @@ export default function ChatView() {
         onClose={() => setIsSensorModalOpen(false)}
         onInsertTelemetry={(telemetryText) => setInputVal((prev) => (prev ? prev + '\n\n' + telemetryText : telemetryText))}
         onAuditWithAgent={(prompt) => sendMessage(prompt)}
+      />
+
+      {/* Smart Clipboard Vault Modal */}
+      <ClipboardVaultModal
+        isOpen={isClipboardVaultOpen}
+        onClose={() => setIsClipboardVaultOpen(false)}
+        onInsert={(text) => setInputVal((prev) => (prev ? prev + '\n\n' + text : text))}
+        onAuditWithAgent={(prompt) => sendMessage(prompt)}
+      />
+
+      {/* Offline Travel Phrase Book Modal */}
+      <OfflinePhraseBookModal
+        isOpen={isPhraseBookOpen}
+        onClose={() => setIsPhraseBookOpen(false)}
       />
     </div>
   );
