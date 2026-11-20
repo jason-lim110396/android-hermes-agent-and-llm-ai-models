@@ -31,6 +31,13 @@ export const AGENT_TOOLS: AgentTool[] = [
       const q = String(args.query || '').trim();
       if (!q) return 'No search query provided.';
 
+      // Whether any live endpoint actually answered, and which ones. When none
+      // did (offline, captive portal, blocked) the tool must say so - the old
+      // fallback invented "verified" results the model never fetched and
+      // presented them as live facts.
+      let networkReached = false;
+      const answered: string[] = [];
+
       try {
         // Attempt live web search via DuckDuckGo Instant Answer API (CORS enabled, JSON)
         const ddgUrl = `https://api.duckduckgo.com/?q=${encodeURIComponent(q)}&format=json&no_html=1&skip_disambig=1`;
@@ -38,6 +45,11 @@ export const AGENT_TOOLS: AgentTool[] = [
         const timeoutId = setTimeout(() => ctrl.abort(), 4500);
         const resp = await fetch(ddgUrl, { signal: ctrl.signal });
         clearTimeout(timeoutId);
+
+        // Any HTTP response means the endpoint was reached - even an error
+        // status (429 rate limit, 5xx). Only a thrown fetch means unreachable.
+        networkReached = true;
+        answered.push('DuckDuckGo');
 
         if (resp.ok) {
           const data = await resp.json();
@@ -64,6 +76,9 @@ export const AGENT_TOOLS: AgentTool[] = [
         const wikiResp = await fetch(wikiUrl, { signal: ctrl2.signal });
         clearTimeout(timeoutId2);
 
+        networkReached = true;
+        answered.push('Wikipedia');
+
         if (wikiResp.ok) {
           const wikiData = await wikiResp.json();
           const titles = wikiData[1] || [];
@@ -81,11 +96,14 @@ export const AGENT_TOOLS: AgentTool[] = [
         }
       } catch (_) {}
 
-      // Semantic factual fallback
-      const qLower = q.toLowerCase();
-      if (qLower.includes('weather')) return 'Local Sensor & Web: 24°C, Partly Cloudy, Humidity 62%, Wind 8km/h, UV Index 5.';
-      if (qLower.includes('stock') || qLower.includes('price')) return 'Financial Market: Indices steady, Global tech +1.2%, 24h Crypto volume $78B.';
-      return `🌐 **Web Knowledge Result for "${q}"**:\nVerified factual multi-source references indicate active developments, recent release updates, and community documentation matching "${q}".`;
+      // No live source answered. Report the real state instead of fabricating
+      // results: the model can say it could not search, and the user is not
+      // handed made-up "live" facts.
+      const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
+      if (!networkReached) {
+        return `🌐 **Web search unavailable${offline ? ' - device is offline' : ' - search endpoints unreachable'}** for "${q}". No live results were fetched. Answer from local knowledge only and say when you are unsure.`;
+      }
+      return `🌐 **No live results found for "${q}"** on ${answered.join(' and ')}. Try a more specific query, or answer from local knowledge and say when you are unsure.`;
     }
   },
   {

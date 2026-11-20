@@ -71,7 +71,7 @@ export default function NetworkSpeedModal({
     setPhases((prev) => prev.map((p, i) => (i === idx ? { ...p, ...update } : p)));
   };
 
-  const measurePing = async (): Promise<number> => {
+  const measurePing = async (): Promise<number | null> => {
     const endpoints = [
       'https://www.google.com/generate_204',
       'https://1.1.1.1',
@@ -85,12 +85,14 @@ export default function NetworkSpeedModal({
       } catch (_) {}
     }
     if (times.length > 0) return Math.round(Math.min(...times));
-    // Fallback: use navigator.connection RTT
+    // Estimate from the Network Information API when the probes cannot run.
+    // If it has nothing to report either, return null: the caller must fail
+    // honestly instead of presenting a made-up number as a measurement.
     const conn = (navigator as any).connection;
-    return conn?.rtt ?? Math.round(15 + Math.random() * 20);
+    return typeof conn?.rtt === 'number' && conn.rtt > 0 ? conn.rtt : null;
   };
 
-  const measureDownload = async (): Promise<number> => {
+  const measureDownload = async (): Promise<number | null> => {
     // Try fetching a ~500KB public test asset
     const url = `https://httpbin.org/bytes/524288?ts=${Date.now()}`;
     try {
@@ -100,9 +102,9 @@ export default function NetworkSpeedModal({
       const elapsed = (performance.now() - t0) / 1000;
       return +(( buf.byteLength * 8 / 1_000_000) / elapsed).toFixed(2);
     } catch (_) {}
-    // Navigator Connection API fallback
+    // Navigator Connection API fallback; null when it has no estimate either.
     const conn = (navigator as any).connection;
-    return conn?.downlink ?? +(15 + Math.random() * 60).toFixed(2);
+    return typeof conn?.downlink === 'number' && conn.downlink > 0 ? conn.downlink : null;
   };
 
   const runTest = useCallback(async () => {
@@ -117,11 +119,32 @@ export default function NetworkSpeedModal({
     ]);
     if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(30);
 
+    // Mark every phase from `fromIdx` as failed. Used when a probe could not
+    // reach the network at all: no fabricated result, no history entry.
+    const failRemaining = (fromIdx: number, label: string) => {
+      setPhases((prev) => prev.map((p, i) => (i >= fromIdx ? { ...p, status: 'error', value: label } : p)));
+    };
+
     try {
+      // Honest offline refusal: an airplane-mode run used to "pass" every phase
+      // with random fallback numbers and store them in the history as a real
+      // measurement. With no connection there is nothing to measure. Inside
+      // the try so the finally still clears isTesting - an early return here
+      // used to leave the modal stuck on "Testing..." forever, with the run
+      // button disabled until an app reload.
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        setPhases((prev) => prev.map((p) => ({ ...p, status: 'error', value: 'Offline' })));
+        return;
+      }
+
       // Phase 0: Ping
       setPhase(0, { status: 'running' });
       await new Promise((r) => setTimeout(r, 300));
       const pingMs = await measurePing();
+      if (pingMs === null) {
+        failRemaining(0, 'No connection');
+        return;
+      }
       setPhase(0, { status: 'done', value: `${pingMs} ms` });
 
       if (abortRef.current) return;
@@ -129,6 +152,10 @@ export default function NetworkSpeedModal({
       // Phase 1: Download
       setPhase(1, { status: 'running' });
       const dlMbps = await measureDownload();
+      if (dlMbps === null) {
+        failRemaining(1, 'No connection');
+        return;
+      }
       setPhase(1, { status: 'done', value: `${dlMbps} Mbps` });
 
       if (abortRef.current) return;
@@ -145,7 +172,12 @@ export default function NetworkSpeedModal({
       setPhase(3, { status: 'running' });
       const pings: number[] = [];
       for (let i = 0; i < 4; i++) {
-        pings.push(await measurePing());
+        const p = await measurePing();
+        if (p === null) {
+          failRemaining(3, 'No connection');
+          return;
+        }
+        pings.push(p);
         await new Promise((r) => setTimeout(r, 100));
       }
       const avg = pings.reduce((a, b) => a + b, 0) / pings.length;

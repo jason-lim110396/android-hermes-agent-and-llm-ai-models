@@ -303,22 +303,36 @@ export default function DeviceDiagnostics() {
     setPingStatus('Measuring...');
     const start = performance.now();
     try {
-      // Fetch a small timestamp probe with no-cache
-      await fetch(`https://1.1.1.1/cdn-cgi/trace?t=${Date.now()}`, { mode: 'no-cors', cache: 'no-store' });
-      const duration = Math.round(performance.now() - start);
-      setPingLatency(duration);
-      if (duration < 60) {
-        setPingStatus('Ultra Fast (<60ms)');
-      } else if (duration < 150) {
-        setPingStatus('Good (<150ms)');
-      } else {
-        setPingStatus('Moderate / High Latency');
+      const ctrl = new AbortController();
+      // Bound the probe: flaky mobile data can leave an unbounded fetch - and
+      // with it the spinner - hanging indefinitely.
+      const timeoutId = setTimeout(() => ctrl.abort(), 6000);
+      try {
+        // Fetch a small timestamp probe with no-cache
+        await fetch(`https://1.1.1.1/cdn-cgi/trace?t=${Date.now()}`, { mode: 'no-cors', cache: 'no-store', signal: ctrl.signal });
+        const duration = Math.round(performance.now() - start);
+        setPingLatency(duration);
+        if (duration < 60) {
+          setPingStatus('Ultra Fast (<60ms)');
+        } else if (duration < 150) {
+          setPingStatus('Good (<150ms)');
+        } else {
+          setPingStatus('Moderate / High Latency');
+        }
+      } finally {
+        // Clear the timer on every path: on failure it would later fire
+        // ctrl.abort() on an already-settled fetch.
+        clearTimeout(timeoutId);
       }
     } catch {
-      // Fallback local timing
-      const duration = Math.round(performance.now() - start);
-      setPingLatency(duration);
-      setPingStatus('Connected');
+      // A failed probe is not a connection. The old fallback labelled the
+      // failure "Connected" and reported the time-to-fail as latency.
+      setPingLatency(null);
+      setPingStatus(
+        typeof navigator !== 'undefined' && !navigator.onLine
+          ? 'Offline - no network connection'
+          : 'Unreachable - request failed or timed out'
+      );
     } finally {
       setIsPinging(false);
     }
