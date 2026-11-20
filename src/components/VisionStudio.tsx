@@ -25,6 +25,12 @@ import {
   AlertTriangle,
   ArrowRight,
   FileCheck2,
+  QrCode,
+  ScanLine,
+  ExternalLink,
+  Wifi,
+  ShoppingCart,
+  Globe,
 } from 'lucide-react';
 import { useAppStore, Attachment } from '@/appStore';
 import { AVAILABLE_MODELS } from '@/models';
@@ -87,7 +93,39 @@ export default function VisionStudio() {
   const setCurrentTab = useAppStore((s) => s.setCurrentTab);
   const addAttachment = useAppStore((s) => s.addAttachment);
 
-  const [activeTab, setActiveTab] = useState<'scanner' | 'reconciler'>('scanner');
+  const [activeTab, setActiveTab] = useState<'scanner' | 'reconciler' | 'barcode'>('scanner');
+
+  // Barcode & QR Scanner State
+  const [barcodePayload, setBarcodePayload] = useState('https://github.com/jason-lim110396/android-hermes-agent-and-llm-ai-models');
+  const [barcodeFormat, setBarcodeFormat] = useState<'QR_CODE' | 'UPC_A' | 'EAN_13' | 'CODE_128'>('QR_CODE');
+  const [barcodeActionFeedback, setBarcodeActionFeedback] = useState<string | null>(null);
+
+  const BARCODE_SAMPLES = [
+    {
+      format: 'QR_CODE' as const,
+      label: '🌐 Hermes Repository URL',
+      payload: 'https://github.com/jason-lim110396/android-hermes-agent-and-llm-ai-models',
+      category: 'url',
+    },
+    {
+      format: 'QR_CODE' as const,
+      label: '📶 Wi-Fi Hotspot Config',
+      payload: 'WIFI:S:HermesLocalStation;T:WPA;P:offlineai2026;;',
+      category: 'wifi',
+    },
+    {
+      format: 'UPC_A' as const,
+      label: '🏷️ Grocery UPC Barcode',
+      payload: '011110038364',
+      category: 'product',
+    },
+    {
+      format: 'QR_CODE' as const,
+      label: '₿ Bitcoin Address',
+      payload: 'bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq',
+      category: 'crypto',
+    },
+  ];
 
   // Scanner State
   const [scannedPages, setScannedPages] = useState<ScannedPage[]>([
@@ -367,6 +405,17 @@ export default function VisionStudio() {
           >
             <Scale className="w-3.5 h-3.5" />
             <span>Dual Reconciler</span>
+          </button>
+          <button
+            onClick={() => setActiveTab('barcode')}
+            className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1 ${
+              activeTab === 'barcode'
+                ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-black shadow-md'
+                : 'text-zinc-400 hover:text-white'
+            }`}
+          >
+            <QrCode className="w-3.5 h-3.5" />
+            <span>Barcode & QR</span>
           </button>
         </div>
       </div>
@@ -757,6 +806,177 @@ export default function VisionStudio() {
                 </div>
               </div>
             )}
+          </div>
+        )}
+
+        {/* ========================================================= */}
+        {/* TAB 3: VISUAL BARCODE & QR CODE SCANNER */}
+        {/* ========================================================= */}
+        {activeTab === 'barcode' && (
+          <div className="bg-zinc-900/80 border border-zinc-800 rounded-2xl p-4 shadow-xl space-y-4">
+            <div className="flex items-center justify-between text-xs font-bold text-zinc-300">
+              <span className="flex items-center gap-1.5 text-amber-400">
+                <QrCode className="w-3.5 h-3.5" />
+                <span>Visual Barcode & QR Code Neural Decoder</span>
+              </span>
+              <span className="text-[10px] text-zinc-500 font-mono">100% Offline</span>
+            </div>
+
+            {/* Quick Sample Presets */}
+            <div className="space-y-1.5">
+              <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Test Sample Payloads</span>
+              <div className="grid grid-cols-2 gap-2">
+                {BARCODE_SAMPLES.map((sample, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => {
+                      setBarcodePayload(sample.payload);
+                      setBarcodeFormat(sample.format);
+                      setBarcodeActionFeedback(`Loaded ${sample.label}`);
+                      if (navigator.vibrate) navigator.vibrate(25);
+                      setTimeout(() => setBarcodeActionFeedback(null), 2500);
+                    }}
+                    className={`p-2 rounded-xl text-left border text-xs font-medium cursor-pointer transition-all ${
+                      barcodePayload === sample.payload
+                        ? 'bg-amber-500/15 border-amber-500/50 text-amber-300'
+                        : 'bg-zinc-800/60 hover:bg-zinc-800 border-zinc-700/60 text-zinc-300'
+                    }`}
+                  >
+                    <div className="font-bold truncate">{sample.label}</div>
+                    <div className="text-[10px] text-zinc-500 font-mono truncate mt-0.5">{sample.payload}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Visual Barcode / QR Target Frame */}
+            <div className="p-4 bg-zinc-950/80 rounded-2xl border border-zinc-800 flex flex-col items-center justify-center space-y-3 relative overflow-hidden">
+              <div className="w-36 h-36 rounded-2xl bg-zinc-900 border-2 border-dashed border-amber-500/50 flex flex-col items-center justify-center relative p-3">
+                {barcodeFormat === 'QR_CODE' ? (
+                  <QrCode className="w-20 h-20 text-amber-400" />
+                ) : (
+                  <ScanLine className="w-20 h-20 text-cyan-400" />
+                )}
+                <span className="text-[9px] font-mono font-bold text-zinc-400 mt-1 uppercase tracking-wider">
+                  {barcodeFormat}
+                </span>
+                <div className="absolute inset-0 bg-gradient-to-b from-transparent via-amber-500/10 to-transparent animate-pulse pointer-events-none" />
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setIsCameraOpen(true)}
+                  className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-md shadow-amber-500/20"
+                >
+                  <Camera className="w-3.5 h-3.5" />
+                  <span>Scan with Camera</span>
+                </button>
+                <button
+                  onClick={() => {
+                    const curIdx = BARCODE_SAMPLES.findIndex((s) => s.payload === barcodePayload);
+                    const nextSample = BARCODE_SAMPLES[(curIdx + 1) % BARCODE_SAMPLES.length];
+                    setBarcodePayload(nextSample.payload);
+                    setBarcodeFormat(nextSample.format);
+                  }}
+                  className="px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-medium cursor-pointer border border-zinc-700/60"
+                >
+                  Cycle Sample
+                </button>
+              </div>
+            </div>
+
+            {/* Decoded Content & Intent Matrix */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-xs font-bold text-zinc-300">
+                <span className="flex items-center gap-1.5">
+                  <ScanLine className="w-3.5 h-3.5 text-cyan-400" />
+                  <span>Decoded Data Payload</span>
+                </span>
+                <span className="text-[10px] px-1.5 py-0.2 rounded bg-zinc-800 text-amber-400 font-mono">
+                  {barcodeFormat}
+                </span>
+              </div>
+
+              <div className="p-3 bg-zinc-950/70 border border-zinc-800 rounded-xl font-mono text-xs text-zinc-200 select-text break-all leading-relaxed">
+                {barcodePayload}
+              </div>
+            </div>
+
+            {/* Protocol Action Triggers */}
+            <div className="space-y-2 pt-2 border-t border-zinc-800/80">
+              <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">Contextual Protocol Actions</span>
+
+              <div className="grid grid-cols-2 gap-2">
+                {barcodePayload.startsWith('WIFI:') && (
+                  <button
+                    onClick={() => {
+                      setBarcodeActionFeedback('Simulating Wi-Fi handshake: Connected to network!');
+                      if (navigator.vibrate) navigator.vibrate([40, 30, 40]);
+                      setTimeout(() => setBarcodeActionFeedback(null), 3000);
+                    }}
+                    className="p-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 text-white flex items-center gap-2 cursor-pointer shadow-md text-xs font-bold"
+                  >
+                    <Wifi className="w-4 h-4 shrink-0" />
+                    <span>Connect to Wi-Fi</span>
+                  </button>
+                )}
+
+                {barcodePayload.startsWith('http') && (
+                  <a
+                    href={barcodePayload}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="p-2.5 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 text-white flex items-center gap-2 cursor-pointer shadow-md text-xs font-bold justify-center"
+                  >
+                    <Globe className="w-4 h-4 shrink-0" />
+                    <span>Open URL in Browser</span>
+                  </a>
+                )}
+
+                {/^\d+$/.test(barcodePayload) && (
+                  <button
+                    onClick={() => {
+                      sendMessage(`Lookup product specifications, retail price, and ingredients for UPC/EAN code: ${barcodePayload}`);
+                      setCurrentTab('chat');
+                    }}
+                    className="p-2.5 rounded-xl bg-gradient-to-r from-amber-600 to-orange-600 text-white flex items-center gap-2 cursor-pointer shadow-md text-xs font-bold"
+                  >
+                    <ShoppingCart className="w-4 h-4 shrink-0" />
+                    <span>Lookup Product Info</span>
+                  </button>
+                )}
+
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(barcodePayload);
+                    setBarcodeActionFeedback('Copied barcode payload to clipboard!');
+                    if (navigator.vibrate) navigator.vibrate(20);
+                    setTimeout(() => setBarcodeActionFeedback(null), 2500);
+                  }}
+                  className="p-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700/80 text-zinc-200 border border-zinc-700/60 flex items-center gap-2 cursor-pointer text-xs font-bold"
+                >
+                  <Copy className="w-4 h-4 shrink-0" />
+                  <span>Copy Payload</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    sendMessage(`Audit and interpret this scanned barcode/QR code payload:\n\nFormat: ${barcodeFormat}\nPayload: ${barcodePayload}`);
+                    setCurrentTab('chat');
+                  }}
+                  className="p-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700/80 text-amber-300 border border-amber-500/40 flex items-center gap-2 cursor-pointer text-xs font-bold"
+                >
+                  <Send className="w-4 h-4 shrink-0 text-amber-400" />
+                  <span>Send to Hermes Agent</span>
+                </button>
+              </div>
+
+              {barcodeActionFeedback && (
+                <div className="p-2 rounded-xl bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 text-xs text-center font-bold animate-in fade-in">
+                  {barcodeActionFeedback}
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>
