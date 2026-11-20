@@ -370,7 +370,9 @@ export default function ChatView() {
     const next = [snippet, ...customSnippets];
     setCustomSnippets(next);
     if (typeof window !== 'undefined') {
-      window.localStorage.setItem('hermes_custom_snippets', JSON.stringify(next));
+      try {
+        window.localStorage.setItem('hermes_custom_snippets', JSON.stringify(next));
+      } catch (_) {}
     }
     setNewSnippetTitle('');
     setNewSnippetDirective('');
@@ -381,7 +383,9 @@ export default function ChatView() {
     const next = customSnippets.filter((s) => s.id !== id);
     setCustomSnippets(next);
     if (typeof window !== 'undefined') {
-      window.localStorage.setItem('hermes_custom_snippets', JSON.stringify(next));
+      try {
+        window.localStorage.setItem('hermes_custom_snippets', JSON.stringify(next));
+      } catch (_) {}
     }
   };
 
@@ -398,13 +402,15 @@ export default function ChatView() {
   };
 
   const toggleStarMessage = (msgId: string) => {
-    setStarredMessageIds((prev) => {
-      const next = prev.includes(msgId) ? prev.filter((id) => id !== msgId) : [...prev, msgId];
-      if (typeof window !== 'undefined') {
+    const next = starredMessageIds.includes(msgId)
+      ? starredMessageIds.filter((id) => id !== msgId)
+      : [...starredMessageIds, msgId];
+    setStarredMessageIds(next);
+    if (typeof window !== 'undefined') {
+      try {
         window.localStorage.setItem('hermes_starred_msgs', JSON.stringify(next));
-      }
-      return next;
-    });
+      } catch (_) {}
+    }
   };
 
   const QUICK_PROMPTS = [
@@ -682,27 +688,53 @@ export default function ChatView() {
     }
 
     let audioDataUrl = '';
-    const audioBlob = audioChunksRef.current.length > 0
-      ? new Blob(audioChunksRef.current, { type: 'audio/webm' })
-      : null;
+    let audioBlob: Blob | null = null;
+
+    // Stop the recorder and wait for its final ondataavailable + stop event
+    // before building the blob; building it earlier truncates the recording.
+    const recorder = mediaRecorderRef.current;
+    if (recorder && recorder.state !== 'inactive') {
+      audioBlob = await new Promise<Blob | null>((resolve) => {
+        let settled = false;
+        let stopTimeout: ReturnType<typeof setTimeout> | undefined;
+        const finish = () => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(stopTimeout);
+          try {
+            recorder.stream.getTracks().forEach((t) => t.stop());
+          } catch (_) {}
+          resolve(audioChunksRef.current.length > 0
+            ? new Blob(audioChunksRef.current, { type: 'audio/webm' })
+            : null);
+        };
+        // Safety net if the WebView never fires the stop event
+        stopTimeout = setTimeout(finish, 2000);
+        recorder.onstop = finish;
+        try {
+          recorder.stop();
+        } catch (_) {
+          finish();
+        }
+      });
+    } else if (audioChunksRef.current.length > 0) {
+      audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+    }
+    mediaRecorderRef.current = null;
+
+    // Chunks are baked into the blob now; clear them so the next voice note
+    // never mixes in fragments of this recording.
+    audioChunksRef.current = [];
 
     if (audioBlob) {
+      const blob = audioBlob;
       try {
         audioDataUrl = await new Promise<string>((resolve) => {
           const reader = new FileReader();
           reader.onloadend = () => resolve(reader.result as string);
-          reader.readAsDataURL(audioBlob);
+          reader.readAsDataURL(blob);
         });
       } catch (_) {}
-    }
-
-    // Stop media tracks
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      try {
-        mediaRecorderRef.current.stop();
-        mediaRecorderRef.current.stream.getTracks().forEach((t) => t.stop());
-      } catch (_) {}
-      mediaRecorderRef.current = null;
     }
 
     const transcribedPrompt = currentTranscriptRef.current.trim() || inputVal.trim() || 'Voice message';
