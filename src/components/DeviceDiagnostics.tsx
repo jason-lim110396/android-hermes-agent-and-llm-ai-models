@@ -303,8 +303,13 @@ export default function DeviceDiagnostics() {
     setPingStatus('Measuring...');
     const start = performance.now();
     try {
+      const ctrl = new AbortController();
+      // Bound the probe: flaky mobile data can leave an unbounded fetch - and
+      // with it the spinner - hanging indefinitely.
+      const timeoutId = setTimeout(() => ctrl.abort(), 6000);
       // Fetch a small timestamp probe with no-cache
-      await fetch(`https://1.1.1.1/cdn-cgi/trace?t=${Date.now()}`, { mode: 'no-cors', cache: 'no-store' });
+      await fetch(`https://1.1.1.1/cdn-cgi/trace?t=${Date.now()}`, { mode: 'no-cors', cache: 'no-store', signal: ctrl.signal });
+      clearTimeout(timeoutId);
       const duration = Math.round(performance.now() - start);
       setPingLatency(duration);
       if (duration < 60) {
@@ -315,10 +320,14 @@ export default function DeviceDiagnostics() {
         setPingStatus('Moderate / High Latency');
       }
     } catch {
-      // Fallback local timing
-      const duration = Math.round(performance.now() - start);
-      setPingLatency(duration);
-      setPingStatus('Connected');
+      // A failed probe is not a connection. The old fallback labelled the
+      // failure "Connected" and reported the time-to-fail as latency.
+      setPingLatency(null);
+      setPingStatus(
+        typeof navigator !== 'undefined' && !navigator.onLine
+          ? 'Offline - no network connection'
+          : 'Unreachable - request failed or timed out'
+      );
     } finally {
       setIsPinging(false);
     }

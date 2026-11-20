@@ -220,6 +220,9 @@ export default function SettingsView() {
 
   const [providerModels, setProviderModels] = useState<string[]>([]);
   const [isFetchingModels, setIsFetchingModels] = useState(false);
+  // Honest failure text for the provider-model fetch: without it a failed or
+  // stalled request left the list silently empty with no feedback at all.
+  const [providerModelsError, setProviderModelsError] = useState<string | null>(null);
   // Pinned provider model: written to the store's customModelName so inference
   // requests it as the model. Never allowed to overwrite the endpoint URL.
   const setCustomModelName = useAppStore((s) => s.setCustomModelName);
@@ -231,23 +234,35 @@ export default function SettingsView() {
   useEffect(() => {
     setProviderModels([]);
     setSelectedProviderModel('');
+    setProviderModelsError(null);
   }, [apiEndpoint]);
   const handleFetchProviderModels = async () => {
     if (!apiEndpoint.trim()) return;
     setIsFetchingModels(true);
     setProviderModels([]);
+    setProviderModelsError(null);
+    // Bound the request: on flaky mobile data an unbounded fetch would keep
+    // the "Fetching..." spinner alive until the WebView gives up on its own.
+    const ctrl = new AbortController();
+    const timeoutId = setTimeout(() => ctrl.abort(), 6000);
     try {
       const targetUrl = apiEndpoint.trim().replace(/\/+$/, '') + '/models';
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (apiKey.trim()) headers['Authorization'] = 'Bearer ' + apiKey.trim();
-      const res = await fetch(targetUrl, { headers });
+      const res = await fetch(targetUrl, { headers, signal: ctrl.signal });
       if (!res.ok) throw new Error('HTTP ' + res.status);
       const data = await res.json();
       const ids = (data?.data || data?.models || []).map((m: any) => m?.id || m?.name).filter(Boolean);
       setProviderModels(ids);
     } catch (err: any) {
       setProviderModels([]);
+      setProviderModelsError(
+        err?.name === 'AbortError'
+          ? 'Endpoint did not respond within 6s. Check the URL or your connection.'
+          : `Could not fetch provider models: ${err?.message || 'network unreachable'}`
+      );
     } finally {
+      clearTimeout(timeoutId);
       setIsFetchingModels(false);
     }
   };
@@ -617,6 +632,12 @@ export default function SettingsView() {
                 </span>
               )}
             </div>
+
+            {providerModelsError && (
+              <p className="text-[10px] text-rose-300 leading-snug border border-rose-500/30 bg-rose-950/30 rounded-xl px-2.5 py-1.5">
+                {providerModelsError}
+              </p>
+            )}
 
             {providerModels.length > 0 && (
               <div className="space-y-1.5">
