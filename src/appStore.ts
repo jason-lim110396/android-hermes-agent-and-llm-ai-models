@@ -124,6 +124,7 @@ interface AppStore {
   activeChatSessionId: string;
   activeAgentSessionId: string;
   restorePersistedSessions: () => void;
+  resetAllSessions: () => void;
   createNewSession: (mode?: 'chat' | 'agent') => void;
   switchSession: (sessionId: string, mode?: 'chat' | 'agent') => void;
   deleteSession: (sessionId: string, mode?: 'chat' | 'agent') => void;
@@ -575,6 +576,51 @@ export const useAppStore = create<AppStore>((set, get) => ({
           : Object.keys(persisted.agentSessions)[0]
         : state.activeAgentSessionId,
     }));
+  },
+
+  // Honest "Clear Cache" support: drop every in-memory conversation so the
+  // cleared hermes_sessions_v1 tree cannot be written back by the next
+  // debounced persist flush, and land back on the fresh welcome sessions a
+  // cold start would show.
+  resetAllSessions: () => {
+    set({
+      chatSessions: {
+        'session-chat-default': {
+          id: 'session-chat-default',
+          title: 'General Chat',
+          createdAt: Date.now(),
+          messages: [
+            {
+              id: 'chat-welcome',
+              role: 'assistant' as const,
+              content: "Hello! You are in **Direct LLM Studio Chat** mode.\n\n- 💬 Instant streaming conversation with your active model.\n- 🎙️ Tap the **Microphone** to speak your prompt, or listen to spoken replies.\n- 📸 Attach photos/camera or documents anytime.\n- ➕ Tap **+ New Chat** in the top bar to start a clean new chat session.",
+              timestamp: Date.now(),
+              modelUsed: 'Qwen 2.5 (0.5B Instant)',
+              mode: 'chat' as const,
+            }
+          ],
+        },
+      },
+      agentSessions: {
+        'session-agent-default': {
+          id: 'session-agent-default',
+          title: 'Hermes Agent Workspace',
+          createdAt: Date.now(),
+          messages: [
+            {
+              id: 'agent-welcome',
+              role: 'assistant' as const,
+              content: "Hello! I am **Hermes AI Agent**, an autonomous local intelligence running on your phone.\n\n- 🧠 Multi-step planning, XML reasoning, and autonomous tool calling.\n- 🛠️ Built-in local tools: `web_search`, `code_interpreter`, `device_diagnostics`, `document_analyzer`, and `create_image`.\n- 🎨 Ask me to create images or write code autonomously!\n- ➕ Tap **+ New Session** to spawn a separate agent session with independent memory.",
+              timestamp: Date.now(),
+              modelUsed: 'Hermes 3 (Llama 3.2 3B)',
+              mode: 'agent' as const,
+            }
+          ],
+        },
+      },
+      activeChatSessionId: 'session-chat-default',
+      activeAgentSessionId: 'session-agent-default',
+    });
   },
 
   createNewSession: (targetMode?: 'chat' | 'agent') => {

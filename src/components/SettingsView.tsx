@@ -217,10 +217,34 @@ export default function SettingsView() {
   const handleClearCache = () => {
     if (typeof window !== 'undefined') {
       try {
+        // User-authored content and preferences survive; the promise on the
+        // button is "scratchpad notes and cached conversation sessions", so
+        // vault data (contacts, notes, reminders, starred, snippets, voice
+        // profiles) and settings (theme, firewall, wifi-only) are kept.
+        const KEPT_USER_KEYS = new Set([
+          'hermes_contacts_vault',
+          'hermes_mobile_notes_v1',
+          'hermes_reminders',
+          'hermes_starred_msgs',
+          'hermes_custom_snippets',
+          'hermes_custom_voice_profiles',
+          'hermes_app_theme',
+          'hermes_prompt_firewall_enabled',
+          'hermes_wifi_only',
+        ]);
+        // Most app data lives under 'hermes_...' (underscore) - including the
+        // conversation vault hermes_sessions_v1 and every per-session
+        // scratchpad - while the old filter matched only the rare 'hermes-'
+        // (hyphen) prefix, so a "Cleared!" toast left chat history on disk.
         const keysToRemove = Object.keys(localStorage).filter(
-          (k) => k.startsWith('hermes-') || k.startsWith('synthetic-')
+          (k) =>
+            (k.startsWith('hermes-') || k.startsWith('synthetic-') ||
+             (k.startsWith('hermes_') && !KEPT_USER_KEYS.has(k)))
         );
         keysToRemove.forEach((k) => localStorage.removeItem(k));
+        // Drop the in-memory session tree too, or the next debounced persist
+        // flush resurrects the just-cleared history under the same key.
+        useAppStore.getState().resetAllSessions();
         setClearCacheSuccess(true);
         setTimeout(() => setClearCacheSuccess(false), 2500);
       } catch (_) {}
