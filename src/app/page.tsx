@@ -38,6 +38,7 @@ export default function Home() {
   const stopAllRunningTasks = useAppStore((s) => s.stopAllRunningTasks);
 
   const checkCacheStatus = useAppStore((s) => s.checkCacheStatus);
+  const restorePersistedSessions = useAppStore((s) => s.restorePersistedSessions);
 
   const isDownloadingAny = Object.values(downloads).some((d) => d.isDownloading);
   const hasRunningTasks = isGenerating || isSpeaking || isDownloadingAny;
@@ -48,6 +49,7 @@ export default function Home() {
   useEffect(() => {
     refreshHardwareProfile();
     checkCacheStatus();
+    restorePersistedSessions();
 
     if (typeof window !== 'undefined') {
       setIsOnline(navigator.onLine);
@@ -60,7 +62,7 @@ export default function Home() {
         window.removeEventListener('offline', handleOffline);
       };
     }
-  }, [refreshHardwareProfile, checkCacheStatus]);
+  }, [refreshHardwareProfile, checkCacheStatus, restorePersistedSessions]);
 
   const studioTabs: { id: NavigationTab; label: string; icon: any; color: string }[] = [
     { id: 'chat', label: 'Hermes Agent', icon: Bot, color: 'from-cyan-500 to-blue-600' },
