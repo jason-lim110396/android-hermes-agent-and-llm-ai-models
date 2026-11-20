@@ -376,7 +376,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
                 totalMB: spec.sizeMB,
                 speedMBs: 0,
                 isReady: false,
-                errorMessage: `Not enough app storage available: ${quotaRemainingMB} MB left in the browser quota, about ${requiredMB} MB needed. Free up space or pick a smaller model.`,
+                errorMessage: `Not enough app storage available: ${quotaRemainingMB} MB left in the browser quota, about ${requiredMB} MB needed. Delete an unused model or pick a smaller one.`,
               },
             },
           }));
@@ -458,7 +458,9 @@ export const useAppStore = create<AppStore>((set, get) => ({
       if (!/stopped by user|aborted/i.test(rawMsg)) {
         try {
           await deleteModelFromCache(modelId);
-          cleanedPartial = true;
+          // deleteModelFromCache swallows its own errors, so confirm rather than
+          // assume: only claim the partial data is gone when the cache says so.
+          cleanedPartial = !(await isModelCached(modelId));
         } catch (_) {
           // Best-effort: cache APIs can be unavailable in some WebViews.
         }
