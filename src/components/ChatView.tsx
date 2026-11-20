@@ -64,6 +64,7 @@ import {
 } from 'lucide-react';
 import { useAppStore, Attachment } from '@/appStore';
 import { AVAILABLE_MODELS, ModelSpec } from '@/models';
+import { startVisibleInterval } from '@/utils/visibleInterval';
 import CameraModal from './CameraModal';
 import CodeSandboxModal from './CodeSandboxModal';
 import TableSpreadsheetModal from './TableSpreadsheetModal';
@@ -100,7 +101,10 @@ const HardwareTickerBar = React.memo(function HardwareTickerBar({
   const [realtimeRamUsedMB, setRealtimeRamUsedMB] = useState<number>(1240);
 
   React.useEffect(() => {
-    const timer = setInterval(() => {
+    // Visibility-gated ticker: skips CPU/RAM polling work while the Android
+    // app is backgrounded (WebView keeps JS timers alive there) and refreshes
+    // once immediately on returning to the foreground.
+    const cancelTicker = startVisibleInterval(() => {
       if (isGenerating) {
         setRealtimeCpuLoad(Math.round(45 + Math.random() * 25));
         setRealtimeRamUsedMB(Math.round(1800 + Math.random() * 250));
@@ -109,7 +113,7 @@ const HardwareTickerBar = React.memo(function HardwareTickerBar({
         setRealtimeRamUsedMB(Math.round(1180 + Math.random() * 80));
       }
     }, 1500);
-    return () => clearInterval(timer);
+    return () => cancelTicker();
   }, [isGenerating]);
 
   return (

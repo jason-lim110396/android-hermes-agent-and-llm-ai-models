@@ -38,6 +38,7 @@ import {
 } from 'lucide-react';
 import { useAppStore } from '@/appStore';
 import { AVAILABLE_MODELS } from '@/models';
+import { startVisibleInterval } from '@/utils/visibleInterval';
 
 interface VoicePreset {
   id: string;
@@ -297,7 +298,8 @@ export default function VoiceStudio() {
   const [saveSuccessMsg, setSaveSuccessMsg] = useState<string | null>(null);
 
   const recognitionRef = useRef<any>(null);
-  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const timerRef = useRef<(() => void) | null>(null);
+  const recordingStartedAtRef = useRef<number | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const clonerCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const animFrameRef = useRef<number | null>(null);
@@ -308,14 +310,23 @@ export default function VoiceStudio() {
   // Timer & Audio Visualizer effects
   useEffect(() => {
     if (isRecording) {
+      // Capture the wall-clock start so the stopwatch stays accurate even if
+      // ticks are suspended while the app is backgrounded.
+      if (recordingStartedAtRef.current === null) {
+        recordingStartedAtRef.current = Date.now();
+      }
       setRecordingDuration(0);
-      timerRef.current = setInterval(() => {
-        setRecordingDuration((sec) => sec + 1);
+      timerRef.current = startVisibleInterval(() => {
+        const startedAt = recordingStartedAtRef.current;
+        if (startedAt !== null) {
+          setRecordingDuration(Math.floor((Date.now() - startedAt) / 1000));
+        }
       }, 1000);
       drawWaveform();
     } else {
+      recordingStartedAtRef.current = null;
       if (timerRef.current) {
-        clearInterval(timerRef.current);
+        timerRef.current();
         timerRef.current = null;
       }
       if (animFrameRef.current) {
@@ -324,7 +335,7 @@ export default function VoiceStudio() {
       }
     }
     return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
+      if (timerRef.current) timerRef.current();
       if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
     };
   }, [isRecording]);
