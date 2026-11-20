@@ -62,7 +62,7 @@ const PRESET_WORKFLOWS: WorkflowTemplate[] = [
     id: 'morning-briefing',
     title: 'Executive Voice & System Briefing',
     category: 'Audio & Intelligence',
-    description: 'Audits phone battery and network health, gathers top tech headlines via web search, synthesizes voice briefing with Kokoro TTS, and schedules a reminder.',
+    description: 'Audits phone battery and network health with measured values, gathers top tech headlines via a real web search, speaks the briefing via the Web Speech API (where the WebView supports it), and schedules a real reminder.',
     stepsCount: 4,
     icon: Volume2,
     color: 'from-amber-500 to-orange-600',
@@ -1296,8 +1296,10 @@ export default function TaskWorkflowsStudio() {
                     e.stopPropagation();
                     setActiveWorkflowId(wf.id);
                     // The diff auditor parses the goal-box content: pass it
-                    // explicitly so the card's Execute is not dead code.
-                    runWorkflow(wf.id, wf.id === 'git-diff-auditor' ? customGoal.trim() || undefined : undefined);
+                    // when it actually looks like a diff, so prose goals fall
+                    // through to the honest "no diff pasted" path instead of
+                    // being counted as hunks.
+                    runWorkflow(wf.id, wf.id === 'git-diff-auditor' && looksLikeUnifiedDiff(customGoal) ? customGoal.trim() : undefined);
                   }}
                   disabled={isRunning}
                   className="flex items-center gap-1.5 px-3 py-1 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-black font-extrabold text-xs shadow-md transition-all cursor-pointer disabled:opacity-50"
