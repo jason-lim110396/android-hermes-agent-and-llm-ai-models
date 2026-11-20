@@ -88,6 +88,16 @@ const PRESET_WORKFLOWS: WorkflowTemplate[] = [
     color: 'from-cyan-500 to-blue-600',
     defaultPrompt: 'Parse meeting discussion, extract action items and owners, arm phone reminder, and generate an importable .ics calendar file.',
   },
+  {
+    id: 'tax-expense-exporter',
+    title: 'Year-End Tax & Deductible Expense Ledger',
+    category: 'Finance & Tax',
+    description: 'Scans device receipt scans, classifies expense categories (Office, Travel, Software, Meals), verifies tax deduction eligibility, and exports a tax-compliant CSV.',
+    stepsCount: 4,
+    icon: FileSpreadsheet,
+    color: 'from-amber-500 to-emerald-600',
+    defaultPrompt: 'Audit all annual receipts, categorize business expenses under tax deduction rules, compute total deductible write-off, and generate a certified CSV ledger.',
+  },
 ];
 
 interface ExecutionLog {
@@ -291,6 +301,64 @@ export default function TaskWorkflowsStudio() {
         `| Jordan | Audit privacy EXIF scrubber on camera snaps | Tomorrow | High |\n` +
         `| Sam | Verify .ics calendar import on Samsung/Google Calendar | Friday | Medium |\n\n` +
         `> **Deliverable Ready**: Tap **Download .ics** below to import these tasks directly into your smartphone calendar with pre-configured alarms.`
+      );
+    } else if (workflowId === 'tax-expense-exporter') {
+      // Step 1: Scan Tax Folders
+      const step1: ExecutionLog = { step: 1, toolName: 'find_device_files', status: 'running', detail: 'Locating receipt scans in /Documents/Receipts and /DCIM/Invoices...' };
+      setLogs([step1]);
+      setCurrentStepIndex(1);
+      await new Promise((r) => setTimeout(r, 600));
+      step1.status = 'completed';
+      step1.result = 'Located 8 annual receipt proofs and payment vouchers.';
+
+      // Step 2: MiniCPM-V Tax Classification
+      const step2: ExecutionLog = { step: 2, toolName: 'document_analyzer (MiniCPM-V)', status: 'running', detail: 'Classifying expense categories, tax IDs, and deductibility ratios...' };
+      setLogs([step1, step2]);
+      setCurrentStepIndex(2);
+      await new Promise((r) => setTimeout(r, 700));
+      step2.status = 'completed';
+      step2.result = 'Identified $2,026.00 total spend across 4 standard tax deduction categories.';
+
+      // Step 3: Compile Certified Tax CSV
+      const step3: ExecutionLog = { step: 3, toolName: 'code_interpreter', status: 'running', detail: 'Calculating write-off amounts and formatting certified tax CSV...' };
+      setLogs([step1, step2, step3]);
+      setCurrentStepIndex(3);
+      await new Promise((r) => setTimeout(r, 600));
+
+      const taxCsvContent = `Date,Merchant,Category,Deductible Rate,Gross Amount,Tax Write-Off\n2026-01-15,AWS Cloud Infrastructure,Software Hosting,100%,450.00,450.00\n2026-03-20,Apple Store (MacBook Charger),Office Equipment,100%,89.00,89.00\n2026-05-12,United Airlines,Business Travel,100%,620.00,620.00\n2026-07-04,Hilton Downtown Hotel,Lodging,100%,380.00,380.00\n2026-09-18,GitHub Enterprise,Software Tools,100%,210.00,210.00\n2026-11-02,Client Working Dinner,Meals (Business),50%,160.00,80.00\n2026-11-14,Google Workspace,Software Tools,100%,72.00,72.00\n2026-11-19,FedEx Office Shipping,Office Supplies,100%,45.00,45.00\nTOTAL,,,,$2,026.00,$1,946.00`;
+
+      const taxBlob = new Blob([taxCsvContent], { type: 'text/csv;charset=utf-8;' });
+      const taxUrl = URL.createObjectURL(taxBlob);
+      setGeneratedFile({
+        name: 'Hermes_Tax_Deductible_Ledger_2026.csv',
+        url: taxUrl,
+        size: '512 bytes',
+      });
+      step3.status = 'completed';
+      step3.result = 'Generated certified tax ledger CSV with $1,946.00 allowable deductions.';
+
+      // Step 4: Haptic Dispatch & Ready to Share
+      const step4: ExecutionLog = { step: 4, toolName: 'haptic_vibration & native_share', status: 'running', detail: 'Arming export sheet and physical haptic alert...' };
+      setLogs([step1, step2, step3, step4]);
+      setCurrentStepIndex(4);
+      await new Promise((r) => setTimeout(r, 400));
+      if (typeof navigator !== 'undefined' && navigator.vibrate) {
+        navigator.vibrate([100, 50, 150]);
+      }
+      step4.status = 'completed';
+      step4.result = 'Ready for immediate dispatch to CPA accountant or cloud tax portal.';
+
+      setFinalOutput(
+        `### 💼 Annual Tax-Deductible Expense Ledger (2026)\n\n` +
+        `**Audit Status**: Verified by MiniCPM-V & On-Device Rule Engine\n` +
+        `**Total Gross Expenses**: **$2,026.00**\n` +
+        `**Allowable Tax Write-Offs**: **$1,946.00 (96.0% deductible ratio)**\n\n` +
+        `#### 📊 Expense Category Breakdown:\n` +
+        `- **Software & Cloud Infrastructure**: $732.00 (100% deductible)\n` +
+        `- **Business Travel & Lodging**: $1,000.00 (100% deductible)\n` +
+        `- **Office Supplies & Equipment**: $134.00 (100% deductible)\n` +
+        `- **Client Business Meals**: $160.00 (50% statutory rate: $80.00)\n\n` +
+        `> **Ready to Export**: Download \`Hermes_Tax_Deductible_Ledger_2026.csv\` below or tap Share to send directly to your accountant via email or WhatsApp.`
       );
     } else {
       // General Workflow execution
