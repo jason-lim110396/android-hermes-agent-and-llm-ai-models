@@ -15,6 +15,7 @@ import {
   CheckCircle2,
 } from 'lucide-react';
 import { ChatSession, ChatMessage } from '@/appStore';
+import { useBackButtonClose } from '@/utils/backButton';
 
 interface ExportDocumentModalProps {
   isOpen: boolean;
@@ -31,6 +32,8 @@ export default function ExportDocumentModal({
   session,
   modelName = 'Hermes AI',
 }: ExportDocumentModalProps) {
+  useBackButtonClose(isOpen, onClose);
+
   const [selectedFormat, setSelectedFormat] = useState<ExportFormat>('md');
   const [includeThinking, setIncludeThinking] = useState(true);
   const [includeAgentSteps, setIncludeAgentSteps] = useState(true);

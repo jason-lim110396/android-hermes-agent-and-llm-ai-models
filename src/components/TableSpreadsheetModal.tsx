@@ -16,6 +16,7 @@ import {
   Bot,
 } from 'lucide-react';
 import { useAppStore } from '@/appStore';
+import { useBackButtonClose } from '@/utils/backButton';
 
 interface TableSpreadsheetModalProps {
   isOpen: boolean;
@@ -37,6 +38,8 @@ export default function TableSpreadsheetModal({
   onClose,
   markdownContent,
 }: TableSpreadsheetModalProps) {
+  useBackButtonClose(isOpen, onClose);
+
   const sendMessage = useAppStore((s) => s.sendMessage);
   const setCurrentTab = useAppStore((s) => s.setCurrentTab);
 

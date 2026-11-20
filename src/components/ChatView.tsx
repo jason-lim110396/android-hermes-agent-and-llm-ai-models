@@ -80,6 +80,7 @@ import SensorSpatialModal from './SensorSpatialModal';
 import NetworkSpeedModal from './NetworkSpeedModal';
 import { abortAllInference } from '@/inferenceEngine';
 import { attachGuardedRecognition, voiceChunkBelongsToCurrentNote } from '@/utils/voiceSession';
+import { useBackButtonClose } from '@/utils/backButton';
 import MarkdownNotepadModal from './MarkdownNotepadModal';
 import QRCodeStudioModal from './QRCodeStudioModal';
 
@@ -351,6 +352,17 @@ export default function ChatView() {
 
   const [showSnippetsDrawer, setShowSnippetsDrawer] = useState(false);
   const [snippetCategory, setSnippetCategory] = useState<string>('all');
+
+  // Android hardware back closes the top-most inline overlay (download
+  // prompt, bookmarks drawer, snippets drawer) before exiting the app.
+  useBackButtonClose(modelPromptDownload !== null, () => setModelPromptDownload(null));
+  useBackButtonClose(showBookmarksDrawer, () => setShowBookmarksDrawer(false));
+  useBackButtonClose(showSnippetsDrawer, () => setShowSnippetsDrawer(false));
+  // The two full-screen dropdown backdrops (model picker, mode menu) count
+  // as overlays too: back dismisses them instead of exiting the app.
+  useBackButtonClose(showModelPicker, () => setShowModelPicker(false));
+  useBackButtonClose(showModeMenu, () => setShowModeMenu(false));
+
   const [customSnippets, setCustomSnippets] = useState<PromptSnippet[]>(() => {
     if (typeof window !== 'undefined') {
       try {

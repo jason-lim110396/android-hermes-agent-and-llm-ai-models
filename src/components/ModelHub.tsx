@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import { useBackButtonClose } from '@/utils/backButton';
 import {
   Download,
   Check,
@@ -72,6 +73,9 @@ export default function ModelHub() {
   const [showCompareModal, setShowCompareModal] = useState(false);
   const [isEvicting, setIsEvicting] = useState(false);
   const [evictSuccessMsg, setEvictSuccessMsg] = useState<string | null>(null);
+
+  // Android hardware back closes the comparison modal instead of exiting.
+  useBackButtonClose(showCompareModal, () => setShowCompareModal(false));
 
   const handleSmartEvictUnusedModels = async () => {
     setIsEvicting(true);

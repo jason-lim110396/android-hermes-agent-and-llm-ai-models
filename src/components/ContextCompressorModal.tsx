@@ -20,6 +20,7 @@ import {
   Minimize2,
 } from 'lucide-react';
 import { useAppStore, ChatMessage } from '@/appStore';
+import { useBackButtonClose } from '@/utils/backButton';
 
 interface ContextCompressorModalProps {
   isOpen: boolean;
@@ -52,6 +53,8 @@ export default function ContextCompressorModal({
   onClose,
   activeSessionId,
 }: ContextCompressorModalProps) {
+  useBackButtonClose(isOpen, onClose);
+
   const operatingMode = useAppStore((s) => s.operatingMode);
   const chatSessions = useAppStore((s) => s.chatSessions);
   const agentSessions = useAppStore((s) => s.agentSessions);

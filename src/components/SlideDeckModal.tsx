@@ -19,6 +19,7 @@ import {
   Sun,
   Moon,
 } from 'lucide-react';
+import { useBackButtonClose } from '@/utils/backButton';
 
 interface SlideDeckModalProps {
   isOpen: boolean;
@@ -33,6 +34,8 @@ export default function SlideDeckModal({
   initialContent,
   deckTitle = 'Hermes Neural Slide Deck',
 }: SlideDeckModalProps) {
+  useBackButtonClose(isOpen, onClose);
+
   const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
   const [theme, setTheme] = useState<'dark' | 'light' | 'amoled'>('dark');
   const [isPlayingAuto, setIsPlayingAuto] = useState(false);

@@ -24,6 +24,7 @@ import {
   ArrowUp,
   Cpu,
 } from 'lucide-react';
+import { useBackButtonClose } from '@/utils/backButton';
 
 interface SensorSpatialModalProps {
   isOpen: boolean;
@@ -38,6 +39,8 @@ export default function SensorSpatialModal({
   onInsertTelemetry,
   onAuditWithAgent,
 }: SensorSpatialModalProps) {
+  useBackButtonClose(isOpen, onClose);
+
   // Sensor Telemetry State
   const [orientation, setOrientation] = useState<{ alpha: number; beta: number; gamma: number }>({
     alpha: 42.5,

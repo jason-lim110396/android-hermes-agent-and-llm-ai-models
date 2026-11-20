@@ -19,6 +19,7 @@ import {
   Radio,
   Clock,
 } from 'lucide-react';
+import { useBackButtonClose } from '@/utils/backButton';
 
 interface SpeedResult {
   downloadMbps: number;
@@ -46,6 +47,8 @@ export default function NetworkSpeedModal({
   onClose: () => void;
   onAuditWithAgent?: (prompt: string) => void;
 }) {
+  useBackButtonClose(isOpen, onClose);
+
   const [isTesting, setIsTesting] = useState(false);
   const [phases, setPhases] = useState<TestPhase[]>([
     { label: 'Ping & RTT', status: 'idle', value: '—' },
