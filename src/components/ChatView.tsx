@@ -359,16 +359,25 @@ export default function ChatView() {
   // Mobile UX: soft keyboard awareness (Capacitor Android WebView) + jump-to-latest tracking
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [isAwayFromBottom, setIsAwayFromBottom] = useState(false);
+  const lastKeyboardHeightRef = useRef(0);
 
   // Keyboard-aware composer: when the visual viewport is shorter than the layout
   // viewport by more than ~120px, treat the gap as the soft keyboard height so the
-  // composer can pad itself up and stay visible above the keyboard.
+  // composer can pad itself up and stay visible above the keyboard. The gap is
+  // quantized in >=16px steps (vs a ref of the last applied value) so the per-frame
+  // resize/scroll events during the keyboard open/close animation do not re-render
+  // the whole view each frame, and pinch-zoom (scale > 1) is ignored because it
+  // also shrinks the visual viewport without a keyboard.
   React.useEffect(() => {
     if (typeof window === 'undefined' || !window.visualViewport) return;
     const viewport = window.visualViewport;
     const updateKeyboardHeight = () => {
-      const keyboardGap = window.innerHeight - viewport.height;
-      setKeyboardHeight(keyboardGap > 120 ? keyboardGap : 0);
+      const keyboardGap = viewport.scale <= 1 ? window.innerHeight - viewport.height : 0;
+      const next = keyboardGap > 120 ? keyboardGap : 0;
+      if (Math.abs(next - lastKeyboardHeightRef.current) >= 16) {
+        lastKeyboardHeightRef.current = next;
+        setKeyboardHeight(next);
+      }
     };
     updateKeyboardHeight();
     viewport.addEventListener('resize', updateKeyboardHeight);
@@ -439,9 +448,27 @@ export default function ChatView() {
     return () => clearInterval(timer);
   }, [isGenerating]);
 
+  // Re-check distance-from-bottom when messages grow without a scroll event
+  // (e.g. streaming chunks extend the timeline) so isAwayFromBottom stays accurate.
   React.useEffect(() => {
+    const el = messagesContainerRef.current;
+    if (!el) return;
+    setIsAwayFromBottom(el.scrollHeight - el.scrollTop - el.clientHeight > 250);
+  }, [messages.length, currentSession?.id]);
+
+  // Auto-scroll to the newest message, but only when the user is near the bottom:
+  // never yank the timeline down mid-read while streaming (the jump-to-latest
+  // button covers returning to the latest). Mount and session switches reset the
+  // away-from-bottom flag so they still auto-scroll to the latest message.
+  const prevSessionIdRef = useRef<string | null>(null);
+  React.useEffect(() => {
+    if (prevSessionIdRef.current !== currentSession?.id) {
+      prevSessionIdRef.current = currentSession?.id ?? null;
+      setIsAwayFromBottom(false);
+    }
+    if (isAwayFromBottom) return;
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, isGenerating]);
+  }, [messages, isGenerating, isAwayFromBottom, currentSession?.id]);
 
   // WhatsApp-Style Voice Note State
   const [isRecordingVoice, setIsRecordingVoice] = useState(false);
@@ -1934,7 +1961,8 @@ export default function ChatView() {
         </div>
       </div>
 
-      {/* Jump-to-Latest: floating pill shown when scrolled away from bottom */}
+      {/* Jump-to-Latest: floating pill shown when scrolled away from bottom;
+          offset includes keyboardHeight so it rides above the open keyboard */}
       {isAwayFromBottom && (
         <button
           onClick={() => {
@@ -1942,7 +1970,8 @@ export default function ChatView() {
             if (navigator.vibrate) navigator.vibrate(10);
           }}
           title="Jump to latest message"
-          className="absolute bottom-36 right-4 z-30 w-10 h-10 rounded-full bg-zinc-900 border border-cyan-500/40 hover:border-cyan-400 text-cyan-400 shadow-xl shadow-cyan-500/10 flex items-center justify-center transition-all cursor-pointer active:scale-95 animate-in fade-in slide-in-from-bottom duration-200"
+          className="absolute right-4 z-30 w-10 h-10 rounded-full bg-zinc-900 border border-cyan-500/40 hover:border-cyan-400 text-cyan-400 shadow-xl shadow-cyan-500/10 flex items-center justify-center transition-all cursor-pointer active:scale-95 animate-in fade-in slide-in-from-bottom duration-200"
+          style={{ bottom: `${144 + keyboardHeight}px` }}
         >
           <ChevronDown className="w-5 h-5" />
         </button>
