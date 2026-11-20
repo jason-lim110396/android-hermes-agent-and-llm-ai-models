@@ -661,13 +661,27 @@ export default function ChatView() {
     let hasAudioStream = false;
     try {
       if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-        // Use Promise.race with a 4-second timeout to prevent any native audio driver deadlocks / ANR
+        // Use Promise.race with a 4-second timeout to prevent any native audio driver deadlocks / ANR.
+        // The race settling (timeout) does NOT cancel getUserMedia: a late permission grant must still
+        // have its track stopped. Attach a release handler to the raw promise before racing it.
         const mediaStreamPromise = navigator.mediaDevices.getUserMedia({ audio: true });
+        mediaStreamPromise.then((lateStream) => {
+          if (isCurrent()) return; // normal path owns this stream; it handles its own release
+          try { lateStream.getTracks().forEach((t) => t.stop()); } catch (_) {}
+        }).catch(() => {});
         const timeoutPromise = new Promise<null>((_, reject) =>
           setTimeout(() => reject(new Error('Audio permission/hardware timeout')), 4000)
         );
 
-        const stream = await Promise.race([mediaStreamPromise, timeoutPromise]) as MediaStream | null;
+        let stream: MediaStream | null;
+        try {
+          stream = await Promise.race([mediaStreamPromise, timeoutPromise]) as MediaStream | null;
+        } catch (timeoutErr) {
+          // The race rejected (4s hardware timeout). This request is over, so a
+          // stream granted later must be released by the .then handler above.
+          voiceRequestIdRef.current++;
+          throw timeoutErr;
+        }
         if (stream) {
           // The user may have cancelled, sent, or navigated away while the
           // permission prompt was open. Never start a recorder with that stale
