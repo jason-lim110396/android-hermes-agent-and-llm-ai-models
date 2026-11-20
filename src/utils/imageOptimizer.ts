@@ -9,6 +9,8 @@
 const MAX_DIMENSION = 1280;
 const OUTPUT_MIME = 'image/webp';
 const OUTPUT_QUALITY = 0.82;
+// Length of the 'data:image/webp;base64,' prefix, excluded from size math.
+const PREFIX_LENGTH = 'data:image/webp;base64,'.length;
 
 /** True when the file is an image that would benefit from downsampling. */
 export function isOversizedImage(file: File): boolean {
@@ -43,19 +45,21 @@ export interface OptimizedImage {
  * fails, or canvas allocation fails (e.g. extreme megapixel inputs).
  */
 export async function downsampleImageFile(file: File): Promise<OptimizedImage> {
-  const original = await new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as string);
-    reader.onerror = () => reject(new Error('file read failed'));
-    reader.readAsDataURL(file);
-  });
-
-  // Small images pass through untouched - no re-encode quality loss.
-  if (file.size <= 350 * 1024) {
-    return { dataUrl: original, mimeType: file.type, sizeBytes: file.size };
-  }
-
   try {
+    const original = await new Promise<string>((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      // Fail-open contract: read failures resolve to an empty string so this
+      // function never rejects outward; the caller decides what to do with it.
+      reader.onerror = () => resolve('');
+    });
+    if (!original) return { dataUrl: '', mimeType: file.type, sizeBytes: file.size };
+
+    // Small images pass through untouched - no re-encode quality loss.
+    if (file.size <= 350 * 1024) {
+      return { dataUrl: original, mimeType: file.type, sizeBytes: file.size };
+    }
+
     const img = await loadImage(file);
     const longest = Math.max(img.width, img.height);
     if (longest <= MAX_DIMENSION) {
@@ -69,13 +73,30 @@ export async function downsampleImageFile(file: File): Promise<OptimizedImage> {
     if (!ctx) return { dataUrl: original, mimeType: file.type, sizeBytes: file.size };
     ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
     const dataUrl = canvas.toDataURL(OUTPUT_MIME, OUTPUT_QUALITY);
-    if (!dataUrl || dataUrl.length >= original.length) {
+    if (!dataUrl.startsWith('data:image/webp')) {
+      // WebP encode unsupported in this WebView (silent PNG fallback):
+      // keep the original bytes rather than mislabel the format.
+      return { dataUrl: original, mimeType: file.type, sizeBytes: file.size };
+    }
+    if (dataUrl.length >= original.length) {
       // Re-encode somehow grew (rare for tiny-but-heavy files): keep original.
       return { dataUrl: original, mimeType: file.type, sizeBytes: file.size };
     }
-    // Base64 inflates by ~4/3; approximate the decoded byte size.
-    return { dataUrl, mimeType: OUTPUT_MIME, sizeBytes: Math.round((dataUrl.length * 3) / 4) };
+    // Base64 inflates by ~4/3 over the decoded bytes; exclude the URL prefix.
+    return {
+      dataUrl,
+      mimeType: OUTPUT_MIME,
+      sizeBytes: Math.round(((dataUrl.length - PREFIX_LENGTH) * 3) / 4),
+    };
   } catch (_) {
+    // Decode or canvas allocation failure (e.g. extreme megapixel input):
+    // fall back to reading the original file as-is, still fail-open.
+    const original = await new Promise<string>((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = () => resolve('');
+      reader.readAsDataURL(file);
+    });
     return { dataUrl: original, mimeType: file.type, sizeBytes: file.size };
   }
 }

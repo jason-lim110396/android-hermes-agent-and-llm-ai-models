@@ -768,25 +768,48 @@ export default function ChatView() {
     }
   };
 
-  const handleGalleryUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleGalleryUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
-    Array.from(files).forEach((file) => {
-      const reader = new FileReader();
-      reader.onload = () => {
+    e.target.value = '';
+    for (const file of Array.from(files)) {
+      // Downsample oversized camera photos to a mobile-safe bound before they
+      // hit the attachment store (memory + persistence quota + render lag).
+      // Every failure falls back to the original file - an attachment is
+      // never blocked by the optimizer.
+      try {
+        let dataUrl: string;
+        let mimeType: string;
+        let sizeBytes: number;
+        if (isOversizedImage(file)) {
+          const optimized = await downsampleImageFile(file);
+          dataUrl = optimized.dataUrl;
+          mimeType = optimized.mimeType;
+          sizeBytes = optimized.sizeBytes;
+        } else {
+          dataUrl = await new Promise<string>((resolve) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result as string);
+            reader.onerror = () => resolve('');
+            reader.readAsDataURL(file);
+          });
+          mimeType = file.type;
+          sizeBytes = file.size;
+        }
+        if (!dataUrl) continue;
         const att: Attachment = {
           id: `img-${Date.now()}-${Math.random()}`,
           type: 'image',
           name: file.name,
-          dataUrl: reader.result as string,
-          mimeType: file.type,
-          sizeBytes: file.size,
+          dataUrl,
+          mimeType,
+          sizeBytes,
         };
         addAttachment(att);
-      };
-      reader.readAsDataURL(file);
-    });
-    e.target.value = '';
+      } catch (_) {
+        // Fail-open: skip only this file, keep processing the rest.
+      }
+    }
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
