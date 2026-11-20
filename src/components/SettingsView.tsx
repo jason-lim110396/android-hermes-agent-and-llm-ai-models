@@ -394,6 +394,19 @@ export default function SettingsView() {
                 {performanceMode === 'eco' && (
                   <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
                 )}
+            <div className='flex items-center gap-2 pt-1'>
+              <button onClick={handleFetchProviderModels} disabled={!apiEndpoint.trim() || isFetchingModels} className='flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-bold transition-all cursor-pointer disabled:opacity-40'>
+                <span>{isFetchingModels ? 'Fetching...' : 'Fetch Provider Models'}</span>
+              </button>
+              {providerModels.length > 0 && (
+                <select className='flex-1 bg-zinc-950 border border-zinc-800 rounded-xl px-2 py-1.5 text-xs text-zinc-200' onChange={(e) => setApiEndpoint(e.target.value)}>
+                  <option value=''>Select a model</option>
+                  {providerModels.map((m) => (
+                    <option key={m} value={m}>{m}</option>
+                  ))}
+                </select>
+              )}
+            </div>
               </div>
               <p className="text-[10px] text-zinc-400 leading-tight">
                 Slow output pacing, lowest battery drain, zero overheating. Perfect for prolonged sessions.
