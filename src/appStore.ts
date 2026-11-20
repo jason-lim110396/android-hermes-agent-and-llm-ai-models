@@ -154,6 +154,8 @@ interface AppStore {
 
   // Network availability for offline-safe model downloads
   isOnline: boolean;
+  networkQuality: 'fast' | 'slow' | 'offline';
+  setNetworkQuality: (q: 'fast' | 'slow' | 'offline') => void;
   setIsOnline: (online: boolean) => void;
   // Settings & Real LLM Endpoint
   apiEndpoint: string;
@@ -992,6 +994,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
   setPerformanceMode: (mode) => set({ performanceMode: mode }),
 
   isOnline: typeof navigator !== 'undefined' ? navigator.onLine : true,
+  networkQuality: typeof navigator !== 'undefined' && navigator.onLine ? 'fast' : 'offline',
+  setNetworkQuality: (q) => set({ networkQuality: q }),
   setIsOnline: (online) => set({ isOnline: online }),
   systemPrompt: 'You are Hermes AI Agent, a sovereign on-device intelligence. You reason thoroughly, plan autonomously, and utilize local tools with extreme precision.',
   setSystemPrompt: (prompt) => set({ systemPrompt: prompt }),
@@ -1496,6 +1500,16 @@ useAppStore.subscribe((state, prev) => {
 
 if (typeof window !== 'undefined') {
   const syncOnlineStatus = () => { useAppStore.setState({ isOnline: navigator.onLine }); };
+  const syncNetworkQuality = () => {
+    const conn = (navigator as any).connection;
+    const type = conn?.effectiveType || (navigator.onLine ? '4g' : 'offline');
+    const quality = !navigator.onLine ? 'offline' : (type === '4g' || type === '5g' || type === '3g' ? 'fast' : 'slow');
+    useAppStore.setState({ networkQuality: quality, isOnline: navigator.onLine });
+  };
   window.addEventListener('online', syncOnlineStatus);
+  window.addEventListener('online', syncNetworkQuality);
+  window.addEventListener('offline', syncNetworkQuality);
+  const conn = (navigator as any).connection;
+  if (conn && typeof conn.addEventListener === 'function') conn.addEventListener('change', syncNetworkQuality);
   window.addEventListener('offline', syncOnlineStatus);
 }
