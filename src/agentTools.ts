@@ -31,11 +31,12 @@ export const AGENT_TOOLS: AgentTool[] = [
       const q = String(args.query || '').trim();
       if (!q) return 'No search query provided.';
 
-      // Whether any live endpoint actually answered. When none did (offline,
-      // captive portal, blocked) the tool must say so - the old fallback
-      // invented "verified" results the model never fetched and presented
-      // them as live facts.
+      // Whether any live endpoint actually answered, and which ones. When none
+      // did (offline, captive portal, blocked) the tool must say so - the old
+      // fallback invented "verified" results the model never fetched and
+      // presented them as live facts.
       let networkReached = false;
+      const answered: string[] = [];
 
       try {
         // Attempt live web search via DuckDuckGo Instant Answer API (CORS enabled, JSON)
@@ -45,8 +46,12 @@ export const AGENT_TOOLS: AgentTool[] = [
         const resp = await fetch(ddgUrl, { signal: ctrl.signal });
         clearTimeout(timeoutId);
 
+        // Any HTTP response means the endpoint was reached - even an error
+        // status (429 rate limit, 5xx). Only a thrown fetch means unreachable.
+        networkReached = true;
+        answered.push('DuckDuckGo');
+
         if (resp.ok) {
-          networkReached = true;
           const data = await resp.json();
           const abstract = data.AbstractText || data.Answer || '';
           const related = (data.RelatedTopics || [])
@@ -71,8 +76,10 @@ export const AGENT_TOOLS: AgentTool[] = [
         const wikiResp = await fetch(wikiUrl, { signal: ctrl2.signal });
         clearTimeout(timeoutId2);
 
+        networkReached = true;
+        answered.push('Wikipedia');
+
         if (wikiResp.ok) {
-          networkReached = true;
           const wikiData = await wikiResp.json();
           const titles = wikiData[1] || [];
           const snippets = wikiData[2] || [];
@@ -96,7 +103,7 @@ export const AGENT_TOOLS: AgentTool[] = [
       if (!networkReached) {
         return `🌐 **Web search unavailable${offline ? ' - device is offline' : ' - search endpoints unreachable'}** for "${q}". No live results were fetched. Answer from local knowledge only and say when you are unsure.`;
       }
-      return `🌐 **No live results found for "${q}"** on DuckDuckGo or Wikipedia. Try a more specific query, or answer from local knowledge and say when you are unsure.`;
+      return `🌐 **No live results found for "${q}"** on ${answered.join(' and ')}. Try a more specific query, or answer from local knowledge and say when you are unsure.`;
     }
   },
   {

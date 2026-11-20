@@ -119,14 +119,6 @@ export default function NetworkSpeedModal({
     ]);
     if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(30);
 
-    // Honest offline refusal: an airplane-mode run used to "pass" every phase
-    // with random fallback numbers and store them in the history as a real
-    // measurement. With no connection there is nothing to measure.
-    if (typeof navigator !== 'undefined' && !navigator.onLine) {
-      setPhases((prev) => prev.map((p) => ({ ...p, status: 'error', value: 'Offline' })));
-      return;
-    }
-
     // Mark every phase from `fromIdx` as failed. Used when a probe could not
     // reach the network at all: no fabricated result, no history entry.
     const failRemaining = (fromIdx: number, label: string) => {
@@ -134,6 +126,17 @@ export default function NetworkSpeedModal({
     };
 
     try {
+      // Honest offline refusal: an airplane-mode run used to "pass" every phase
+      // with random fallback numbers and store them in the history as a real
+      // measurement. With no connection there is nothing to measure. Inside
+      // the try so the finally still clears isTesting - an early return here
+      // used to leave the modal stuck on "Testing..." forever, with the run
+      // button disabled until an app reload.
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        setPhases((prev) => prev.map((p) => ({ ...p, status: 'error', value: 'Offline' })));
+        return;
+      }
+
       // Phase 0: Ping
       setPhase(0, { status: 'running' });
       await new Promise((r) => setTimeout(r, 300));

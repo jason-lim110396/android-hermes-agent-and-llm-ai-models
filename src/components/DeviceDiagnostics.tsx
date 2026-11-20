@@ -307,17 +307,22 @@ export default function DeviceDiagnostics() {
       // Bound the probe: flaky mobile data can leave an unbounded fetch - and
       // with it the spinner - hanging indefinitely.
       const timeoutId = setTimeout(() => ctrl.abort(), 6000);
-      // Fetch a small timestamp probe with no-cache
-      await fetch(`https://1.1.1.1/cdn-cgi/trace?t=${Date.now()}`, { mode: 'no-cors', cache: 'no-store', signal: ctrl.signal });
-      clearTimeout(timeoutId);
-      const duration = Math.round(performance.now() - start);
-      setPingLatency(duration);
-      if (duration < 60) {
-        setPingStatus('Ultra Fast (<60ms)');
-      } else if (duration < 150) {
-        setPingStatus('Good (<150ms)');
-      } else {
-        setPingStatus('Moderate / High Latency');
+      try {
+        // Fetch a small timestamp probe with no-cache
+        await fetch(`https://1.1.1.1/cdn-cgi/trace?t=${Date.now()}`, { mode: 'no-cors', cache: 'no-store', signal: ctrl.signal });
+        const duration = Math.round(performance.now() - start);
+        setPingLatency(duration);
+        if (duration < 60) {
+          setPingStatus('Ultra Fast (<60ms)');
+        } else if (duration < 150) {
+          setPingStatus('Good (<150ms)');
+        } else {
+          setPingStatus('Moderate / High Latency');
+        }
+      } finally {
+        // Clear the timer on every path: on failure it would later fire
+        // ctrl.abort() on an already-settled fetch.
+        clearTimeout(timeoutId);
       }
     } catch {
       // A failed probe is not a connection. The old fallback labelled the
