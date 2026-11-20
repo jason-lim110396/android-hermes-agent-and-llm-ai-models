@@ -56,6 +56,7 @@ import {
   Calculator,
   Presentation,
   Minimize2,
+  Compass,
 } from 'lucide-react';
 import { useAppStore, Attachment } from '@/appStore';
 import { AVAILABLE_MODELS, ModelSpec } from '@/models';
@@ -67,6 +68,7 @@ import ExportDocumentModal from './ExportDocumentModal';
 import MathFormulaModal from './MathFormulaModal';
 import SlideDeckModal from './SlideDeckModal';
 import ContextCompressorModal from './ContextCompressorModal';
+import SensorSpatialModal from './SensorSpatialModal';
 
 export default function ChatView() {
   const hardwareProfile = useAppStore((s) => s.hardwareProfile);
@@ -133,6 +135,7 @@ export default function ChatView() {
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [isCompressorModalOpen, setIsCompressorModalOpen] = useState(false);
+  const [isSensorModalOpen, setIsSensorModalOpen] = useState(false);
 
   // AI Code Playground & Sandbox State
   const [isCodeSandboxOpen, setIsCodeSandboxOpen] = useState(false);
@@ -1215,6 +1218,16 @@ export default function ChatView() {
           >
             <Minimize2 className="w-3.5 h-3.5 text-cyan-400" />
             <span>Compress</span>
+          </button>
+
+          {/* Spatial & Hardware Sensor Telemetry Modal */}
+          <button
+            onClick={() => setIsSensorModalOpen(true)}
+            title="Spatial & Hardware Sensor Telemetry (Compass, Battery, GPS, Lux)"
+            className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-teal-300 hover:border-teal-500/40 text-[10px] font-bold transition-all cursor-pointer"
+          >
+            <Compass className="w-3.5 h-3.5 text-teal-400" />
+            <span>Sensors</span>
           </button>
         </div>
       </div>
@@ -2494,6 +2507,14 @@ export default function ChatView() {
         isOpen={isCompressorModalOpen}
         onClose={() => setIsCompressorModalOpen(false)}
         activeSessionId={operatingMode === 'agent' ? activeAgentSessionId : activeChatSessionId}
+      />
+
+      {/* Spatial & Hardware Sensor Telemetry Modal */}
+      <SensorSpatialModal
+        isOpen={isSensorModalOpen}
+        onClose={() => setIsSensorModalOpen(false)}
+        onInsertTelemetry={(telemetryText) => setInputVal((prev) => (prev ? prev + '\n\n' + telemetryText : telemetryText))}
+        onAuditWithAgent={(prompt) => sendMessage(prompt)}
       />
     </div>
   );
