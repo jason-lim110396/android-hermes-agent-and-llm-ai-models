@@ -996,6 +996,14 @@ export const useAppStore = create<AppStore>((set, get) => ({
   clearAttachments: () => set({ pendingAttachments: [] }),
 
   sendMessage: async (userText: string, options?: { isLive?: boolean }) => {
+    // Single choke point against concurrent generations: quick-prompt chips,
+    // Set Reminder, Device Audit, Run Now, and the modal audit buttons all
+    // call this directly, and only handleSend checks isGenerating. Two
+    // simultaneous inferences on a phone means interleaved ~11fps store
+    // writes, doubled GPU/CPU load, and two streaming messages the Stop
+    // button cannot separately control.
+    if (get().isGenerating) return;
+
     const {
       selectedModelId,
       operatingMode,
@@ -1098,11 +1106,14 @@ export const useAppStore = create<AppStore>((set, get) => ({
       console.warn('Execution stopped or encountered error:', err?.message || err);
       // Ensure streaming message shows stopped notice if aborted. Look the
       // message up in the session captured at send time, not the currently
-      // active one (the user may have switched sessions mid-stream).
+      // active one (the user may have switched sessions mid-stream), and
+      // branch on the mode captured at SEND time: get().operatingMode is the
+      // CURRENT mode, so a user who started a chat reply, switched to Agent
+      // mode, then hit Stop left the real streaming message stuck with
+      // isStreaming true and a spinner that never cleared.
       const activeAgentId = owningAgentSessionId;
       const activeChatId = owningChatSessionId;
-      const op = get().operatingMode;
-      if (op === 'agent') {
+      if (operatingMode === 'agent') {
         const sess = get().agentSessions[activeAgentId];
         const target = sess?.messages.find((m) => m.id === assistantMsgId);
         if (target && target.isStreaming) {
