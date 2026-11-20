@@ -61,9 +61,31 @@ export default function NetworkSpeedModal({
   const [copied, setCopied] = useState(false);
   const abortRef = useRef<boolean>(false);
 
+  // Aborting: closing the modal mid-test used to leave the ~500KB download
+  // and the jitter probes running in the background, then vibrate and persist
+  // the result after the user had already moved on to something else.
+  // Setting the flag on close makes the in-flight run bail at its checkpoints.
+  useEffect(() => {
+    if (isOpen) {
+      abortRef.current = false;
+      return;
+    }
+    abortRef.current = true;
+  }, [isOpen]);
+
+  // Reset the view on each open: the previous test's result, phases and copy
+  // flag used to survive close/reopen and show as if they were fresh.
   // Load history from localStorage
   useEffect(() => {
     if (!isOpen) return;
+    setResult(null);
+    setCopied(false);
+    setPhases([
+      { label: 'Ping & RTT', status: 'idle', value: '—' },
+      { label: 'Download Speed', status: 'idle', value: '—' },
+      { label: 'Upload Speed', status: 'idle', value: '—' },
+      { label: 'Jitter & Stability', status: 'idle', value: '—' },
+    ]);
     try {
       const stored = localStorage.getItem('hermes_speed_history');
       if (stored) setHistory(JSON.parse(stored).slice(0, 5));
@@ -163,11 +185,13 @@ export default function NetworkSpeedModal({
 
       if (abortRef.current) return;
 
-      // Phase 2: Upload (simulated — real upload needs a server endpoint)
+      // Phase 2: Upload — estimated from the measured download (a real upload
+      // probe needs a server endpoint). Labeled so the estimate is never
+      // presented as a measurement.
       setPhase(2, { status: 'running' });
       await new Promise((r) => setTimeout(r, 800));
       const ulMbps = +(dlMbps * (0.4 + Math.random() * 0.3)).toFixed(2);
-      setPhase(2, { status: 'done', value: `${ulMbps} Mbps` });
+      setPhase(2, { status: 'done', value: `${ulMbps} Mbps (est.)` });
 
       if (abortRef.current) return;
 
@@ -175,6 +199,7 @@ export default function NetworkSpeedModal({
       setPhase(3, { status: 'running' });
       const pings: number[] = [];
       for (let i = 0; i < 4; i++) {
+        if (abortRef.current) return;
         const p = await measurePing();
         if (p === null) {
           failRemaining(3, 'No connection');
@@ -186,6 +211,8 @@ export default function NetworkSpeedModal({
       const avg = pings.reduce((a, b) => a + b, 0) / pings.length;
       const jitter = Math.round(Math.sqrt(pings.reduce((acc, p) => acc + (p - avg) ** 2, 0) / pings.length));
       setPhase(3, { status: 'done', value: `${jitter} ms jitter` });
+
+      if (abortRef.current) return;
 
       const conn = (navigator as any).connection;
       const networkType = conn?.effectiveType?.toUpperCase() || (navigator.onLine ? '5G / WiFi' : 'Offline');
@@ -226,7 +253,13 @@ export default function NetworkSpeedModal({
 • Ping: ${result.pingMs} ms  |  Jitter: ${result.jitterMs} ms
 • Signal: ${result.signalStrength}  |  Type: ${result.networkType}
 • Server: ${result.serverLocation}`;
-    if (navigator.clipboard) await navigator.clipboard.writeText(text).catch(() => {});
+    if (navigator.clipboard) {
+      try {
+        await navigator.clipboard.writeText(text);
+      } catch (_) {
+        return; // Android WebView clipboard writes can reject; no false "Copied".
+      }
+    }
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
@@ -264,7 +297,7 @@ export default function NetworkSpeedModal({
                   </span>
                 )}
               </div>
-              <p className="text-[11px] text-zinc-400">Real-device ping, download, upload, jitter</p>
+              <p className="text-[11px] text-zinc-400">Real ping, download &amp; jitter · upload estimated</p>
             </div>
           </div>
           <button onClick={onClose} className="p-2 rounded-xl text-zinc-400 hover:text-white hover:bg-zinc-800/80 transition-colors cursor-pointer">
