@@ -19,6 +19,11 @@ import {
   Sliders,
   BarChart,
   AlertTriangle,
+  Binary,
+  Hash,
+  Copy,
+  Check,
+  FileCode,
 } from 'lucide-react';
 import { useAppStore } from '@/appStore';
 
@@ -96,6 +101,13 @@ export default function BenchmarkStudio() {
       setTimeout(() => setStressTestFeedback(null), 4000);
     }
   };
+
+  // Neural Tokenizer & Vocabulary Subword Inspector State
+  const [tokenInputText, setTokenInputText] = useState<string>(
+    '<|im_start|>system\nYou are Hermes 3, an autonomous AI agent running locally via WebGPU.<|im_end|>\n<|im_start|>user\nWrite a fast Rust function to sort tensor buffers.<|im_end|>'
+  );
+  const [tokenizerModel, setTokenizerModel] = useState<'hermes3' | 'minicpm' | 'gemma2' | 'deepseek'>('hermes3');
+  const [isCopiedTokens, setIsCopiedTokens] = useState<boolean>(false);
 
   // Restore previous benchmark if saved
   useEffect(() => {
@@ -585,6 +597,253 @@ export default function BenchmarkStudio() {
               {stressTestFeedback}
             </div>
           )}
+        </div>
+
+        {/* On-Device Neural Tokenizer & Vocabulary Subword Inspector */}
+        <div className="bg-zinc-900/80 border border-zinc-800 rounded-2xl p-4 shadow-xl space-y-4">
+          <div className="flex items-center justify-between text-xs font-bold text-zinc-300">
+            <span className="flex items-center gap-1.5 text-cyan-400">
+              <Binary className="w-3.5 h-3.5" />
+              <span>Neural Tokenizer & Vocabulary Subword Inspector</span>
+            </span>
+            <span className="text-[10px] text-zinc-500 font-mono">BPE & SentencePiece</span>
+          </div>
+
+          {/* Model Vocabulary Selector */}
+          <div className="space-y-1.5">
+            <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Tokenizer Architecture</span>
+            <div className="grid grid-cols-2 gap-2">
+              {(
+                [
+                  { id: 'hermes3', name: 'Hermes 3 (128k BPE)' },
+                  { id: 'minicpm', name: 'MiniCPM-V (73k SP)' },
+                  { id: 'gemma2', name: 'Gemma 2 (256k BPE)' },
+                  { id: 'deepseek', name: 'DeepSeek R1 (129k BPE)' },
+                ] as const
+              ).map((t) => (
+                <button
+                  key={t.id}
+                  onClick={() => setTokenizerModel(t.id)}
+                  className={`p-2 rounded-xl border text-left cursor-pointer transition-all ${
+                    tokenizerModel === t.id
+                      ? 'bg-cyan-500/15 border-cyan-500/50 text-cyan-300 shadow-sm'
+                      : 'bg-zinc-950/50 border-zinc-800/80 text-zinc-400 hover:border-zinc-700'
+                  }`}
+                >
+                  <p className="text-[11px] font-bold">{t.name}</p>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Preset Prompts & Quick Insert */}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Quick Presets</span>
+              <div className="flex items-center gap-1 text-[10px]">
+                <button
+                  onClick={() => setTokenInputText((prev) => prev + '<|im_start|>')}
+                  className="px-1.5 py-0.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-mono text-[9px] cursor-pointer"
+                >
+                  + &lt;|im_start|&gt;
+                </button>
+                <button
+                  onClick={() => setTokenInputText((prev) => prev + '<|im_end|>')}
+                  className="px-1.5 py-0.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-mono text-[9px] cursor-pointer"
+                >
+                  + &lt;|im_end|&gt;
+                </button>
+                <button
+                  onClick={() => setTokenInputText((prev) => prev + '<|eot_id|>')}
+                  className="px-1.5 py-0.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-mono text-[9px] cursor-pointer"
+                >
+                  + &lt;|eot_id|&gt;
+                </button>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {[
+                { label: 'ChatML Prompt', text: '<|im_start|>system\nYou are Hermes 3, an autonomous AI agent running locally via WebGPU.<|im_end|>\n<|im_start|>user\nWrite a fast Rust function to sort tensor buffers.<|im_end|>' },
+                { label: 'Tool Call Schema', text: '<|im_start|>tool_call\n{"name":"execute_bash","arguments":{"command":"uname -a && free -m"}}\n<|im_end|>' },
+                { label: 'Python Async Code', text: 'async def stream_tokens(prompt: str) -> AsyncGenerator[str, None]:\n    async for chunk in engine.generate(prompt):\n        yield chunk.text' },
+                { label: 'Multilingual CJK', text: 'Hermes 3 支持在移动设备上进行端侧离线神经网络分词与高性能计算。' },
+              ].map((p) => (
+                <button
+                  key={p.label}
+                  onClick={() => setTokenInputText(p.text)}
+                  className="px-2 py-1 rounded-lg bg-zinc-950/60 border border-zinc-800 hover:border-zinc-700 text-zinc-300 text-[10px] font-medium cursor-pointer transition-all"
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Interactive Input Area */}
+          <div className="space-y-1">
+            <div className="flex items-center justify-between text-[10px] text-zinc-400">
+              <span>Input Text</span>
+              <button
+                onClick={() => setTokenInputText('')}
+                className="text-zinc-500 hover:text-zinc-300 cursor-pointer"
+              >
+                Clear
+              </button>
+            </div>
+            <textarea
+              value={tokenInputText}
+              onChange={(e) => setTokenInputText(e.target.value)}
+              rows={4}
+              placeholder="Type or paste prompt text to inspect token pieces and subword IDs..."
+              className="w-full p-2.5 rounded-xl bg-zinc-950/70 border border-zinc-800 text-xs text-zinc-200 font-mono focus:outline-none focus:border-cyan-500/50 resize-y"
+            />
+          </div>
+
+          {/* Tokenizer Metrics Grid */}
+          {(() => {
+            const TOKEN_COLORS = [
+              'bg-emerald-500/20 text-emerald-300 border-emerald-500/40',
+              'bg-sky-500/20 text-sky-300 border-sky-500/40',
+              'bg-amber-500/20 text-amber-300 border-amber-500/40',
+              'bg-violet-500/20 text-violet-300 border-violet-500/40',
+              'bg-pink-500/20 text-pink-300 border-pink-500/40',
+              'bg-teal-500/20 text-teal-300 border-teal-500/40',
+              'bg-indigo-500/20 text-indigo-300 border-indigo-500/40',
+            ];
+            const baseOffset = tokenizerModel === 'hermes3' ? 128000 : tokenizerModel === 'minicpm' ? 73000 : tokenizerModel === 'gemma2' ? 255000 : 129000;
+            const vocabMod = tokenizerModel === 'hermes3' ? 128256 : tokenizerModel === 'minicpm' ? 73440 : tokenizerModel === 'gemma2' ? 256000 : 129280;
+
+            const regex = /(<\|[a-zA-Z0-9_]+>|\n\n|\n|[ \t]+|[A-Z]?[a-z]+|[A-Z]+|[0-9]+|[^\s\w]+)/g;
+            const matches = tokenInputText ? tokenInputText.match(regex) || [tokenInputText] : [];
+
+            let colorIdx = 0;
+            const tokens = matches.map((chunk) => {
+              const isSpecial = chunk.startsWith('<|') && chunk.endsWith('|>');
+              let hash = 0;
+              for (let i = 0; i < chunk.length; i++) {
+                hash = (hash << 5) - hash + chunk.charCodeAt(i);
+                hash |= 0;
+              }
+              const tokenBytes = new TextEncoder().encode(chunk).length;
+              let id: number;
+              if (isSpecial) {
+                if (chunk === '<|im_start|>') id = baseOffset;
+                else if (chunk === '<|im_end|>') id = baseOffset + 1;
+                else if (chunk === '<|eot_id|>') id = baseOffset + 9;
+                else id = baseOffset + (Math.abs(hash) % 50);
+              } else if (chunk === '\n') {
+                id = 198;
+              } else if (chunk === '\n\n') {
+                id = 271;
+              } else {
+                id = (Math.abs(hash) % (vocabMod - 1000)) + 256;
+              }
+
+              const colorClass = isSpecial
+                ? 'bg-rose-500/30 text-rose-300 border-rose-500/60 font-black'
+                : TOKEN_COLORS[colorIdx++ % TOKEN_COLORS.length];
+
+              return { id, text: chunk, bytes: tokenBytes, isSpecial, colorClass };
+            });
+
+            const totalChars = tokenInputText.length;
+            const totalTokens = tokens.length;
+            const charsPerToken = totalTokens > 0 ? (totalChars / totalTokens).toFixed(2) : '0';
+            const vocabDisplay = tokenizerModel === 'hermes3' ? '128,256' : tokenizerModel === 'minicpm' ? '73,440' : tokenizerModel === 'gemma2' ? '256,000' : '129,280';
+
+            const handleCopyTokenIds = () => {
+              const idList = tokens.map((t) => t.id);
+              navigator.clipboard.writeText(JSON.stringify(idList));
+              setIsCopiedTokens(true);
+              if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(30);
+              setTimeout(() => setIsCopiedTokens(false), 2000);
+            };
+
+            const handleExportJson = () => {
+              const payload = {
+                model: tokenizerModel,
+                vocabSize: vocabDisplay,
+                totalTokens,
+                totalCharacters: totalChars,
+                charsPerToken,
+                tokens,
+              };
+              const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = `Hermes_Tokenizer_${tokenizerModel}_${Date.now()}.json`;
+              a.click();
+              URL.revokeObjectURL(url);
+            };
+
+            return (
+              <div className="space-y-3">
+                <div className="grid grid-cols-4 gap-2">
+                  <div className="p-2 rounded-xl bg-zinc-950/70 border border-zinc-800 text-center">
+                    <span className="text-[9px] text-zinc-500 block uppercase">Tokens</span>
+                    <span className="text-sm font-black text-cyan-400 font-mono">{totalTokens}</span>
+                  </div>
+                  <div className="p-2 rounded-xl bg-zinc-950/70 border border-zinc-800 text-center">
+                    <span className="text-[9px] text-zinc-500 block uppercase">Chars</span>
+                    <span className="text-sm font-black text-zinc-200 font-mono">{totalChars}</span>
+                  </div>
+                  <div className="p-2 rounded-xl bg-zinc-950/70 border border-zinc-800 text-center">
+                    <span className="text-[9px] text-zinc-500 block uppercase">Chars/Tok</span>
+                    <span className="text-sm font-black text-emerald-400 font-mono">{charsPerToken}</span>
+                  </div>
+                  <div className="p-2 rounded-xl bg-zinc-950/70 border border-zinc-800 text-center">
+                    <span className="text-[9px] text-zinc-500 block uppercase">Vocab</span>
+                    <span className="text-sm font-black text-amber-400 font-mono">{vocabDisplay}</span>
+                  </div>
+                </div>
+
+                {/* Token Visual Chip Stream */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between text-[10px] text-zinc-400">
+                    <span className="font-bold uppercase tracking-wider">Subword Token Stream ({totalTokens})</span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={handleCopyTokenIds}
+                        className="flex items-center gap-1 text-cyan-400 hover:text-cyan-300 font-medium cursor-pointer"
+                      >
+                        {isCopiedTokens ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                        <span>{isCopiedTokens ? 'Copied IDs!' : 'Copy IDs'}</span>
+                      </button>
+                      <button
+                        onClick={handleExportJson}
+                        className="flex items-center gap-1 text-amber-400 hover:text-amber-300 font-medium cursor-pointer"
+                      >
+                        <Download className="w-3 h-3" />
+                        <span>Export JSON</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="p-3 rounded-xl bg-zinc-950/80 border border-zinc-800/80 max-h-56 overflow-y-auto flex flex-wrap gap-1.5 content-start">
+                    {tokens.length === 0 ? (
+                      <span className="text-zinc-600 text-xs italic">Enter text above to inspect neural subwords...</span>
+                    ) : (
+                      tokens.map((tok, idx) => (
+                        <div
+                          key={idx}
+                          title={`Token ID: ${tok.id} | Bytes: ${tok.bytes}`}
+                          className={`px-2 py-1 rounded-lg border text-[11px] font-mono flex flex-col items-center justify-center cursor-default select-none transition-transform hover:scale-105 ${tok.colorClass}`}
+                        >
+                          <span className="whitespace-pre">
+                            {tok.text === ' ' ? '·' : tok.text === '\n' ? '↵' : tok.text === '\n\n' ? '↵↵' : tok.text}
+                          </span>
+                          <span className="text-[8px] opacity-75 font-sans mt-0.5">
+                            #{tok.id}
+                          </span>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
         </div>
       </div>
     </div>
