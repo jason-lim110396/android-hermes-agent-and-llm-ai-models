@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   X,
   FileText,
@@ -32,6 +32,70 @@ export interface MobileNote {
 }
 
 const STORAGE_KEY = 'hermes_mobile_notes_v1';
+
+// The mobile_notes_vault agent tool writes this same key directly while the
+// (always-mounted) modal is closed. A vault write is therefore debounced, not
+// synchronous: pendingVault holds the latest snapshot and is flushed on modal
+// close, on visibilitychange-hidden / pagehide (the WebView suspend/kill
+// window - JS timers stop firing the moment the app is backgrounded), and
+// before every reopen read. Mirrors sessionPersistence's flush design.
+let vaultPersistTimer: ReturnType<typeof setTimeout> | null = null;
+let pendingVault: MobileNote[] | null = null;
+
+/** Synchronous write of the most recent pending snapshot. Never throws. */
+function flushVaultPersistNow(): void {
+  if (typeof window === 'undefined') return;
+  if (vaultPersistTimer) {
+    clearTimeout(vaultPersistTimer);
+    vaultPersistTimer = null;
+  }
+  const pending = pendingVault;
+  pendingVault = null;
+  if (!pending) return;
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(pending));
+  } catch {
+    // storage quota or unavailable - same best-effort behavior as before.
+  }
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') flushVaultPersistNow();
+  });
+  window.addEventListener('pagehide', flushVaultPersistNow);
+}
+
+/** Debounced vault save: in-memory state updates at once, the synchronous
+ * localStorage write happens once per typing pause instead of per keystroke. */
+function scheduleVaultPersist(notes: MobileNote[]): void {
+  if (typeof window === 'undefined') return;
+  pendingVault = notes;
+  if (vaultPersistTimer) clearTimeout(vaultPersistTimer);
+  vaultPersistTimer = setTimeout(flushVaultPersistNow, 400);
+}
+
+// The stored vault may be corrupt JSON, a non-array, or hold junk entries
+// (the #129 pattern the agent tool already guards against). One bad entry
+// must not crash the whole Chat tab: this modal lives inside the tab-level
+// ErrorBoundary, so an unsanitized read would brick the tab in a loop.
+function coerceNote(raw: unknown): MobileNote | null {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return null;
+  const o = raw as Record<string, unknown>;
+  if (typeof o.id !== 'string' || !o.id) return null;
+  const category = CATEGORIES.includes(o.category as MobileNote['category'])
+    ? (o.category as MobileNote['category'])
+    : 'General';
+  return {
+    id: o.id,
+    title: typeof o.title === 'string' ? o.title : 'Untitled Note',
+    content: typeof o.content === 'string' ? o.content : '',
+    category,
+    isPinned: o.isPinned === true,
+    createdAt: typeof o.createdAt === 'string' ? o.createdAt : new Date().toISOString(),
+    updatedAt: typeof o.updatedAt === 'string' ? o.updatedAt : new Date().toISOString(),
+  };
+}
 
 const DEFAULT_NOTES: MobileNote[] = [
   {
@@ -81,37 +145,57 @@ export default function MarkdownNotepadModal({
   const [viewMode, setViewMode] = useState<'edit' | 'preview'>('edit');
   const [copied, setCopied] = useState(false);
   const [inserted, setInserted] = useState(false);
+  const seededVaultRef = useRef(false);
 
-  // Load from localStorage
+  // Reload the vault from localStorage on every open. The modal stays mounted
+  // while closed, and the mobile_notes_vault agent tool writes this key
+  // directly in the meantime - a stale in-memory snapshot that is written
+  // back on the first edit would silently delete agent-created notes (lost
+  // update). Flush any still-pending edit on close first, so the read below
+  // never races a debounced write.
   useEffect(() => {
     if (typeof window === 'undefined') return;
+    if (!isOpen) {
+      flushVaultPersistNow();
+      return;
+    }
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
-        const parsed = JSON.parse(saved);
+        const parsed: unknown = JSON.parse(saved);
         if (Array.isArray(parsed)) {
+          const restored = parsed
+            .map(coerceNote)
+            .filter((n): n is MobileNote => n !== null);
           // An intentionally empty vault ("[]") is authoritative: seeding
           // DEFAULT_NOTES here would resurrect every note the user deleted.
-          setNotes(parsed);
-          setActiveNoteId(parsed[0]?.id || '');
+          setNotes(restored);
+          setActiveNoteId(restored[0]?.id || '');
+          seededVaultRef.current = true;
           return;
         }
       }
     } catch {
-      // fallback
+      // Corrupt vault: fall through and start from the starter notes
+      // instead of throwing (the first edit then overwrites the bad blob).
     }
-    setNotes(DEFAULT_NOTES);
-    setActiveNoteId(DEFAULT_NOTES[0].id);
-  }, []);
+    if (!seededVaultRef.current) {
+      seededVaultRef.current = true;
+      setNotes(DEFAULT_NOTES);
+      setActiveNoteId(DEFAULT_NOTES[0].id);
+    }
+  }, [isOpen]);
 
-  // Save to localStorage
+  // If this component ever unmounts with an edit still in the debounce
+  // window, commit it before the refs holding it disappear.
+  useEffect(() => () => flushVaultPersistNow(), []);
+
+  // Update in-memory state at once; the synchronous localStorage write is
+  // debounced (see scheduleVaultPersist) so typing does not stringify and
+  // persist the whole vault on every keystroke.
   const saveNotes = (updated: MobileNote[]) => {
     setNotes(updated);
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-    } catch {
-      // storage quota or unavailable
-    }
+    scheduleVaultPersist(updated);
   };
 
   const activeNote = useMemo(() => {
