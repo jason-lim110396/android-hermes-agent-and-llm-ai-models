@@ -460,5 +460,102 @@ export const AGENT_TOOLS: AgentTool[] = [
         return `📇 **Contacts Vault Notice**: Query processed for "${args.query}".`;
       }
     }
+  },
+  {
+    name: 'mobile_notes_vault',
+    description: 'Create, search, list, or retrieve on-device Markdown notes and memos in the secure local Document Vault.',
+    parameters: [
+      { name: 'action', type: 'string', description: 'Action: "list" recent notes, "search" by keyword, "create" a new note, or "read" a note by id', required: true },
+      { name: 'query', type: 'string', description: 'Keyword search query for title, content, or tags', required: false },
+      { name: 'note_id', type: 'string', description: 'ID of the note to retrieve when action is "read"', required: false },
+      { name: 'title', type: 'string', description: 'Title of the note when action is "create"', required: false },
+      { name: 'content', type: 'string', description: 'Markdown content of the note when action is "create"', required: false },
+      { name: 'category', type: 'string', description: 'Category: General, Meeting, Architecture, Code, Prompt, or Idea', required: false },
+    ],
+    execute: async (args: Record<string, unknown>) => {
+      const act = String(args.action || 'list').toLowerCase();
+      const storageKey = 'hermes_mobile_notes_v1';
+
+      interface NoteItem {
+        id: string;
+        title: string;
+        content: string;
+        category: string;
+        isPinned: boolean;
+        createdAt: string;
+        updatedAt: string;
+      }
+
+      let notes: NoteItem[] = [];
+      if (typeof window !== 'undefined') {
+        try {
+          const raw = window.localStorage.getItem(storageKey);
+          if (raw) notes = JSON.parse(raw);
+        } catch {
+          // ignore
+        }
+      }
+
+      if (act === 'create') {
+        const title = String(args.title || 'Untitled Note');
+        const content = String(args.content || '');
+        const category = String(args.category || 'General');
+        const newNote: NoteItem = {
+          id: `note-${Date.now()}`,
+          title,
+          content,
+          category,
+          isPinned: false,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+        notes.unshift(newNote);
+        if (typeof window !== 'undefined') {
+          try {
+            window.localStorage.setItem(storageKey, JSON.stringify(notes));
+          } catch {
+            // storage full
+          }
+        }
+        return `📝 **Note Created Successfully**:\n• **ID**: \`${newNote.id}\`\n• **Title**: "${newNote.title}"\n• **Category**: ${newNote.category}\n• **Length**: ${newNote.content.length} characters\n*(Saved to on-device vault)*`;
+      }
+
+      if (act === 'read') {
+        const targetId = String(args.note_id || '');
+        const found = notes.find((n) => n.id === targetId);
+        if (!found) {
+          return `📝 **Note Not Found**: No note with ID "${targetId}" found in local vault.`;
+        }
+        return `📝 **Note: ${found.title}** (Category: ${found.category})\n\n---\n${found.content}\n---`;
+      }
+
+      if (act === 'search') {
+        const q = String(args.query || '').toLowerCase();
+        const matches = notes.filter(
+          (n) =>
+            n.title.toLowerCase().includes(q) ||
+            n.content.toLowerCase().includes(q) ||
+            n.category.toLowerCase().includes(q)
+        );
+        if (matches.length === 0) {
+          return `📝 **Notes Search**: No notes found matching query "${args.query}".`;
+        }
+        let out = `📝 **Notes Search Results** (${matches.length} matching "${args.query}"):\n\n`;
+        matches.slice(0, 5).forEach((n, idx) => {
+          out += `${idx + 1}. **${n.title}** [\`${n.id}\`] (${n.category})\n   ${n.content.slice(0, 100).replace(/\n/g, ' ')}...\n\n`;
+        });
+        return out;
+      }
+
+      // Default: list
+      if (notes.length === 0) {
+        return `📝 **Notes Vault**: No notes currently saved in the device vault. You can create one using the "create" action.`;
+      }
+      let out = `📝 **On-Device Notes Vault** (${notes.length} total notes):\n\n`;
+      notes.slice(0, 5).forEach((n, idx) => {
+        out += `${idx + 1}. **${n.title}** [\`${n.id}\`] (${n.category})${n.isPinned ? ' 📌' : ''}\n   Updated: ${new Date(n.updatedAt).toLocaleDateString()}\n\n`;
+      });
+      return out;
+    }
   }
 ];

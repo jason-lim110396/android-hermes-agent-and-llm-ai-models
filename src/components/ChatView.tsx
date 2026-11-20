@@ -75,6 +75,7 @@ import ClipboardVaultModal from './ClipboardVaultModal';
 import OfflinePhraseBookModal from './OfflinePhraseBookModal';
 import SensorSpatialModal from './SensorSpatialModal';
 import NetworkSpeedModal from './NetworkSpeedModal';
+import MarkdownNotepadModal from './MarkdownNotepadModal';
 
 export default function ChatView() {
   const hardwareProfile = useAppStore((s) => s.hardwareProfile);
@@ -145,6 +146,7 @@ export default function ChatView() {
   const [isClipboardVaultOpen, setIsClipboardVaultOpen] = useState(false);
   const [isPhraseBookOpen, setIsPhraseBookOpen] = useState(false);
   const [isNetworkSpeedOpen, setIsNetworkSpeedOpen] = useState(false);
+  const [isNotepadOpen, setIsNotepadOpen] = useState(false);
 
   // AI Code Playground & Sandbox State
   const [isCodeSandboxOpen, setIsCodeSandboxOpen] = useState(false);
@@ -1267,6 +1269,16 @@ export default function ChatView() {
           >
             <Wifi className="w-3.5 h-3.5 text-cyan-400" />
             <span>SpeedTest</span>
+          </button>
+
+          {/* Markdown Notepad & Document Vault */}
+          <button
+            onClick={() => setIsNotepadOpen(true)}
+            title="Markdown Notepad & Offline Document Vault"
+            className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-emerald-300 hover:border-emerald-500/40 text-[10px] font-bold transition-all cursor-pointer"
+          >
+            <FileText className="w-3.5 h-3.5 text-emerald-400" />
+            <span>Notes</span>
           </button>
         </div>
       </div>
@@ -2574,6 +2586,14 @@ export default function ChatView() {
       <NetworkSpeedModal
         isOpen={isNetworkSpeedOpen}
         onClose={() => setIsNetworkSpeedOpen(false)}
+        onAuditWithAgent={(prompt) => sendMessage(prompt)}
+      />
+
+      {/* Markdown Notepad & Document Vault Modal */}
+      <MarkdownNotepadModal
+        isOpen={isNotepadOpen}
+        onClose={() => setIsNotepadOpen(false)}
+        onInsertIntoChat={(text) => setInputVal((prev) => (prev ? prev + '\n\n' + text : text))}
         onAuditWithAgent={(prompt) => sendMessage(prompt)}
       />
     </div>
