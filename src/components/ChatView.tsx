@@ -28,6 +28,7 @@ import {
   Square,
   Plus,
   Layers,
+  Copy,
   ArrowRight,
   Download,
   Cpu,
@@ -450,6 +451,79 @@ export default function ChatView() {
     setExpandedSteps((prev) => ({ ...prev, [msgId]: !prev[msgId] }));
   };
 
+  const handleExportSession = () => {
+    if (!messages || messages.length === 0) return;
+    const title = currentSession?.title || 'Hermes Session Report';
+    let md = `# 🤖 ${title}\n\n`;
+    md += `*Generated on-device via ${currentModel?.name || 'Hermes AI'}*\n`;
+    md += `*Timestamp: ${new Date().toLocaleString()}*\n\n---\n\n`;
+
+    messages.forEach((m) => {
+      md += `### ${m.role === 'user' ? '👤 User' : '🤖 Assistant'} (${new Date(m.timestamp).toLocaleTimeString()})\n\n`;
+      if (m.agentSteps && m.agentSteps.length > 0) {
+        md += `> **Hermes Autonomous Agent Execution Steps:**\n`;
+        m.agentSteps.forEach((s, sIdx) => {
+          if (s.thought) md += `> - **Step ${sIdx + 1} Thought**: ${s.thought}\n`;
+          if (s.toolCall) md += `> - **Tool Call**: \`${s.toolCall.name}\` (${JSON.stringify(s.toolCall.arguments)})\n`;
+          if (s.toolResult) md += `> - **Observation**: ${s.toolResult.replace(/\n/g, ' ')}\n`;
+        });
+        md += `\n`;
+      }
+      md += `${m.content}\n\n---\n\n`;
+    });
+
+    const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${title.replace(/[^a-zA-Z0-9]/g, '_')}_${Date.now()}.md`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const renderFormattedContent = (content: string) => {
+    if (!content.includes('```')) {
+      return <div className="whitespace-pre-wrap leading-relaxed">{content}</div>;
+    }
+    const parts = content.split(/(```[\s\S]*?```)/g);
+    return (
+      <div className="space-y-2">
+        {parts.map((part, idx) => {
+          if (part.startsWith('```') && part.endsWith('```')) {
+            const lines = part.slice(3, -3).trim().split('\n');
+            const firstLine = lines[0] || '';
+            const lang = /^[a-zA-Z0-9_-]+$/.test(firstLine.trim()) ? firstLine.trim() : '';
+            const codeText = lang ? lines.slice(1).join('\n') : lines.join('\n');
+            return (
+              <div key={idx} className="my-2 rounded-xl overflow-hidden bg-zinc-950 border border-zinc-800 font-mono text-[11px] shadow-lg">
+                <div className="flex items-center justify-between px-3 py-1.5 bg-zinc-900 border-b border-zinc-800 text-zinc-400">
+                  <span className="uppercase font-bold text-[10px] text-cyan-400">{lang || 'Code'}</span>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      navigator.clipboard.writeText(codeText);
+                    }}
+                    className="flex items-center gap-1 hover:text-white transition-all cursor-pointer text-[10px] px-1.5 py-0.5 rounded bg-zinc-800"
+                  >
+                    <Copy className="w-3 h-3" />
+                    <span>Copy</span>
+                  </button>
+                </div>
+                <pre className="p-3 overflow-x-auto text-zinc-200 leading-relaxed select-text">
+                  <code>{codeText}</code>
+                </pre>
+              </div>
+            );
+          }
+          return <div key={idx} className="whitespace-pre-wrap leading-relaxed">{part}</div>;
+        })}
+      </div>
+    );
+  };
+
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden bg-zinc-950 relative">
       {/* ── TOP CONTROL BAR  (2 compact rows) ── */}
@@ -845,6 +919,16 @@ export default function ChatView() {
             <Trash2 className="w-3.5 h-3.5" />
             <span>Clear</span>
           </button>
+
+          {/* Export Session */}
+          <button
+            onClick={handleExportSession}
+            title="Export session to Markdown file"
+            className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-cyan-300 hover:border-cyan-500/40 text-[10px] font-bold transition-all cursor-pointer"
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span>Export</span>
+          </button>
         </div>
       </div>
 
@@ -1151,7 +1235,7 @@ export default function ChatView() {
 
                           return (
                             <>
-                              {beforeThink && <div className="whitespace-pre-wrap">{beforeThink}</div>}
+                              {beforeThink && renderFormattedContent(beforeThink)}
                               {thinkContent && (
                                 <details className="rounded-xl bg-zinc-950/70 border border-zinc-800 p-2 text-zinc-400 text-[11px] font-mono select-text" open={msg.isStreaming && !afterThink}>
                                   <summary className="cursor-pointer text-amber-400 font-bold flex items-center gap-1.5 py-0.5 select-none hover:text-amber-300">
@@ -1163,11 +1247,11 @@ export default function ChatView() {
                                   </div>
                                 </details>
                               )}
-                              {afterThink && <div className="whitespace-pre-wrap leading-relaxed">{afterThink}</div>}
+                              {afterThink && renderFormattedContent(afterThink)}
                             </>
                           );
                         }
-                        return <div className="whitespace-pre-wrap leading-relaxed">{content}</div>;
+                        return renderFormattedContent(content);
                       })()}
                     </div>
                   </div>
