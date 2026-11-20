@@ -13,9 +13,17 @@ import {
   releaseActiveModelEngines,
 } from './inferenceEngine';
 import { abortActiveCpuDownloads } from './wasmInferenceEngine';
+import { loadPersistedSessions, schedulePersistSessions } from './utils/sessionPersistence';
 
 // Global tracking for mock/fallback download timers
 const activeDownloadIntervals = new Map<string, NodeJS.Timeout>();
+
+// Maximum frequency for streaming store writes. Batching per-token writes into
+// ~11fps UI refreshes removes the main source of chat lag on low-end Android:
+// each write previously cloned the whole session tree and re-rendered every
+// message. The engine's return value (full text) is what finalizes the message,
+// so the throttled tail can never truncate the final content.
+const STREAM_FLUSH_MS = 90;
 
 export interface Attachment {
   id: string;
@@ -109,6 +117,7 @@ interface AppStore {
   agentSessions: Record<string, ChatSession>;
   activeChatSessionId: string;
   activeAgentSessionId: string;
+  restorePersistedSessions: () => void;
   createNewSession: (mode?: 'chat' | 'agent') => void;
   switchSession: (sessionId: string, mode?: 'chat' | 'agent') => void;
   deleteSession: (sessionId: string, mode?: 'chat' | 'agent') => void;
@@ -415,6 +424,33 @@ export const useAppStore = create<AppStore>((set, get) => ({
   },
   activeChatSessionId: 'session-chat-default',
   activeAgentSessionId: 'session-agent-default',
+
+  // Conversation Persistence Vault: bring back chats saved by a previous app
+  // run. Called once after mount (never during SSR/hydration) so the server
+  // HTML and the first client render always agree.
+  restorePersistedSessions: () => {
+    const persisted = loadPersistedSessions();
+    if (!persisted) return;
+    const hasChat = Object.keys(persisted.chatSessions).length > 0;
+    const hasAgent = Object.keys(persisted.agentSessions).length > 0;
+    if (!hasChat && !hasAgent) return;
+    set((state) => ({
+      // Merge over whatever exists (rather than wholesale replace) so sessions
+      // created between store init and this restore are never discarded.
+      chatSessions: hasChat ? { ...state.chatSessions, ...persisted.chatSessions } : state.chatSessions,
+      agentSessions: hasAgent ? { ...state.agentSessions, ...persisted.agentSessions } : state.agentSessions,
+      activeChatSessionId: hasChat
+        ? persisted.chatSessions[persisted.activeChatSessionId]
+          ? persisted.activeChatSessionId
+          : Object.keys(persisted.chatSessions)[0]
+        : state.activeChatSessionId,
+      activeAgentSessionId: hasAgent
+        ? persisted.agentSessions[persisted.activeAgentSessionId]
+          ? persisted.activeAgentSessionId
+          : Object.keys(persisted.agentSessions)[0]
+        : state.activeAgentSessionId,
+    }));
+  },
 
   createNewSession: (targetMode?: 'chat' | 'agent') => {
     const mode = targetMode || get().operatingMode;
@@ -1119,7 +1155,8 @@ async function executeHermesAgent(
     ? 'You are a real-time conversational voice assistant. Reply naturally, conversationally, and concisely (1-3 sentences). Match the exact language the user speaks (English, Chinese, Cantonese, Spanish, etc.).'
     : (systemPrompt || model?.systemPromptPreset || 'You are Hermes 3, an expert autonomous agent.');
 
-  await callRealLLMInference({
+  let agentStreamLastFlush = 0;
+  const fullResult = await callRealLLMInference({
     messages: messagesToSend,
     modelId,
     systemPrompt: liveSystemPrompt,
@@ -1135,12 +1172,20 @@ async function executeHermesAgent(
       updateMsg(assistantMsgId, steps, `${visualPrefix}*[Autonomous Agent Reasoning: ${pct}% - ${statusText}]*`, true, set, get, 'agent');
     },
     onStreamChunk: (chunkText) => {
-      updateMsg(assistantMsgId, steps, visualPrefix + chunkText, true, set, get, 'agent');
+      // Throttled store write: batch per-token updates into ~11fps UI refreshes.
+      // The final write below uses the engine's return value (complete text or
+      // error text), so any skipped tail is always recovered at the end.
+      const now = performance.now();
+      if (now - agentStreamLastFlush >= STREAM_FLUSH_MS) {
+        agentStreamLastFlush = now;
+        updateMsg(assistantMsgId, steps, visualPrefix + chunkText, true, set, get, 'agent');
+      }
     },
   });
 
-  const finalMsg = get().agentSessions[activeAgentId]?.messages.find((m: ChatMessage) => m.id === assistantMsgId);
-  const finalText = finalMsg?.content || visualPrefix;
+  // Finalize from the engine's return value: it always carries the full text
+  // (or the error display text on fallback paths), never the throttled tail.
+  const finalText = visualPrefix + (typeof fullResult === 'string' ? fullResult : '');
   updateMsg(assistantMsgId, steps, finalText, false, set, get, 'agent');
 
   // Trigger optional speech readout
@@ -1219,7 +1264,8 @@ async function executeDirectChat(
     ? 'You are a real-time conversational voice assistant. Reply naturally, conversationally, and concisely (1-3 sentences). Match the exact language the user speaks (English, Chinese, Cantonese, Spanish, etc.).'
     : (systemPrompt || model?.systemPromptPreset || 'You are an intelligent, helpful on-device assistant.');
 
-  await callRealLLMInference({
+  let chatStreamLastFlush = 0;
+  const fullResult = await callRealLLMInference({
     messages: messagesToSend,
     modelId,
     systemPrompt: liveSystemPrompt,
@@ -1235,19 +1281,26 @@ async function executeDirectChat(
       updateMsg(assistantMsgId, [], `${attachPrefix}*[Loading On-Device Model Weights: ${pct}% - ${statusText}]*`, true, set, get, 'chat');
     },
     onStreamChunk: (chunkText) => {
-      if (!inferenceStartTime) inferenceStartTime = performance.now();
       tokenCount++;
-      const elapsedSec = (performance.now() - inferenceStartTime) / 1000;
-      if (elapsedSec > 0.3) {
-        const currentTps = Math.round((tokenCount / elapsedSec) * 10) / 10;
-        set({ liveTps: currentTps });
+      // Throttled store write: batch per-token updates into ~11fps UI refreshes.
+      // The final write below uses the engine's return value (complete text or
+      // error text), so any skipped tail is always recovered at the end.
+      const now = performance.now();
+      if (now - chatStreamLastFlush >= STREAM_FLUSH_MS) {
+        chatStreamLastFlush = now;
+        if (!inferenceStartTime) inferenceStartTime = now;
+        const elapsedSec = (now - inferenceStartTime) / 1000;
+        if (elapsedSec > 0.3) {
+          set({ liveTps: Math.round((tokenCount / elapsedSec) * 10) / 10 });
+        }
+        updateMsg(assistantMsgId, [], attachPrefix + chunkText, true, set, get, 'chat');
       }
-      updateMsg(assistantMsgId, [], attachPrefix + chunkText, true, set, get, 'chat');
     },
   });
 
-  const finalMsg = get().chatSessions[activeChatId]?.messages.find((m: ChatMessage) => m.id === assistantMsgId);
-  const finalText = finalMsg?.content || attachPrefix;
+  // Finalize from the engine's return value: it always carries the full text
+  // (or the error display text on fallback paths), never the throttled tail.
+  const finalText = attachPrefix + (typeof fullResult === 'string' ? fullResult : '');
   updateMsg(assistantMsgId, [], finalText, false, set, get, 'chat');
 
   // Trigger spoken readout if in voice synthesis mode or voice output is enabled
@@ -1316,3 +1369,16 @@ function updateMsg(
     });
   }
 }
+
+// Conversation Persistence Vault (auto-save): whenever a chat or agent session
+// tree changes, schedule a debounced quota-safe snapshot to localStorage so
+// conversations survive Android killing the app in the background.
+useAppStore.subscribe((state, prev) => {
+  if (state.chatSessions === prev.chatSessions && state.agentSessions === prev.agentSessions) return;
+  schedulePersistSessions({
+    chatSessions: state.chatSessions,
+    agentSessions: state.agentSessions,
+    activeChatSessionId: state.activeChatSessionId,
+    activeAgentSessionId: state.activeAgentSessionId,
+  });
+});

@@ -31,6 +31,7 @@ import {
 } from 'lucide-react';
 import { useAppStore } from '@/appStore';
 import { AVAILABLE_MODELS } from '@/models';
+import { startVisibleInterval } from '@/utils/visibleInterval';
 
 export default function DeviceDiagnostics() {
   const hardwareProfile = useAppStore((s) => s.hardwareProfile);
@@ -233,7 +234,7 @@ export default function DeviceDiagnostics() {
       window.addEventListener('deviceorientation', handleOrientation);
     }
 
-    const thermalTimer = setInterval(() => {
+    const cancelThermalTimer = startVisibleInterval(() => {
       setThermalTemp((prev) => {
         if (isSimulatingSpike) return prev;
         const delta = (Math.random() - 0.5) * 0.4;
@@ -256,7 +257,7 @@ export default function DeviceDiagnostics() {
       if (typeof window !== 'undefined') {
         window.removeEventListener('deviceorientation', handleOrientation);
       }
-      clearInterval(thermalTimer);
+      cancelThermalTimer();
     };
   }, [isSimulatingSpike, warnTempThreshold, criticalTempThreshold, hapticAlertEnabled]);
 

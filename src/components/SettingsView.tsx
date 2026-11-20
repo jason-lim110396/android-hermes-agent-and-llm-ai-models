@@ -211,6 +211,10 @@ export default function SettingsView() {
   const [testNotifSuccess, setTestNotifSuccess] = useState<string | null>(null);
 
   React.useEffect(() => {
+    // Deliberately a plain setInterval (NOT startVisibleInterval): alarms are a
+    // notification feature and WebView timers keep running while the app is
+    // backgrounded, so this checker must keep firing when hidden to deliver
+    // its vibrate/Notification side effects on time.
     const timer = setInterval(() => {
       const now = Date.now();
       setActiveAlarms((prev) => {
