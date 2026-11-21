@@ -35,7 +35,13 @@ import {
 import { AVAILABLE_MODELS, ModelSpec } from '@/models';
 import { useAppStore } from '@/appStore';
 import { startVisibleInterval } from '@/utils/visibleInterval';
-import { isLowMemory } from '@/utils/memoryGuard';
+import {
+  isLowMemory,
+  getMemoryTelemetry,
+  evaluateModelMemorySafety,
+  triggerMemoryCleanupHint,
+  MemoryTelemetry,
+} from '@/utils/memoryGuard';
 
 export default function ModelHub() {
   const selectedModelId = useAppStore((s) => s.selectedModelId);
@@ -173,6 +179,33 @@ export default function ModelHub() {
       window.localStorage.setItem('hermes_wifi_only', String(next));
     }
     triggerHaptic(20);
+  };
+
+  const [memoryTelemetry, setMemoryTelemetry] = useState<MemoryTelemetry>(() => getMemoryTelemetry());
+  const [isCleaningMemory, setIsCleaningMemory] = useState<boolean>(false);
+  const [memoryCleanMsg, setMemoryCleanMsg] = useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const cancelMemInterval = startVisibleInterval(() => {
+      setMemoryTelemetry(getMemoryTelemetry());
+    }, 2500);
+    return () => {
+      cancelMemInterval();
+    };
+  }, []);
+
+  const handleCleanMemory = () => {
+    setIsCleaningMemory(true);
+    triggerHaptic(25);
+    triggerMemoryCleanupHint();
+    stopAllRunningTasks();
+    setTimeout(() => {
+      setMemoryTelemetry(getMemoryTelemetry());
+      setIsCleaningMemory(false);
+      setMemoryCleanMsg('Dispatched cooperative GC hint & cleared idle model tasks.');
+      setTimeout(() => setMemoryCleanMsg(null), 3500);
+    }, 600);
   };
 
   // Filter and sort models by category (text, vision, image, voice, embedding)
@@ -396,6 +429,65 @@ export default function ModelHub() {
           <div className="p-1.5 mt-1 rounded bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[10px] font-medium flex items-center gap-1.5">
             <AlertTriangle className="w-3 h-3 shrink-0 text-amber-400" />
             <span>Low phone storage ({hardwareProfile.storageEstimateGB.available} GB left). Tap &quot;Smart Purge Unused&quot; to release space.</span>
+          </div>
+        ) : null}
+      </div>
+
+      {/* RAM & WebView Heap Guard Card */}
+      <div className="p-3 mb-3 rounded-2xl bg-zinc-900/90 border border-zinc-800/80 shadow-md">
+        <div className="flex items-center justify-between gap-2 mb-2">
+          <div className="flex items-center gap-2">
+            <Cpu className="w-4 h-4 text-purple-400" />
+            <div>
+              <span className="text-xs font-bold text-zinc-100">RAM & WebView Heap Guard</span>
+              <span className="text-[10px] text-zinc-400 ml-2">
+                {memoryTelemetry.heapStats
+                  ? `${memoryTelemetry.heapStats.usedJSHeapMB} / ${memoryTelemetry.heapStats.jsHeapLimitMB} MB (${Math.round(memoryTelemetry.heapStats.usageRatio * 100)}%)`
+                  : hardwareProfile ? `${hardwareProfile.estimatedRamGB} GB System RAM` : 'Active'}
+              </span>
+            </div>
+          </div>
+          <button
+            onClick={handleCleanMemory}
+            disabled={isCleaningMemory}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/30 text-purple-300 disabled:opacity-40 text-[10px] font-bold transition-all cursor-pointer"
+          >
+            <RefreshCw className={`w-3 h-3 text-purple-400 ${isCleaningMemory ? 'animate-spin' : ''}`} />
+            <span>Trim Memory</span>
+          </button>
+        </div>
+
+        {memoryTelemetry.heapStats && (
+          <div className="w-full bg-zinc-800 rounded-full h-1.5 overflow-hidden mb-1.5">
+            <div
+              className={`h-full rounded-full transition-all duration-500 ${
+                memoryTelemetry.heapStats.usageRatio >= 0.8
+                  ? 'bg-rose-500'
+                  : memoryTelemetry.heapStats.usageRatio >= 0.65
+                  ? 'bg-amber-500'
+                  : 'bg-purple-500'
+              }`}
+              style={{ width: `${Math.min(100, Math.max(5, memoryTelemetry.heapStats.usageRatio * 100))}%` }}
+            />
+          </div>
+        )}
+
+        {memoryCleanMsg && (
+          <div className="p-1.5 mt-1 rounded bg-purple-500/10 border border-purple-500/30 text-purple-300 text-[10px] font-medium flex items-center gap-1.5 animate-fadeIn">
+            <CheckCircle2 className="w-3 h-3 shrink-0 text-purple-400" />
+            <span>{memoryCleanMsg}</span>
+          </div>
+        )}
+
+        {memoryTelemetry.pressureLevel === 'critical' ? (
+          <div className="p-2 mt-1.5 rounded-xl bg-rose-500/15 border border-rose-500/40 text-rose-200 text-[10px] font-semibold flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 shrink-0 text-rose-400 animate-pulse" />
+            <span>{memoryTelemetry.recommendation}</span>
+          </div>
+        ) : memoryTelemetry.pressureLevel === 'elevated' ? (
+          <div className="p-1.5 mt-1 rounded bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[10px] font-medium flex items-center gap-1.5">
+            <AlertTriangle className="w-3 h-3 shrink-0 text-amber-400" />
+            <span>{memoryTelemetry.recommendation}</span>
           </div>
         ) : null}
       </div>
@@ -742,12 +834,18 @@ export default function ModelHub() {
                         <span>Insufficient free space ({hardwareProfile.storageEstimateGB.available} GB free &lt; {(model.sizeMB / 1024).toFixed(1)} GB required)</span>
                       </div>
                     )}
-                    {((hardwareProfile && hardwareProfile.estimatedRamGB < model.minRamGB) || (!hardwareProfile && isLowMemory() && model.minRamGB > 4)) && (
-                      <div className="flex items-center gap-1 text-[9px] text-amber-400 font-medium mb-1.5">
-                        <AlertTriangle className="w-3 h-3 text-amber-400 shrink-0" />
-                        <span>Low device RAM ({hardwareProfile ? `${hardwareProfile.estimatedRamGB} GB` : 'Low Memory'} &lt; {model.minRamGB} GB recommended). May risk WebView memory pressure.</span>
-                      </div>
-                    )}
+                    {(() => {
+                      const safety = evaluateModelMemorySafety(model.minRamGB, hardwareProfile?.estimatedRamGB, memoryTelemetry.heapStats);
+                      if (!safety.safe && safety.warning) {
+                        return (
+                          <div className={`flex items-center gap-1 text-[9px] font-medium mb-1.5 ${safety.critical ? 'text-rose-400' : 'text-amber-400'}`}>
+                            <AlertTriangle className={`w-3 h-3 shrink-0 ${safety.critical ? 'text-rose-400 animate-pulse' : 'text-amber-400'}`} />
+                            <span>{safety.warning}</span>
+                          </div>
+                        );
+                      }
+                      return null;
+                    })()}
                     <div className="flex items-center justify-between">
                       <span className="text-[10px] text-zinc-500">
                         {dlState?.errorMessage ? 'Download Failed' : 'Not Downloaded'}
