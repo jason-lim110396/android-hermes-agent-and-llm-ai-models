@@ -120,21 +120,37 @@ const HardwareTickerBar = React.memo(function HardwareTickerBar({
   const [realtimeRamUsedMB, setRealtimeRamUsedMB] = useState<number>(1240);
   const [tpsHistory, setTpsHistory] = useState<number[]>([]);
   const [showTpsDetail, setShowTpsDetail] = useState<boolean>(false);
+  const [genStartTime, setGenStartTime] = useState<number | null>(null);
+  const [ttftMs, setTtftMs] = useState<number | null>(null);
+  const [elapsedSec, setElapsedSec] = useState<number>(0);
 
   React.useEffect(() => {
     if (isGenerating) {
+      const now = performance.now();
+      setGenStartTime(now);
+      setTtftMs(null);
+      setElapsedSec(0);
       setTpsHistory([]);
+      const timer = setInterval(() => {
+        setElapsedSec((prev) => Math.round((prev + 0.5) * 10) / 10);
+      }, 500);
+      return () => clearInterval(timer);
+    } else {
+      setGenStartTime(null);
     }
   }, [isGenerating]);
 
   React.useEffect(() => {
     if (isGenerating && liveTps > 0) {
+      if (ttftMs === null && genStartTime !== null) {
+        setTtftMs(Math.round(performance.now() - genStartTime));
+      }
       setTpsHistory((prev) => {
         const next = [...prev, liveTps];
         return next.length > 10 ? next.slice(next.length - 10) : next;
       });
     }
-  }, [isGenerating, liveTps]);
+  }, [isGenerating, liveTps, ttftMs, genStartTime]);
 
   React.useEffect(() => {
     // Visibility-gated ticker: skips CPU/RAM polling work while the Android
@@ -193,10 +209,24 @@ const HardwareTickerBar = React.memo(function HardwareTickerBar({
       >
         <Zap className="w-3 h-3 text-amber-400 shrink-0" />
         <span className="text-zinc-400 hidden sm:inline">{engineLabel}</span>
-        <span className="text-amber-300 font-bold">
-          {isGenerating
-            ? (liveTps > 0 ? `${liveTps.toFixed(1)} t/s` : 'generating...')
-            : accelLabel}
+        <span className="text-amber-300 font-bold flex items-center gap-1">
+          {isGenerating ? (
+            <>
+              {liveTps > 0 ? (
+                <span>{liveTps.toFixed(1)} t/s</span>
+              ) : (
+                <span className="animate-pulse">thinking...</span>
+              )}
+              {elapsedSec > 0 && <span className="text-zinc-500 font-normal">({elapsedSec}s)</span>}
+              {ttftMs !== null && (
+                <span className="px-1 py-0.2 rounded bg-amber-500/20 text-amber-300 text-[8px] font-bold border border-amber-500/30">
+                  {ttftMs}ms TTFT
+                </span>
+              )}
+            </>
+          ) : (
+            accelLabel
+          )}
         </span>
         {isGenerating && liveTps > 0 && tpsHistory.length > 1 && (
           <svg className="w-7 h-2.5 shrink-0 overflow-visible" viewBox="0 0 36 14">
