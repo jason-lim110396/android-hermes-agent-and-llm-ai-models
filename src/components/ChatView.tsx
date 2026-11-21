@@ -1047,6 +1047,7 @@ export default function ChatView() {
     const files = e.target.files;
     if (!files || files.length === 0) return;
     e.target.value = '';
+    setUploadError(null);
     for (const file of Array.from(files)) {
       // Downsample oversized camera photos to a mobile-safe bound before they
       // hit the attachment store (memory + persistence quota + render lag).
@@ -1071,7 +1072,16 @@ export default function ChatView() {
           mimeType = file.type;
           sizeBytes = file.size;
         }
-        if (!dataUrl) continue;
+        if (!dataUrl) {
+          // A photo that cannot be decoded is worse than a text file that
+          // cannot be read: Vision OCR and "summarize this screenshot" flows
+          // depend entirely on the attachment. Mirror the text-file notice in
+          // handleFileUpload so the user never sends an imageless prompt.
+          setUploadError(
+            `Could not attach "${file.name}" \u2014 the photo could not be read or decoded. Try a smaller image or re-select it.`
+          );
+          continue;
+        }
         const att: Attachment = {
           id: `img-${Date.now()}-${Math.random()}`,
           type: 'image',
@@ -1082,7 +1092,11 @@ export default function ChatView() {
         };
         addAttachment(att);
       } catch (_) {
-        // Fail-open: skip only this file, keep processing the rest.
+        // Skip only this file, keep processing the rest - but say why, so a
+        // dropped photo is never silently mistaken for an attached one.
+        setUploadError(
+          `Could not attach "${file.name}" \u2014 the photo could not be read or decoded. Try a smaller image or re-select it.`
+        );
       }
     }
   };
