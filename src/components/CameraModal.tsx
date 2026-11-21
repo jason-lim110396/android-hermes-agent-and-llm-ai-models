@@ -269,8 +269,13 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
 
     const v = videoRef.current;
     const c = canvasRef.current;
-    c.width = v.videoWidth;
-    c.height = v.videoHeight;
+    // Cap the working canvas to avoid retaining four full-resolution frames
+    // (bitmaps + base64) simultaneously on low-RAM Android WebViews (OOM).
+    const BURST_MAX_EDGE = 1600;
+    const longest = Math.max(v.videoWidth, v.videoHeight);
+    const scale = longest > BURST_MAX_EDGE ? BURST_MAX_EDGE / longest : 1;
+    c.width = Math.max(1, Math.round(v.videoWidth * scale));
+    c.height = Math.max(1, Math.round(v.videoHeight * scale));
     const ctx = c.getContext('2d');
     if (!ctx) {
       setIsBurstCapturing(false);
