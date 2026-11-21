@@ -42,7 +42,7 @@ import { AVAILABLE_MODELS } from '@/models';
 import { speakGuarded } from '@/utils/speechGuard';
 import { isSpeechRecognitionPermissionDenied } from '@/utils/nativeAppSettings';
 import PermissionDeniedNotice from './PermissionDeniedNotice';
-import { attachGuardedRecognition } from '@/utils/voiceSession';
+import { attachGuardedRecognition, createSilenceDetector, type SilenceDetector } from '@/utils/voiceSession';
 import { startVisibleInterval } from '@/utils/visibleInterval';
 
 interface VoicePreset {
@@ -333,6 +333,8 @@ export default function VoiceStudio() {
   const [cloneRate, setCloneRate] = useState(1.0);
   const [cloneFormant, setCloneFormant] = useState<'warm' | 'crisp' | 'deep' | 'fast'>('warm');
   const [saveSuccessMsg, setSaveSuccessMsg] = useState<string | null>(null);
+  const [silenceTimeoutSec, setSilenceTimeoutSec] = useState<number>(3);
+  const silenceDetectorRef = useRef<SilenceDetector | null>(null);
 
   const recognitionRef = useRef<any>(null);
   // Incremented on every start/stop/unmount. A stopped recognition can still
@@ -400,6 +402,7 @@ export default function VoiceStudio() {
     if (recognition) {
       try { recognition.stop(); } catch (_) {}
     }
+    silenceDetectorRef.current?.clear();
     if (clonerAnimFrameRef.current) {
       cancelAnimationFrame(clonerAnimFrameRef.current);
       clonerAnimFrameRef.current = null;
@@ -430,6 +433,7 @@ export default function VoiceStudio() {
           recognitionRequestIdRef.current++;
           const stopped = recognitionRef.current;
           recognitionRef.current = null;
+          silenceDetectorRef.current?.clear();
           try { stopped.stop(); } catch (_) {}
           setIsRecording(false);
           setInterimText('');
@@ -452,6 +456,7 @@ export default function VoiceStudio() {
     recognitionRequestIdRef.current++;
     const stopped = recognitionRef.current;
     recognitionRef.current = null;
+    silenceDetectorRef.current?.clear();
     if (stopped) {
       try { stopped.stop(); } catch (_) {}
     }
@@ -637,6 +642,7 @@ export default function VoiceStudio() {
 
   const handleToggleRecord = () => {
     if (isRecording) {
+      silenceDetectorRef.current?.clear();
       // Invalidate this session before stopping it: WebViews can deliver the
       // stopped recognition's onend after a new recording has started, and
       // the old unguarded handler flipped isRecording false while the new
@@ -659,6 +665,7 @@ export default function VoiceStudio() {
     // false) would otherwise keep the microphone live alongside the new one.
     // Invalidate and stop it before a second session starts.
     if (recognitionRef.current) {
+      silenceDetectorRef.current?.clear();
       recognitionRequestIdRef.current++;
       const previous = recognitionRef.current;
       recognitionRef.current = null;
@@ -686,14 +693,26 @@ export default function VoiceStudio() {
       const isCurrent = () =>
         recognitionRequestIdRef.current === requestId && recognitionRef.current === recognition;
 
+      silenceDetectorRef.current?.clear();
+      if (silenceTimeoutSec > 0) {
+        silenceDetectorRef.current = createSilenceDetector(silenceTimeoutSec * 1000, () => {
+          if (isCurrent()) {
+            handleToggleRecord();
+          }
+        });
+        silenceDetectorRef.current.reset();
+      }
+
       attachGuardedRecognition(recognition, isCurrent, {
         onStart: () => setIsRecording(true),
         // Only the current recognition may end the current recording UI.
         onEnd: () => {
+          silenceDetectorRef.current?.clear();
           recognitionRef.current = null;
           setIsRecording(false);
         },
         onError: (event) => {
+          silenceDetectorRef.current?.clear();
           recognitionRef.current = null;
           setIsRecording(false);
           // A denied microphone used to fail completely silently here: the
@@ -703,6 +722,7 @@ export default function VoiceStudio() {
           }
         },
         onResult: (event) => {
+          silenceDetectorRef.current?.reset();
           // Android speech engines fire onresult repeatedly with growing
           // partials while interimResults is on; appending every firing
           // duplicated each fragment into the transcript ("hell hello wor
@@ -728,6 +748,7 @@ export default function VoiceStudio() {
       recognitionRef.current = recognition;
       recognition.start();
     } catch (_) {
+      silenceDetectorRef.current?.clear();
       recognitionRef.current = null;
       setIsRecording(false);
     }
@@ -1057,6 +1078,38 @@ export default function VoiceStudio() {
                 <span>Whisper Dictation & Meeting Audio Recorder</span>
               </span>
               <span className="text-[10px] text-zinc-500 font-mono">100% Offline</span>
+            </div>
+
+            {/* Silence Timeout Configuration */}
+            <div className="flex items-center justify-between px-2 py-1.5 rounded-xl bg-zinc-950/70 border border-zinc-800 text-[11px] text-zinc-400">
+              <span className="flex items-center gap-1.5 font-medium">
+                <Volume2 className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                <span>Auto-Stop on Silence:</span>
+              </span>
+              <div className="flex items-center gap-1 bg-zinc-900 border border-zinc-800 p-0.5 rounded-lg">
+                {[
+                  { sec: 2, label: '2s' },
+                  { sec: 3, label: '3s' },
+                  { sec: 5, label: '5s' },
+                  { sec: 0, label: 'Off' },
+                ].map(({ sec, label }) => (
+                  <button
+                    key={sec}
+                    type="button"
+                    onClick={() => {
+                      setSilenceTimeoutSec(sec);
+                      triggerHaptic('selection');
+                    }}
+                    className={`px-2 py-0.5 rounded text-[10px] font-bold transition-all cursor-pointer ${
+                      silenceTimeoutSec === sec
+                        ? 'bg-amber-500 text-black shadow-sm'
+                        : 'text-zinc-400 hover:text-zinc-200'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
             </div>
 
             {/* Big Mic Push-to-Talk Zone with Timer & Waveform */}
