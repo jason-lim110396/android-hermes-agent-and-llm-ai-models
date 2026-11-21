@@ -36,6 +36,8 @@ import {
   Lock,
   Eye,
   Ban,
+  ChevronUp,
+  ChevronDown,
 } from 'lucide-react';
 import { useAppStore } from '@/appStore';
 import { FREE_FALLBACK_PRESETS, FallbackModelEntry } from '@/utils/modelFallback';
@@ -755,13 +757,46 @@ export default function SettingsView() {
                     {entry.apiKey ? ' - key set' : ''}
                   </p>
                 </div>
-                <button
-                  onClick={() => setModelFallbackChain(modelFallbackChain.filter((_, i) => i !== idx))}
-                  className="text-zinc-500 hover:text-rose-400 transition-colors cursor-pointer shrink-0"
-                  aria-label={`Remove ${entry.label}`}
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
+                <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    disabled={idx === 0}
+                    onClick={() => {
+                      if (idx === 0) return;
+                      const next = [...modelFallbackChain];
+                      const [item] = next.splice(idx, 1);
+                      next.splice(idx - 1, 0, item);
+                      setModelFallbackChain(next);
+                    }}
+                    className="p-1 rounded text-zinc-500 hover:text-zinc-200 transition-colors disabled:opacity-20 cursor-pointer"
+                    aria-label={`Move ${entry.label} up`}
+                    title="Move up"
+                  >
+                    <ChevronUp className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    disabled={idx === modelFallbackChain.length - 1}
+                    onClick={() => {
+                      if (idx === modelFallbackChain.length - 1) return;
+                      const next = [...modelFallbackChain];
+                      const [item] = next.splice(idx, 1);
+                      next.splice(idx + 1, 0, item);
+                      setModelFallbackChain(next);
+                    }}
+                    className="p-1 rounded text-zinc-500 hover:text-zinc-200 transition-colors disabled:opacity-20 cursor-pointer"
+                    aria-label={`Move ${entry.label} down`}
+                    title="Move down"
+                  >
+                    <ChevronDown className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    onClick={() => setModelFallbackChain(modelFallbackChain.filter((_, i) => i !== idx))}
+                    className="p-1 rounded text-zinc-500 hover:text-rose-400 transition-colors cursor-pointer"
+                    aria-label={`Remove ${entry.label}`}
+                    title="Remove from chain"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               </div>
             ))}
           </div>

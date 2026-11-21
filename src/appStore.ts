@@ -52,6 +52,8 @@ export interface ChatMessage {
   content: string;
   timestamp: number;
   modelUsed?: string;
+  isFallback?: boolean;
+  fallbackReason?: string;
   mode?: 'chat' | 'agent' | 'image-gen' | 'vision' | 'voice' | 'embedding';
   attachments?: Attachment[];
   agentSteps?: AgentStep[];
@@ -314,7 +316,9 @@ function setMsgModelUsed(
   mode: 'chat' | 'agent',
   sessionId: string,
   set: any,
-  get: any
+  get: any,
+  isFallback?: boolean,
+  fallbackReason?: string
 ) {
   if (mode === 'agent') {
     const sess = get().agentSessions[sessionId];
@@ -324,7 +328,9 @@ function setMsgModelUsed(
         ...get().agentSessions,
         [sessionId]: {
           ...sess,
-          messages: sess.messages.map((m: ChatMessage) => (m.id === id ? { ...m, modelUsed } : m)),
+          messages: sess.messages.map((m: ChatMessage) =>
+            m.id === id ? { ...m, modelUsed, isFallback: !!isFallback, fallbackReason } : m
+          ),
         },
       },
     });
@@ -336,7 +342,9 @@ function setMsgModelUsed(
         ...get().chatSessions,
         [sessionId]: {
           ...sess,
-          messages: sess.messages.map((m: ChatMessage) => (m.id === id ? { ...m, modelUsed } : m)),
+          messages: sess.messages.map((m: ChatMessage) =>
+            m.id === id ? { ...m, modelUsed, isFallback: !!isFallback, fallbackReason } : m
+          ),
         },
       },
     });
@@ -1669,7 +1677,7 @@ async function executeHermesAgent(
   const noticeIdBeforeAgent = get().fallbackNoticeId;
   // Set when a remote endpoint actually answers; the message header is
   // relabeled from it after the turn instead of the send-time selection.
-  let answeredBy: { label: string; model?: string } | null = null;
+  let answeredBy: { label: string; model?: string; isFallback?: boolean; reason?: string } | null = null;
   const fullResult = await callRealLLMInference({
     messages: messagesToSend,
     modelId,
@@ -1683,7 +1691,7 @@ async function executeHermesAgent(
       apiKey,
       customModelName: get().customModelName || undefined,
       ...resolveFallbackConfig(get),
-      onAnsweredModel: (info: { label: string; model?: string }) => {
+      onAnsweredModel: (info: { label: string; model?: string; isFallback?: boolean; reason?: string }) => {
         answeredBy = info;
       },
       onPrivacyRedaction: (count: number) => {
@@ -1721,8 +1729,18 @@ async function executeHermesAgent(
 
   // Label the reply with the endpoint that actually answered (primary or
   // fallback). With no remote answer the send-time on-device label stands.
-  if (answeredBy) {
-    setMsgModelUsed(assistantMsgId, answeredByLabel(answeredBy), 'agent', sessionId, set, get);
+  const resolvedAnsweredAgent: any = answeredBy;
+  if (resolvedAnsweredAgent) {
+    setMsgModelUsed(
+      assistantMsgId,
+      answeredByLabel(resolvedAnsweredAgent),
+      'agent',
+      sessionId,
+      set,
+      get,
+      resolvedAnsweredAgent.isFallback,
+      resolvedAnsweredAgent.reason
+    );
   }
 
   // Trigger optional speech readout
@@ -1810,7 +1828,7 @@ async function executeDirectChat(
   const noticeIdBeforeChat = get().fallbackNoticeId;
   // Set when a remote endpoint actually answers; the message header is
   // relabeled from it after the turn instead of the send-time selection.
-  let answeredBy: { label: string; model?: string } | null = null;
+  let answeredBy: { label: string; model?: string; isFallback?: boolean; reason?: string } | null = null;
   const fullResult = await callRealLLMInference({
     messages: messagesToSend,
     modelId,
@@ -1824,8 +1842,11 @@ async function executeDirectChat(
       apiKey,
       customModelName: get().customModelName || undefined,
       ...resolveFallbackConfig(get),
-      onAnsweredModel: (info: { label: string; model?: string }) => {
+      onAnsweredModel: (info: { label: string; model?: string; isFallback?: boolean; reason?: string }) => {
         answeredBy = info;
+      },
+      onPrivacyRedaction: (count: number) => {
+        get().setFallbackNotice(`Privacy guard redacted ${count} high-confidence secret value${count === 1 ? '' : 's'} before the remote request.`);
       },
     },
     onProgress: (statusText, pct) => {
@@ -1865,8 +1886,18 @@ async function executeDirectChat(
 
   // Label the reply with the endpoint that actually answered (primary or
   // fallback). With no remote answer the send-time on-device label stands.
-  if (answeredBy) {
-    setMsgModelUsed(assistantMsgId, answeredByLabel(answeredBy), 'chat', sessionId, set, get);
+  const resolvedAnsweredChat: any = answeredBy;
+  if (resolvedAnsweredChat) {
+    setMsgModelUsed(
+      assistantMsgId,
+      answeredByLabel(resolvedAnsweredChat),
+      'chat',
+      sessionId,
+      set,
+      get,
+      resolvedAnsweredChat.isFallback,
+      resolvedAnsweredChat.reason
+    );
   }
 
   // Trigger spoken readout if in voice synthesis mode or voice output is enabled

@@ -94,7 +94,8 @@ export default function ChatHistoryModal({ isOpen, onClose }: ChatHistoryModalPr
       '',
     ];
     for (const m of s.messages) {
-      const who = m.role === 'user' ? 'You' : (m.modelUsed || 'Hermes AI');
+      const fallbackNotice = m.isFallback ? ' (Fallback)' : '';
+      const who = m.role === 'user' ? 'You' : `${m.modelUsed || 'Hermes AI'}${fallbackNotice}`;
       const time = new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       lines.push(`---`, '', `**${who}** _(${time})_`, '', m.content, '');
     }

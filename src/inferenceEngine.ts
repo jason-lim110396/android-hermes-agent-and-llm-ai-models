@@ -75,7 +75,7 @@ export interface InferenceBackendConfig {
    * fallback), so the UI can label the reply with the provider/model that
    * produced it instead of the on-device model selected at send time.
    */
-  onAnsweredModel?: (info: { label: string; model?: string }) => void;
+  onAnsweredModel?: (info: { label: string; model?: string; isFallback?: boolean; reason?: string }) => void;
 }
 
 class RemoteEndpointError extends Error {
@@ -629,16 +629,23 @@ export async function callRealLLMInference({
             onStreamChunk
           );
           if (text) {
+            const reason =
+              i > 0
+                ? lastFailure instanceof RemoteEndpointError
+                  ? describeLimitFailure(lastFailure.status, lastFailure.detail)
+                  : (lastFailure?.message || 'unavailable')
+                : undefined;
             // Report the endpoint that actually produced this answer so the
             // message header reflects reality, not the send-time selection.
             try {
-              config.onAnsweredModel?.({ label: candidate.label, model: candidate.model });
+              config.onAnsweredModel?.({
+                label: candidate.label,
+                model: candidate.model,
+                isFallback: i > 0,
+                reason,
+              });
             } catch (_) {}
-            if (i > 0) {
-              const reason =
-                lastFailure instanceof RemoteEndpointError
-                  ? describeLimitFailure(lastFailure.status, lastFailure.detail)
-                  : (lastFailure?.message || 'unavailable');
+            if (i > 0 && reason) {
               try {
                 config.onFallback?.({ from: candidates[0].label, to: candidate.label, reason });
               } catch (_) {}
