@@ -27,6 +27,7 @@ import { Attachment } from '@/appStore';
 import { useBackButtonClose } from '@/utils/backButton';
 import { isPermissionDeniedError } from '@/utils/nativeAppSettings';
 import PermissionDeniedNotice from './PermissionDeniedNotice';
+import { applyHighContrastDocumentFilter } from '@/utils/imageOptimizer';
 
 interface CameraModalProps {
   isOpen: boolean;
@@ -60,6 +61,9 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
   const [burstCount, setBurstCount] = useState(0);
   const [burstFrames, setBurstFrames] = useState<{ id: string; url: string; timestampMs: number; motionDelta: number; isPeak: boolean }[]>([]);
   const [selectedFrameIndex, setSelectedFrameIndex] = useState<number>(0);
+  const [originalCapturedUrl, setOriginalCapturedUrl] = useState<string | null>(null);
+  const [isHighContrast, setIsHighContrast] = useState<boolean>(false);
+  const [rapidBurstMode, setRapidBurstMode] = useState<boolean>(false);
   const [showTelemetry, setShowTelemetry] = useState<boolean>(true);
   const [liveFps, setLiveFps] = useState<number>(59.6);
   const [frameLatencyMs, setFrameLatencyMs] = useState<number>(16.8);
@@ -266,8 +270,76 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
       }
       const dataUrl = c.toDataURL('image/jpeg', 0.85);
       setCapturedUrl(dataUrl);
+      setOriginalCapturedUrl(dataUrl);
+      setIsHighContrast(false);
       stopCamera();
     }
+  };
+
+  const handleToggleHighContrast = async () => {
+    if (!originalCapturedUrl) return;
+    triggerHaptic(25);
+    if (!isHighContrast) {
+      const filtered = await applyHighContrastDocumentFilter(originalCapturedUrl);
+      setCapturedUrl(filtered);
+      setIsHighContrast(true);
+    } else {
+      setCapturedUrl(originalCapturedUrl);
+      setIsHighContrast(false);
+    }
+  };
+
+  const takeRapidBurst = async (count = 3) => {
+    if (!videoRef.current || !canvasRef.current || isBurstCapturing) return;
+    const v = videoRef.current;
+    if (!v.videoWidth) {
+      triggerHaptic([40, 60, 40]);
+      return;
+    }
+    setIsBurstCapturing(true);
+    setBurstFrames([]);
+
+    const c = canvasRef.current;
+    const BURST_MAX_EDGE = 1600;
+    const longest = Math.max(v.videoWidth, v.videoHeight);
+    const scale = longest > BURST_MAX_EDGE ? BURST_MAX_EDGE / longest : 1;
+    c.width = Math.max(1, Math.round(v.videoWidth * scale));
+    c.height = Math.max(1, Math.round(v.videoHeight * scale));
+    const ctx = c.getContext('2d');
+    if (!ctx) {
+      setIsBurstCapturing(false);
+      return;
+    }
+
+    const captured: { id: string; url: string; timestampMs: number; motionDelta: number; isPeak: boolean }[] = [];
+    for (let i = 0; i < count; i++) {
+      if (!streamRef.current) {
+        setIsBurstCapturing(false);
+        return;
+      }
+      setBurstCount(i + 1);
+      ctx.drawImage(v, 0, 0, c.width, c.height);
+      const url = c.toDataURL('image/jpeg', 0.85);
+      captured.push({
+        id: `burst-${i + 1}`,
+        url,
+        timestampMs: i * 160,
+        motionDelta: i === 1 ? 24 : 8,
+        isPeak: i === 1,
+      });
+      triggerHaptic(30);
+      if (i < count - 1) {
+        await new Promise((r) => setTimeout(r, 140));
+      }
+    }
+
+    setBurstFrames(captured);
+    setSelectedFrameIndex(0);
+    setCapturedUrl(captured[0].url);
+    setOriginalCapturedUrl(captured[0].url);
+    setIsHighContrast(false);
+    setIsBurstCapturing(false);
+    stopCamera();
   };
 
   const takeKeyframeBurst = async () => {
@@ -730,6 +802,8 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
               <button
                 onClick={() => {
                   setCapturedUrl(null);
+                  setOriginalCapturedUrl(null);
+                  setIsHighContrast(false);
                   setBurstFrames([]);
                   startCamera(facingMode);
                 }}
@@ -740,13 +814,28 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
               </button>
 
               <div className="flex items-center gap-1.5">
-                {scanMode === 'keyframes' && burstFrames.length > 0 && (
+                {scanMode === 'document' && (
+                  <button
+                    onClick={handleToggleHighContrast}
+                    className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
+                      isHighContrast
+                        ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40 shadow-sm shadow-cyan-500/20'
+                        : 'bg-zinc-800 text-zinc-300 border-zinc-700/60 hover:bg-zinc-700'
+                    }`}
+                    title="Toggle adaptive high-contrast black & white filter for clean OCR"
+                  >
+                    <FileText className="w-3.5 h-3.5 text-cyan-400" />
+                    <span>{isHighContrast ? 'B&W Active' : 'Enhance OCR'}</span>
+                  </button>
+                )}
+
+                {burstFrames.length > 0 && (
                   <button
                     onClick={() => confirmAttachment(true)}
                     className="flex items-center gap-1 px-2.5 py-2 rounded-xl bg-violet-600 hover:bg-violet-500 text-white text-xs font-bold shadow-md cursor-pointer"
                   >
                     <Layers className="w-3.5 h-3.5" />
-                    <span>Bundle All 4</span>
+                    <span>Bundle All ({burstFrames.length})</span>
                   </button>
                 )}
 
@@ -755,28 +844,58 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
                   className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white text-xs font-bold shadow-lg shadow-cyan-500/20 cursor-pointer"
                 >
                   <Check className="w-4 h-4" />
-                  <span>{scanMode === 'keyframes' ? 'Attach Frame' : 'Attach to Hermes'}</span>
+                  <span>{burstFrames.length > 0 ? 'Attach Frame' : 'Attach to Hermes'}</span>
                 </button>
               </div>
             </>
           ) : (
             <div className="w-full flex justify-center items-center relative">
               <button
-                onClick={scanMode === 'keyframes' ? takeKeyframeBurst : takeSnapshot}
+                onClick={
+                  scanMode === 'keyframes'
+                    ? takeKeyframeBurst
+                    : scanMode === 'photo' && rapidBurstMode
+                    ? () => takeRapidBurst(3)
+                    : takeSnapshot
+                }
                 disabled={isBurstCapturing}
                 className={`w-14 h-14 rounded-full border-4 border-white/80 flex items-center justify-center shadow-lg active:scale-95 transition-all cursor-pointer ${
-                  scanMode === 'keyframes'
+                  scanMode === 'keyframes' || (scanMode === 'photo' && rapidBurstMode)
                     ? 'bg-gradient-to-tr from-violet-600 to-fuchsia-600 text-white shadow-violet-600/40'
                     : 'bg-cyan-500 hover:bg-cyan-400 text-black'
                 }`}
-                title={scanMode === 'keyframes' ? 'Capture 4 Motion Keyframes' : 'Capture Image'}
+                title={
+                  scanMode === 'keyframes'
+                    ? 'Capture 4 Motion Keyframes'
+                    : rapidBurstMode
+                    ? 'Capture 3 Rapid Frames'
+                    : 'Capture Image'
+                }
               >
-                {scanMode === 'keyframes' ? (
+                {scanMode === 'keyframes' || (scanMode === 'photo' && rapidBurstMode) ? (
                   <Film className="w-6 h-6" />
                 ) : (
                   <Camera className="w-6 h-6" />
                 )}
               </button>
+
+              {scanMode === 'photo' && (
+                <button
+                  onClick={() => {
+                    setRapidBurstMode((prev) => !prev);
+                    triggerHaptic(20);
+                  }}
+                  className={`absolute right-4 px-2.5 py-1.5 rounded-xl text-[10px] font-mono font-semibold flex items-center gap-1 border transition-all cursor-pointer ${
+                    rapidBurstMode
+                      ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                      : 'bg-zinc-800/80 text-zinc-400 border-zinc-700/50 hover:text-white'
+                  }`}
+                  title="Toggle 3-shot rapid burst"
+                >
+                  <Layers className="w-3 h-3" />
+                  <span>{rapidBurstMode ? '3x Burst' : 'Single'}</span>
+                </button>
+              )}
             </div>
           )}
         </div>
