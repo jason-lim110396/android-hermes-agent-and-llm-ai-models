@@ -138,8 +138,13 @@ export default function VoiceStudio() {
   const [gateAttackMs, setGateAttackMs] = useState<number>(15);
   const [gateReleaseMs, setGateReleaseMs] = useState<number>(120);
   const [calibrationFeedback, setCalibrationFeedback] = useState<string | null>(null);
+  const calibrationFeedbackTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const handleCalibrateNoiseFloor = async () => {
+    if (calibrationFeedbackTimeoutRef.current) {
+      clearTimeout(calibrationFeedbackTimeoutRef.current);
+      calibrationFeedbackTimeoutRef.current = null;
+    }
     setIsCalibratingGate(true);
     setCalibrationFeedback('Sampling ambient room acoustics for 1.5s. Please remain silent...');
     if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(20);
@@ -154,7 +159,13 @@ export default function VoiceStudio() {
     setIsCalibratingGate(false);
     setCalibrationFeedback(`Room noise floor: ${measuredAmbient} dBFS. Calibrated gate threshold to ${recommendedGate} dBFS.`);
     if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate([40, 30, 40]);
-    setTimeout(() => setCalibrationFeedback(null), 4000);
+    if (calibrationFeedbackTimeoutRef.current) {
+      clearTimeout(calibrationFeedbackTimeoutRef.current);
+    }
+    calibrationFeedbackTimeoutRef.current = setTimeout(() => {
+      setCalibrationFeedback(null);
+      calibrationFeedbackTimeoutRef.current = null;
+    }, 4000);
   };
 
   // Vocoder & Pitch Shifter DSP State
@@ -166,6 +177,7 @@ export default function VoiceStudio() {
   const [reverbWet, setReverbWet] = useState<number>(35);
   const [isAuditioningVocoder, setIsAuditioningVocoder] = useState<boolean>(false);
   const [vocoderFeedback, setVocoderFeedback] = useState<string | null>(null);
+  const vocoderFeedbackTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const applyVocoderPreset = (preset: 'cyberpunk' | 'cyborg' | 'subbass' | 'helium' | 'radio' | 'cosmic') => {
     setVocoderPreset(preset);
@@ -377,6 +389,14 @@ export default function VoiceStudio() {
     if (clonerAnimFrameRef.current) {
       cancelAnimationFrame(clonerAnimFrameRef.current);
       clonerAnimFrameRef.current = null;
+    }
+    if (vocoderFeedbackTimeoutRef.current) {
+      clearTimeout(vocoderFeedbackTimeoutRef.current);
+      vocoderFeedbackTimeoutRef.current = null;
+    }
+    if (calibrationFeedbackTimeoutRef.current) {
+      clearTimeout(calibrationFeedbackTimeoutRef.current);
+      calibrationFeedbackTimeoutRef.current = null;
     }
   }, []);
 
@@ -1657,6 +1677,10 @@ export default function VoiceStudio() {
             <div className="grid grid-cols-2 gap-2 pt-1">
               <button
                 onClick={async () => {
+                  if (vocoderFeedbackTimeoutRef.current) {
+                    clearTimeout(vocoderFeedbackTimeoutRef.current);
+                    vocoderFeedbackTimeoutRef.current = null;
+                  }
                   setIsAuditioningVocoder(true);
                   setVocoderFeedback(`Auditioning ${vocoderPreset.toUpperCase()} filter on Web Audio DSP...`);
                   if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate([30, 20, 30]);
@@ -1695,7 +1719,13 @@ export default function VoiceStudio() {
 
                   await new Promise((r) => setTimeout(r, 1200));
                   setIsAuditioningVocoder(false);
-                  setTimeout(() => setVocoderFeedback(null), 3000);
+                  if (vocoderFeedbackTimeoutRef.current) {
+                    clearTimeout(vocoderFeedbackTimeoutRef.current);
+                  }
+                  vocoderFeedbackTimeoutRef.current = setTimeout(() => {
+                    setVocoderFeedback(null);
+                    vocoderFeedbackTimeoutRef.current = null;
+                  }, 3000);
                 }}
                 disabled={isAuditioningVocoder}
                 className="py-2.5 rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 text-white font-black text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-lg shadow-violet-600/30 transition-all disabled:opacity-50"
@@ -1706,6 +1736,10 @@ export default function VoiceStudio() {
 
               <button
                 onClick={() => {
+                  if (vocoderFeedbackTimeoutRef.current) {
+                    clearTimeout(vocoderFeedbackTimeoutRef.current);
+                    vocoderFeedbackTimeoutRef.current = null;
+                  }
                   const sampleText = `Hermes AI Audio DSP Filter: ${vocoderPreset.toUpperCase()} preset (Pitch: ${pitchSemitones}st, Carrier: ${carrierFreqHz}Hz, RingMod: ${ringModDepth}%, Drive: ${distortionDrive}x, Reverb: ${reverbWet}%)`;
                   const blob = new Blob([sampleText], { type: 'text/plain' });
                   const url = URL.createObjectURL(blob);
@@ -1715,7 +1749,10 @@ export default function VoiceStudio() {
                   a.click();
                   URL.revokeObjectURL(url);
                   setVocoderFeedback(`Exported DSP preset configuration file.`);
-                  setTimeout(() => setVocoderFeedback(null), 3000);
+                  vocoderFeedbackTimeoutRef.current = setTimeout(() => {
+                    setVocoderFeedback(null);
+                    vocoderFeedbackTimeoutRef.current = null;
+                  }, 3000);
                 }}
                 className="py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer border border-zinc-700 transition-all"
               >

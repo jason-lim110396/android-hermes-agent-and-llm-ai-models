@@ -401,10 +401,12 @@ export const useAppStore = create<AppStore>((set, get) => {
 
   operatingMode: (() => {
     if (typeof window !== 'undefined') {
-      const savedMode = localStorage.getItem('androidllm_operating_mode') as any;
-      if (['chat', 'image-gen', 'vision', 'voice', 'agent'].includes(savedMode)) {
-        return savedMode;
-      }
+      try {
+        const savedMode = localStorage.getItem('androidllm_operating_mode') as any;
+        if (['chat', 'image-gen', 'vision', 'voice', 'agent', 'embedding'].includes(savedMode)) {
+          return savedMode;
+        }
+      } catch (_) {}
     }
     return 'chat'; // Default to Direct Fast LLM Chat
   })(),
@@ -424,10 +426,12 @@ export const useAppStore = create<AppStore>((set, get) => {
 
   selectedModelId: (() => {
     if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('androidllm_selected_model');
-      if (saved && AVAILABLE_MODELS.some((m) => m.id === saved)) {
-        return saved;
-      }
+      try {
+        const saved = localStorage.getItem('androidllm_selected_model');
+        if (saved && AVAILABLE_MODELS.some((m) => m.id === saved)) {
+          return saved;
+        }
+      } catch (_) {}
     }
     return 'qwen2.5-0.5b-cpu';
   })(),
@@ -499,10 +503,12 @@ export const useAppStore = create<AppStore>((set, get) => {
     const currentSelected = get().selectedModelId;
     let nextSelected = currentSelected;
     if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('androidllm_selected_model');
-      if (saved && updated[saved]?.isReady) {
-        nextSelected = saved;
-      }
+      try {
+        const saved = localStorage.getItem('androidllm_selected_model');
+        if (saved && updated[saved]?.isReady) {
+          nextSelected = saved;
+        }
+      } catch (_) {}
     }
     set({ downloads: updated, selectedModelId: nextSelected });
   },
@@ -533,7 +539,13 @@ export const useAppStore = create<AppStore>((set, get) => {
     // of downloading multi-GB weights over metered/cellular links. The Network
     // Information API is Android-WebView/chromium-only; where it is missing we
     // never block (same best-effort policy as the quota check below).
-    if (typeof window !== 'undefined' && window.localStorage.getItem('hermes_wifi_only') === 'true') {
+    let isWifiOnly = false;
+    if (typeof window !== 'undefined') {
+      try {
+        isWifiOnly = window.localStorage.getItem('hermes_wifi_only') === 'true';
+      } catch (_) {}
+    }
+    if (isWifiOnly) {
       const conn = (navigator as Navigator & { connection?: { type?: string; saveData?: boolean } }).connection;
       const onMeteredLink = !!conn && (conn.type === 'cellular' || conn.saveData === true);
       if (onMeteredLink) {
