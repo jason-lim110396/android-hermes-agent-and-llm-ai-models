@@ -1629,7 +1629,29 @@ export default function ChatView() {
   const handleSend = () => {
     if ((!inputVal.trim() && pendingAttachments.length === 0) || isGenerating) return;
     if (!isOnline && !downloads[selectedModelId]?.isReady) {
-      setUploadError('You are currently offline. Please switch to a downloaded on-device model or connect to Wi-Fi/cellular.');
+      if (readyModels.length > 0) {
+        const targetModel = readyModels[0];
+        triggerHaptic(20);
+        setSelectedModelId(targetModel.id);
+        if (targetModel.category === 'image') {
+          setOperatingMode('image-gen');
+        } else if (targetModel.category === 'voice') {
+          setOperatingMode('voice');
+        } else {
+          setOperatingMode('chat');
+        }
+        setUploadError(null);
+        let textToSend = inputVal;
+        if (quotedMessage) {
+          const cleanSnippet = quotedMessage.snippet.replace(/\n+/g, ' ');
+          textToSend = `> **${quotedMessage.senderName}**: "${cleanSnippet}"\n\n${textToSend}`;
+          setQuotedMessage(null);
+        }
+        setInputVal('');
+        sendMessage(textToSend);
+        return;
+      }
+      setUploadError('You are currently offline with no local models downloaded. Download an on-device model to chat offline.');
       return;
     }
     let text = inputVal;
@@ -3310,10 +3332,25 @@ export default function ChatView() {
       {/* File-read failure: say out loud that a picked file was not attached. */}
       {uploadError && (
         <div role="alert" className="px-3 py-1.5 text-[11px] text-rose-300 bg-rose-950/40 border-t border-rose-900/50 flex items-center justify-between gap-2">
-          <span>{uploadError}</span>
-          <button onClick={() => setUploadError(null)} className="text-rose-400 hover:text-rose-200 p-0.5" aria-label="Dismiss">
-            <X className="w-3 h-3" />
-          </button>
+          <span className="truncate">{uploadError}</span>
+          <div className="flex items-center gap-1.5 shrink-0">
+            {!isOnline && readyModels.length === 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  triggerHaptic(10);
+                  setUploadError(null);
+                  setCurrentTab('models');
+                }}
+                className="px-2 py-0.5 rounded bg-cyan-900/50 hover:bg-cyan-800/60 text-cyan-200 border border-cyan-500/40 text-[10px] font-bold transition-all cursor-pointer"
+              >
+                Open Model Hub
+              </button>
+            )}
+            <button onClick={() => setUploadError(null)} className="text-rose-400 hover:text-rose-200 p-0.5" aria-label="Dismiss">
+              <X className="w-3 h-3" />
+            </button>
+          </div>
         </div>
       )}
 
@@ -3374,7 +3411,9 @@ export default function ChatView() {
               <WifiOff className="w-3.5 h-3.5 text-amber-400 shrink-0" />
               <div className="truncate">
                 {downloads[selectedModelId]?.isReady ? (
-                  <span>Offline mode — running on-device with WebGPU</span>
+                  <span>
+                    Offline mode — running on-device with {currentModel?.engine === 'cpu-wasm' ? 'CPU (WASM)' : 'WebGPU'}
+                  </span>
                 ) : (
                   <span className="text-amber-300 font-semibold">Active model requires internet</span>
                 )}
@@ -3387,7 +3426,7 @@ export default function ChatView() {
                   onClick={handleSwitchToOfflineModel}
                   className="px-2 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-[10px] font-bold transition-all cursor-pointer"
                 >
-                  {readyModels[0] ? `Switch to ${readyModels[0].name.split(' ')[0]}` : 'Pick Local Model'}
+                  {readyModels[0] ? `Switch to ${readyModels[0].name.split(' ')[0]}` : 'Download Offline Model'}
                 </button>
               )}
               <button
