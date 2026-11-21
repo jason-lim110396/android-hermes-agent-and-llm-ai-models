@@ -62,6 +62,7 @@ import {
   WifiOff,
   RotateCcw,
   QrCode,
+  ArrowRightLeft,
 } from 'lucide-react';
 import { useAppStore, Attachment } from '@/appStore';
 import { AVAILABLE_MODELS, ModelSpec } from '@/models';
@@ -1783,6 +1784,15 @@ export default function ChatView() {
                 {/* Message Meta */}
                 <div className="flex items-center gap-2 mb-1 text-[10px] text-zinc-400 px-1">
                   <span>{isUser ? 'You' : msg.modelUsed || 'Hermes AI'}</span>
+                  {!isUser && msg.isFallback && (
+                    <span
+                      className="px-1.5 py-0.2 rounded bg-amber-950/80 border border-amber-500/40 text-amber-300 text-[8px] font-bold flex items-center gap-1"
+                      title={msg.fallbackReason ? `Fallback trigger: ${msg.fallbackReason}` : 'Answered via free fallback model'}
+                    >
+                      <ArrowRightLeft className="w-2.5 h-2.5 text-amber-400" />
+                      FALLBACK
+                    </span>
+                  )}
                   {msg.mode === 'agent' && (
                     <span className="px-1.5 py-0.2 rounded bg-indigo-950/80 border border-indigo-500/30 text-indigo-300 text-[8px] font-bold">
                       HERMES AGENT
