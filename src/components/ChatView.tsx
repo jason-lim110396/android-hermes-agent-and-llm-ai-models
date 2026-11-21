@@ -257,6 +257,93 @@ const HardwareTickerBar = React.memo(function HardwareTickerBar({
 // fresh [] each render when no session exists and invalidate the memo below.
 const EMPTY_MESSAGES: never[] = [];
 
+interface FormattedCodeBlockProps {
+  language: string;
+  code: string;
+  onRunInSandbox?: (code: string) => void;
+}
+
+const FormattedCodeBlock = React.memo(function FormattedCodeBlock({
+  language,
+  code,
+  onRunInSandbox,
+}: FormattedCodeBlockProps) {
+  const [copied, setCopied] = useState(false);
+  const lineCount = code ? code.split('\n').length : 0;
+  const cleanLang = (language || 'code').toLowerCase().trim();
+  const isRunnable = ['html', 'javascript', 'js', 'typescript', 'ts', 'jsx', 'tsx', 'css', 'svg'].includes(
+    cleanLang
+  );
+
+  const handleCopy = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      if (typeof navigator !== 'undefined' && navigator.clipboard) {
+        await navigator.clipboard.writeText(code);
+        setCopied(true);
+        triggerHaptic(20);
+        setTimeout(() => setCopied(false), 2000);
+      }
+    } catch (_) {}
+  };
+
+  return (
+    <div className="my-2.5 rounded-xl overflow-hidden bg-zinc-950 border border-zinc-800 font-mono text-[11px] shadow-lg">
+      <div className="flex items-center justify-between px-3 py-1.5 bg-zinc-900/90 border-b border-zinc-800/80 text-zinc-400 select-none">
+        <div className="flex items-center gap-2">
+          <span className="uppercase font-bold text-[10px] tracking-wider text-cyan-400 bg-cyan-950/60 border border-cyan-800/40 px-1.5 py-0.5 rounded">
+            {language || 'code'}
+          </span>
+          <span className="text-[10px] text-zinc-500 font-sans">
+            {lineCount} {lineCount === 1 ? 'line' : 'lines'}
+          </span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          {isRunnable && onRunInSandbox && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onRunInSandbox(code);
+              }}
+              title="Run in Code Playground Sandbox"
+              className="flex items-center gap-1 text-[10px] text-emerald-400 hover:text-emerald-300 px-2 py-0.5 rounded bg-emerald-950/50 border border-emerald-800/40 hover:bg-emerald-900/50 transition-all cursor-pointer font-sans font-medium"
+            >
+              <Play className="w-2.5 h-2.5 fill-current" />
+              <span>Run</span>
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={handleCopy}
+            title="Copy code to clipboard"
+            className={`flex items-center gap-1 transition-all cursor-pointer text-[10px] px-2 py-0.5 rounded border font-sans font-medium ${
+              copied
+                ? 'bg-emerald-950/80 border-emerald-600/60 text-emerald-400'
+                : 'bg-zinc-800/80 border-zinc-700/60 text-zinc-300 hover:text-white hover:bg-zinc-700'
+            }`}
+          >
+            {copied ? (
+              <>
+                <Check className="w-3 h-3 text-emerald-400" />
+                <span>Copied!</span>
+              </>
+            ) : (
+              <>
+                <Copy className="w-3 h-3" />
+                <span>Copy</span>
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+      <pre className="p-3 overflow-x-auto text-zinc-200 leading-relaxed select-text font-mono text-[11px] max-h-[420px] scrollbar-thin">
+        <code>{code}</code>
+      </pre>
+    </div>
+  );
+});
+
 export default function ChatView() {
   const hardwareProfile = useAppStore((s) => s.hardwareProfile);
   const operatingMode = useAppStore((s) => s.operatingMode);
@@ -1523,37 +1610,27 @@ export default function ChatView() {
     if (!content.includes('```')) {
       return <div className="whitespace-pre-wrap leading-relaxed">{content}</div>;
     }
-    const parts = content.split(/(```[\s\S]*?```)/g);
+    const parts = content.split(/(```[\s\S]*?(?:```|$))/g);
     return (
       <div className="space-y-2">
         {parts.map((part, idx) => {
-          if (part.startsWith('```') && part.endsWith('```')) {
-            const lines = part.slice(3, -3).trim().split('\n');
+          if (part.startsWith('```')) {
+            const raw = part.endsWith('```') && part.length >= 6 ? part.slice(3, -3) : part.slice(3);
+            const lines = raw.replace(/^\r?\n/, '').split('\n');
             const firstLine = lines[0] || '';
-            const lang = /^[a-zA-Z0-9_-]+$/.test(firstLine.trim()) ? firstLine.trim() : '';
+            const isLangHeader = /^[a-zA-Z0-9_-]+$/.test(firstLine.trim());
+            const lang = isLangHeader ? firstLine.trim() : '';
             const codeText = lang ? lines.slice(1).join('\n') : lines.join('\n');
             return (
-              <div key={idx} className="my-2 rounded-xl overflow-hidden bg-zinc-950 border border-zinc-800 font-mono text-[11px] shadow-lg">
-                <div className="flex items-center justify-between px-3 py-1.5 bg-zinc-900 border-b border-zinc-800 text-zinc-400">
-                  <span className="uppercase font-bold text-[10px] text-cyan-400">{lang || 'Code'}</span>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      navigator.clipboard.writeText(codeText);
-                    }}
-                    className="flex items-center gap-1 hover:text-white transition-all cursor-pointer text-[10px] px-1.5 py-0.5 rounded bg-zinc-800"
-                  >
-                    <Copy className="w-3 h-3" />
-                    <span>Copy</span>
-                  </button>
-                </div>
-                <pre className="p-3 overflow-x-auto text-zinc-200 leading-relaxed select-text">
-                  <code>{codeText}</code>
-                </pre>
-              </div>
+              <FormattedCodeBlock
+                key={idx}
+                language={lang}
+                code={codeText}
+                onRunInSandbox={handleRunInSandbox}
+              />
             );
           }
+          if (!part) return null;
           return <div key={idx} className="whitespace-pre-wrap leading-relaxed">{part}</div>;
         })}
       </div>
