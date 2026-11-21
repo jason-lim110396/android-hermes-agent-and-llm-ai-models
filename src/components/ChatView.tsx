@@ -29,6 +29,7 @@ import {
   Pause,
   Radio,
   AudioLines,
+  SlidersHorizontal,
   Square,
   Plus,
   Layers,
@@ -91,6 +92,9 @@ import {
   voiceChunkBelongsToCurrentNote,
   createSilenceDetector,
   SilenceDetector,
+  evaluateNoiseGate,
+  getStoredNoiseGateThreshold,
+  setStoredNoiseGateThreshold,
 } from '@/utils/voiceSession';
 import { useBackButtonClose } from '@/utils/backButton';
 import MarkdownNotepadModal from './MarkdownNotepadModal';
@@ -1061,6 +1065,8 @@ export default function ChatView() {
   const [waveformBars, setWaveformBars] = useState<number[]>([25, 45, 60, 35, 70, 50, 85, 60, 45, 75, 50, 65, 35]);
   const [isAutoSendOnSilence, setIsAutoSendOnSilence] = useState(true);
   const [currentAudioDb, setCurrentAudioDb] = useState<number>(0);
+  const [noiseGateThreshold, setNoiseGateThreshold] = useState<number>(() => getStoredNoiseGateThreshold(18));
+  const [showNoiseGateSettings, setShowNoiseGateSettings] = useState(false);
 
   const cleanupAudioVisualizer = () => {
     if (animFrameRef.current) {
@@ -3457,72 +3463,186 @@ export default function ChatView() {
         )}
 
         {isRecordingVoice ? (
-          /* WhatsApp-Style Voice Recording Bar */
-          <div className="relative flex items-center justify-between gap-2 bg-gradient-to-r from-zinc-950 via-zinc-900 to-zinc-950 border border-emerald-500/40 rounded-2xl px-3 py-2 shadow-2xl animate-in fade-in duration-200">
-            {/* Pulsing Recording Indicator & Timer & dB Meter */}
-            <div className="flex items-center gap-2">
-              <span className="relative flex h-3 w-3">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-3 w-3 bg-rose-500"></span>
-              </span>
-              <div className="flex flex-col">
-                <span className="font-mono text-xs font-bold text-rose-400 tracking-wider">
-                  {Math.floor(recordDurationSec / 60)}:{(recordDurationSec % 60).toString().padStart(2, '0')}
-                </span>
-                {currentAudioDb > 0 && (
-                  <span className="font-mono text-[8px] text-zinc-400 leading-none">{currentAudioDb} dB</span>
-                )}
+          <div className="flex flex-col gap-1.5 w-full animate-in fade-in duration-200">
+            {/* Optional Noise Gate Settings Drawer */}
+            {showNoiseGateSettings && (
+              <div className="p-3 bg-zinc-950/95 border border-cyan-500/30 rounded-2xl shadow-xl backdrop-blur-md animate-in fade-in slide-in-from-bottom-2 duration-150">
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <div className="flex items-center gap-1.5">
+                    <SlidersHorizontal className="w-3.5 h-3.5 text-cyan-400" />
+                    <span className="text-xs font-bold text-zinc-200">Microphone Noise Gate</span>
+                  </div>
+                  <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-zinc-800 text-cyan-300 font-semibold">
+                    Cutoff: {noiseGateThreshold} dB
+                  </span>
+                </div>
+
+                {/* Live Level Meter with Gate Marker */}
+                <div className="space-y-1 mb-2.5">
+                  <div className="flex items-center justify-between text-[9px] text-zinc-400 font-mono">
+                    <span>0 dB (Silence)</span>
+                    <span className={currentAudioDb >= noiseGateThreshold ? 'text-emerald-400 font-bold' : 'text-amber-400 font-semibold'}>
+                      {currentAudioDb >= noiseGateThreshold ? '● Speech Active' : '○ Ambient Gated'} ({currentAudioDb} dB)
+                    </span>
+                    <span>60 dB (Loud)</span>
+                  </div>
+                  <div className="relative h-2 w-full bg-zinc-800 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full transition-all duration-75 rounded-full ${
+                        currentAudioDb >= noiseGateThreshold
+                          ? 'bg-gradient-to-r from-emerald-500 to-teal-400'
+                          : 'bg-gradient-to-r from-zinc-600 to-amber-500/60'
+                      }`}
+                      style={{ width: `${Math.min(100, Math.max(0, (currentAudioDb / 60) * 100))}%` }}
+                    />
+                    <div
+                      className="absolute top-0 bottom-0 w-1 bg-cyan-400 shadow-[0_0_4px_#22d3ee] z-10"
+                      style={{ left: `${Math.min(100, Math.max(0, (noiseGateThreshold / 60) * 100))}%` }}
+                      title={`Gate Threshold: ${noiseGateThreshold} dB`}
+                    />
+                  </div>
+                </div>
+
+                {/* Slider */}
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-[10px] text-zinc-400 shrink-0">Threshold:</span>
+                  <input
+                    type="range"
+                    min={0}
+                    max={45}
+                    step={1}
+                    value={noiseGateThreshold}
+                    onChange={(e) => {
+                      const val = Number(e.target.value);
+                      setNoiseGateThreshold(val);
+                      setStoredNoiseGateThreshold(val);
+                    }}
+                    className="w-full accent-cyan-400 h-1.5 bg-zinc-800 rounded-lg cursor-pointer"
+                  />
+                </div>
+
+                {/* Quick Presets */}
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="text-[9px] text-zinc-500 mr-0.5">Presets:</span>
+                  {[
+                    { label: 'Quiet Room (10 dB)', val: 10 },
+                    { label: 'Normal (18 dB)', val: 18 },
+                    { label: 'Street/Cafe (28 dB)', val: 28 },
+                  ].map((preset) => (
+                    <button
+                      key={preset.val}
+                      type="button"
+                      onClick={() => {
+                        triggerHaptic(10);
+                        setNoiseGateThreshold(preset.val);
+                        setStoredNoiseGateThreshold(preset.val);
+                      }}
+                      className={`px-2 py-0.5 rounded text-[9px] font-medium border transition-colors ${
+                        noiseGateThreshold === preset.val
+                          ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/50'
+                          : 'bg-zinc-900 text-zinc-400 border-zinc-800 hover:border-zinc-700'
+                      }`}
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
+            )}
 
-            {/* Real-time Dynamic Waveform Bars */}
-            <div className="flex-1 flex items-center justify-center gap-1 max-w-[150px] sm:max-w-[200px] px-1 h-7">
-              {waveformBars.map((heightPct, idx) => (
-                <div
-                  key={idx}
-                  className="w-1 rounded-full transition-all duration-75"
-                  style={{
-                    height: `${heightPct}%`,
-                    backgroundColor: heightPct > 65 ? '#34d399' : heightPct > 35 ? '#10b981' : '#059669',
+            {/* WhatsApp-Style Voice Recording Bar */}
+            <div className="relative flex items-center justify-between gap-2 bg-gradient-to-r from-zinc-950 via-zinc-900 to-zinc-950 border border-emerald-500/40 rounded-2xl px-3 py-2 shadow-2xl">
+              {/* Pulsing Recording Indicator & Timer & dB Meter */}
+              <div className="flex items-center gap-2 shrink-0">
+                <span className="relative flex h-3 w-3">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-3 w-3 bg-rose-500"></span>
+                </span>
+                <div className="flex flex-col">
+                  <span className="font-mono text-xs font-bold text-rose-400 tracking-wider">
+                    {Math.floor(recordDurationSec / 60)}:{(recordDurationSec % 60).toString().padStart(2, '0')}
+                  </span>
+                  {currentAudioDb > 0 && (
+                    <span className="font-mono text-[8px] text-zinc-400 leading-none">
+                      {currentAudioDb} dB{' '}
+                      <span className={currentAudioDb >= noiseGateThreshold ? 'text-emerald-400' : 'text-amber-400'}>
+                        {currentAudioDb >= noiseGateThreshold ? 'ACT' : 'GATE'}
+                      </span>
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Real-time Dynamic Waveform Bars */}
+              <div className="flex-1 flex items-center justify-center gap-1 max-w-[140px] sm:max-w-[180px] px-1 h-7">
+                {waveformBars.map((heightPct, idx) => {
+                  const isGated = currentAudioDb < noiseGateThreshold;
+                  return (
+                    <div
+                      key={idx}
+                      className="w-1 rounded-full transition-all duration-75"
+                      style={{
+                        height: `${heightPct}%`,
+                        opacity: isGated ? 0.4 : 1,
+                        backgroundColor: heightPct > 65 ? '#34d399' : heightPct > 35 ? '#10b981' : '#059669',
+                      }}
+                    />
+                  );
+                })}
+              </div>
+
+              {/* Actions & Noise Gate Trigger */}
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    triggerHaptic(10);
+                    setShowNoiseGateSettings((prev) => !prev);
                   }}
-                />
-              ))}
-            </div>
+                  title={`Noise Gate: ${noiseGateThreshold} dB`}
+                  className={`px-1.5 py-1.5 rounded-xl text-[9px] font-bold border transition-colors cursor-pointer select-none flex items-center gap-1 ${
+                    showNoiseGateSettings
+                      ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/50'
+                      : currentAudioDb >= noiseGateThreshold
+                      ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'
+                      : 'bg-zinc-800/80 text-zinc-400 border-zinc-700'
+                  }`}
+                >
+                  <SlidersHorizontal className="w-2.5 h-2.5" />
+                  <span>{noiseGateThreshold}dB</span>
+                </button>
 
-            {/* Hands-free Auto-send Toggle & Actions */}
-            <div className="flex items-center gap-1.5">
-              <button
-                type="button"
-                onClick={() => {
-                  triggerHaptic(10);
-                  setIsAutoSendOnSilence((prev) => !prev);
-                }}
-                title={isAutoSendOnSilence ? 'Auto-send enabled (sends 2.8s after pause)' : 'Manual send mode'}
-                className={`px-2 py-1.5 rounded-xl text-[9px] font-bold border transition-colors cursor-pointer shrink-0 select-none ${
-                  isAutoSendOnSilence
-                    ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
-                    : 'bg-zinc-800/80 text-zinc-400 border-zinc-700'
-                }`}
-              >
-                {isAutoSendOnSilence ? 'Auto-Send' : 'Manual'}
-              </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    triggerHaptic(10);
+                    setIsAutoSendOnSilence((prev) => !prev);
+                  }}
+                  title={isAutoSendOnSilence ? 'Auto-send enabled (sends 2.8s after pause)' : 'Manual send mode'}
+                  className={`px-2 py-1.5 rounded-xl text-[9px] font-bold border transition-colors cursor-pointer select-none ${
+                    isAutoSendOnSilence
+                      ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                      : 'bg-zinc-800/80 text-zinc-400 border-zinc-700'
+                  }`}
+                >
+                  {isAutoSendOnSilence ? 'Auto' : 'Manual'}
+                </button>
 
-              <button
-                onClick={cancelVoiceRecording}
-                title="Slide / Tap to cancel recording"
-                className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-zinc-800/80 hover:bg-rose-950/60 border border-zinc-700/60 hover:border-rose-500/50 text-zinc-400 hover:text-rose-400 text-xs font-medium transition-all cursor-pointer"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-                <span className="text-[10px] hidden sm:inline">Cancel</span>
-              </button>
-              <button
-                onClick={finishVoiceRecordingAndSend}
-                title="Send voice note to LLM"
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-black font-bold text-xs shadow-lg shadow-emerald-500/20 transition-all cursor-pointer"
-              >
-                <Send className="w-3.5 h-3.5 fill-current" />
-                <span>Send</span>
-              </button>
+                <button
+                  onClick={cancelVoiceRecording}
+                  title="Cancel recording"
+                  className="flex items-center gap-1 px-2 py-1.5 rounded-xl bg-zinc-800/80 hover:bg-rose-950/60 border border-zinc-700/60 hover:border-rose-500/50 text-zinc-400 hover:text-rose-400 text-xs font-medium transition-all cursor-pointer"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  onClick={finishVoiceRecordingAndSend}
+                  title="Send voice note to LLM"
+                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-black font-bold text-xs shadow-lg shadow-emerald-500/20 transition-all cursor-pointer"
+                >
+                  <Send className="w-3.5 h-3.5 fill-current" />
+                </button>
+              </div>
             </div>
           </div>
         ) : (

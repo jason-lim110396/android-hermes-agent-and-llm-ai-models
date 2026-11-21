@@ -112,3 +112,45 @@ export function createSilenceDetector(
     isActive: () => timer !== null,
   };
 }
+
+export interface NoiseGateStatus {
+  isGated: boolean;
+  db: number;
+  threshold: number;
+  headroomDb: number;
+}
+
+export function evaluateNoiseGate(db: number, thresholdDb: number): NoiseGateStatus {
+  const safeDb = Math.max(0, Math.min(100, Math.round(db)));
+  const safeThreshold = Math.max(0, Math.min(60, Math.round(thresholdDb)));
+  const isGated = safeDb < safeThreshold;
+  return {
+    isGated,
+    db: safeDb,
+    threshold: safeThreshold,
+    headroomDb: safeDb - safeThreshold,
+  };
+}
+
+export function getStoredNoiseGateThreshold(defaultVal: number = 18): number {
+  if (typeof window === 'undefined') return defaultVal;
+  try {
+    const raw = localStorage.getItem('hermes_noise_gate_threshold');
+    if (raw !== null) {
+      const parsed = parseInt(raw, 10);
+      if (!Number.isNaN(parsed) && parsed >= 0 && parsed <= 60) {
+        return parsed;
+      }
+    }
+  } catch (_) {}
+  return defaultVal;
+}
+
+export function setStoredNoiseGateThreshold(val: number): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const clamped = Math.max(0, Math.min(60, Math.round(val)));
+    localStorage.setItem('hermes_noise_gate_threshold', clamped.toString());
+  } catch (_) {}
+}
+

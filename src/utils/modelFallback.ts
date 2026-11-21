@@ -205,3 +205,66 @@ export function describeLimitFailure(status: number, detail: string): string {
   if (status >= 520 && status <= 526) return `edge proxy error (${status})`;
   return `HTTP ${status}`;
 }
+
+export interface EndpointCooldown {
+  endpoint: string;
+  model?: string;
+  until: number;
+  reason: string;
+}
+
+const endpointCooldowns = new Map<string, EndpointCooldown>();
+
+function getCooldownKey(endpoint: string, model?: string): string {
+  return `${endpoint.trim().toLowerCase()}::${(model || '').trim().toLowerCase()}`;
+}
+
+/**
+ * Record a temporary cooldown for an endpoint that experienced 429, quota exhaustion, or gateway timeouts.
+ * Default cooldown is 60 seconds (or customized via durationMs).
+ */
+export function recordEndpointCooldown(
+  endpoint: string,
+  model: string | undefined,
+  reason: string,
+  durationMs = 60_000
+): void {
+  const key = getCooldownKey(endpoint, model);
+  endpointCooldowns.set(key, {
+    endpoint,
+    model,
+    until: Date.now() + durationMs,
+    reason,
+  });
+}
+
+/**
+ * Checks whether an endpoint is currently cooling down from a recent rate limit or quota failure.
+ */
+export function isEndpointInCooldown(
+  endpoint: string,
+  model?: string
+): { inCooldown: boolean; reason?: string; remainingSeconds?: number } {
+  const key = getCooldownKey(endpoint, model);
+  const entry = endpointCooldowns.get(key);
+  if (!entry) return { inCooldown: false };
+  const remainingMs = entry.until - Date.now();
+  if (remainingMs <= 0) {
+    endpointCooldowns.delete(key);
+    return { inCooldown: false };
+  }
+  return {
+    inCooldown: true,
+    reason: entry.reason,
+    remainingSeconds: Math.ceil(remainingMs / 1000),
+  };
+}
+
+export function clearEndpointCooldown(endpoint: string, model?: string): void {
+  endpointCooldowns.delete(getCooldownKey(endpoint, model));
+}
+
+export function clearAllEndpointCooldowns(): void {
+  endpointCooldowns.clear();
+}
+
