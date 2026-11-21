@@ -26,6 +26,7 @@ import {
   Check,
   FileCode,
   Square,
+  History,
 } from 'lucide-react';
 import { useAppStore } from '@/appStore';
 import { updateThermalTelemetry } from '@/utils/thermalGuard';
@@ -54,6 +55,28 @@ export default function BenchmarkStudio() {
   const [progress, setProgress] = useState(0);
   const [testStage, setTestStage] = useState('');
   const [result, setResult] = useState<BenchmarkResult | null>(null);
+  const [benchmarkHistory, setBenchmarkHistory] = useState<BenchmarkResult[]>(() => {
+    if (typeof window === 'undefined') return [];
+    try {
+      const raw = window.localStorage.getItem('hermes_benchmark_history');
+      if (raw) return JSON.parse(raw);
+    } catch (_) {}
+    return [];
+  });
+
+  const previousRun = benchmarkHistory.length > 1 ? benchmarkHistory[1] : null;
+  const gflopsDeltaPct = (result && previousRun && previousRun.gflops > 0)
+    ? Math.round(((result.gflops - previousRun.gflops) / previousRun.gflops) * 100)
+    : null;
+  const scoreDelta = (result && previousRun) ? result.score - previousRun.score : null;
+
+  const handleClearHistory = () => {
+    triggerHaptic(15);
+    setBenchmarkHistory([]);
+    if (typeof window !== 'undefined') {
+      window.localStorage.removeItem('hermes_benchmark_history');
+    }
+  };
 
   // Context Window & Perplexity Profiler State
   const [profilerModel, setProfilerModel] = useState<'hermes3B' | 'llama1B' | 'qwen05B' | 'minicpm4B'>('hermes3B');
@@ -395,9 +418,14 @@ export default function BenchmarkStudio() {
     setResult(benchmarkResult);
     setIsRunning(false);
 
-    if (typeof window !== 'undefined') {
-      window.localStorage.setItem('hermes_benchmark_result', JSON.stringify(benchmarkResult));
-    }
+    setBenchmarkHistory((prev) => {
+      const updated = [benchmarkResult, ...prev.filter((p) => p.timestamp !== benchmarkResult.timestamp).slice(0, 9)];
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem('hermes_benchmark_result', JSON.stringify(benchmarkResult));
+        window.localStorage.setItem('hermes_benchmark_history', JSON.stringify(updated));
+      }
+      return updated;
+    });
 
     triggerHaptic([40, 60, 40]);
   };
@@ -509,6 +537,24 @@ export default function BenchmarkStudio() {
                   <span className="text-3xl font-black text-white tracking-tight">{result.score}</span>
                   <span className="text-xs font-mono text-violet-400 font-bold">POINTS</span>
                 </div>
+                {previousRun && previousRun.timestamp !== result.timestamp && gflopsDeltaPct !== null && (
+                  <div className="flex items-center gap-1.5 flex-wrap pt-1">
+                    <span className={`inline-flex items-center gap-1 text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border ${
+                      gflopsDeltaPct > 0
+                        ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                        : gflopsDeltaPct < 0
+                        ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                        : 'bg-zinc-800 text-zinc-400 border-zinc-700'
+                    }`}>
+                      {gflopsDeltaPct > 0 ? `▲ +${gflopsDeltaPct}% Faster` : gflopsDeltaPct < 0 ? `▼ ${gflopsDeltaPct}% Throttled` : '● Same Speed'}
+                    </span>
+                    {scoreDelta !== null && scoreDelta !== 0 && (
+                      <span className="text-[10px] font-mono text-zinc-400">
+                        ({scoreDelta > 0 ? `+${scoreDelta}` : scoreDelta} pts vs prev)
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
               <div className={`px-3 py-1.5 rounded-xl border text-xs font-bold ${result.tierBadgeColor}`}>
                 {result.tier}
@@ -589,6 +635,59 @@ export default function BenchmarkStudio() {
                 {certShareFeedback}
               </div>
             )}
+          </div>
+        )}
+
+        {/* Historical Benchmark Run Log */}
+        {benchmarkHistory.length > 0 && (
+          <div className="bg-zinc-900/80 border border-zinc-800 rounded-2xl p-4 shadow-xl space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5 text-xs font-bold text-zinc-200">
+                <History className="w-3.5 h-3.5 text-cyan-400" />
+                <span>Benchmark Run History ({benchmarkHistory.length})</span>
+              </div>
+              <button
+                type="button"
+                onClick={handleClearHistory}
+                className="text-[10px] text-zinc-500 hover:text-rose-400 transition-colors cursor-pointer"
+              >
+                Clear History
+              </button>
+            </div>
+
+            <div className="space-y-2">
+              {benchmarkHistory.map((item, idx) => {
+                const isLatest = idx === 0;
+                return (
+                  <div
+                    key={idx}
+                    className={`p-2.5 rounded-xl border flex items-center justify-between gap-2 text-xs transition-colors ${
+                      isLatest
+                        ? 'bg-zinc-950/90 border-cyan-500/40'
+                        : 'bg-zinc-950/50 border-zinc-800/80'
+                    }`}
+                  >
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono font-bold text-white text-[13px]">{item.score} pts</span>
+                        <span className="font-mono text-zinc-400 text-[10px]">{item.gflops} GFLOPS</span>
+                        {isLatest && (
+                          <span className="px-1.5 py-0.2 rounded bg-cyan-500/20 text-cyan-300 text-[9px] font-bold">
+                            Latest
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-[10px] text-zinc-500 mt-0.5">
+                        {item.timestamp} • Llama 1B: ~{item.estimatedTps.llama1B} tps
+                      </div>
+                    </div>
+                    <div className={`px-2 py-0.5 rounded text-[10px] font-bold shrink-0 ${item.tierBadgeColor}`}>
+                      {item.tier.split(' ')[0]} {item.tier.split(' ')[1] || ''}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
 
