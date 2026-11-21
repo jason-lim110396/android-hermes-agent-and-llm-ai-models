@@ -2251,6 +2251,34 @@ export default function SettingsView() {
             <strong>100% Sovereign & Offline by Design:</strong> In on-device mode, all model weights execute entirely inside your smartphone&apos;s WebGPU & WebAssembly runtime. No telemetry or conversation transcripts are ever sent to external cloud servers.
           </div>
         </div>
+
+        {/* Release & Sovereign Milestone Seal (PR #250 Milestone) */}
+        <div className="bg-gradient-to-br from-cyan-950/40 via-zinc-900 to-indigo-950/40 border border-cyan-500/30 rounded-2xl p-4 shadow-xl text-center space-y-2">
+          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/30 text-cyan-300 text-[10px] font-mono font-bold uppercase tracking-wider">
+            <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
+            <span>Hermes Sovereign Edition • v1.2.0</span>
+          </div>
+          <h3 className="text-sm font-black text-white tracking-tight">
+            Production Ready Sovereign Android Intelligence
+          </h3>
+          <p className="text-[11px] text-zinc-400 max-w-md mx-auto leading-relaxed">
+            Engineered across 250 verified pull requests. Complete on-device autonomy with WebGPU hardware acceleration, zero-egress data privacy, tactile haptics, and adaptive thermal governance.
+          </p>
+          <div className="pt-2 border-t border-zinc-800/80 flex items-center justify-center gap-4 text-[10px] font-mono text-zinc-400">
+            <span className="flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+              <span>250 PRs Shipped</span>
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-cyan-400" />
+              <span>Zero-Egress Security</span>
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-purple-400" />
+              <span>Capacitor Android</span>
+            </span>
+          </div>
+        </div>
       </div>
     </div>
   );
