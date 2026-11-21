@@ -2039,6 +2039,31 @@ export default function ChatView() {
                       </button>
                     )}
 
+                    {/* Share Message via Native Android Sheet */}
+                    {typeof navigator !== 'undefined' && typeof navigator.share === 'function' && (
+                      <button
+                        onClick={async () => {
+                          try {
+                            await navigator.share({
+                              title: 'Hermes AI Insight',
+                              text: msg.content,
+                            });
+                            triggerHaptic(20);
+                          } catch (err: any) {
+                            if (err?.name !== 'AbortError') {
+                              handleCopyMessage(msg.id, msg.content);
+                            }
+                          }
+                        }}
+                        title="Share via Android apps"
+                        className="flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-medium bg-zinc-900/80 hover:bg-zinc-800 text-zinc-400 hover:text-white border border-zinc-800/80 transition-all cursor-pointer"
+                        aria-label="Share response to other apps"
+                      >
+                        <Share2 className="w-3 h-3 text-cyan-400" />
+                        <span>Share</span>
+                      </button>
+                    )}
+
                     {/* Copy Message Button */}
                     <button
                       onClick={() => handleCopyMessage(msg.id, msg.content)}
