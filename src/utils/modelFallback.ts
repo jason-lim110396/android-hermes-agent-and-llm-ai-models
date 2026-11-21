@@ -129,10 +129,17 @@ const LIMIT_HINTS = [
 export function isUsageLimitFailure(status: number, detail: string): boolean {
   // 429 (rate limit) and 402 (payment required) are unambiguous.
   if (status === 429 || status === 402) return true;
+  // 502/503/504 are transient gateway/server failures - by definition a
+  // different provider can often serve the same prompt. Free routers return
+  // these constantly ("Model overloaded", "Server capacity reached",
+  // "Service Unavailable") with text that does not match any quota keyword.
+  // Treating them as terminal skipped the rest of the free chain and dropped
+  // the turn straight into a multi-hundred-MB on-device weight download.
+  if (status === 502 || status === 503 || status === 504) return true;
   // 401 is a bad key; 500 is a server fault. Neither means "try a different
   // provider" - sending the same prompt elsewhere would hide the real error.
   if (status === 401 || status < 400 || status >= 600) return false;
-  // 403 / 503 / 4xx only count when the provider actually says quota or limit.
+  // 403 / other 4xx only count when the provider actually says quota or limit.
   return isLimitFailureText(detail);
 }
 
