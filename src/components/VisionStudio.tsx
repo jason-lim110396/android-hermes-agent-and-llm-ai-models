@@ -281,6 +281,7 @@ export default function VisionStudio() {
   const currentModel = visionModels.find((m) => m.id === selectedModelId) || visionModels[0];
 
   const currentPage = scannedPages[selectedPageIndex] || scannedPages[0];
+  const [imgDims, setImgDims] = useState<{ width: number; height: number } | null>(null);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -707,11 +708,26 @@ export default function VisionStudio() {
                   <img
                     src={currentPage.dataUrl}
                     alt={currentPage.name}
+                    onLoad={(e) => {
+                      const el = e.currentTarget;
+                      if (el.naturalWidth && el.naturalHeight) {
+                        setImgDims({ width: el.naturalWidth, height: el.naturalHeight });
+                      }
+                    }}
                     className="max-h-[300px] w-auto object-contain rounded-lg shadow-lg"
                   />
                   <div className="absolute top-3 left-3 px-2 py-0.5 rounded-lg bg-black/80 backdrop-blur-md text-[10px] font-mono text-emerald-300 border border-emerald-500/30 font-bold">
                     {currentPage.name} (Page {selectedPageIndex + 1})
                   </div>
+
+                  {imgDims && (
+                    <div className="absolute bottom-3 left-3 flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-black/80 backdrop-blur-md text-[10px] font-mono text-cyan-300 border border-cyan-500/30 font-bold">
+                      <span>{imgDims.width}×{imgDims.height}</span>
+                      <span className="text-zinc-400 font-normal">
+                        ({(imgDims.width / imgDims.height).toFixed(2)}:1)
+                      </span>
+                    </div>
+                  )}
 
                   <div className="absolute top-3 right-3 flex items-center gap-1.5">
                     <button
