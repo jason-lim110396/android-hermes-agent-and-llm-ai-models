@@ -42,7 +42,6 @@ import {
   Disc,
   Waves,
   Octagon,
-  Menu,
   MoreHorizontal,
   Eye,
   Search,
@@ -210,7 +209,6 @@ export default function ChatView() {
   const [inputVal, setInputVal] = useState('');
   const [isCameraOpen, setIsCameraOpen] = useState(false);
   const [isFabOpen, setIsFabOpen] = useState(false);
-  const [showModeMenu, setShowModeMenu] = useState(false);
   // "More tools" dropdown for the Row-2 secondary actions (decluttering PR:
   // one overflow menu instead of ten always-visible buttons).
   const [showMoreTools, setShowMoreTools] = useState(false);
@@ -371,10 +369,9 @@ export default function ChatView() {
   useBackButtonClose(modelPromptDownload !== null, () => setModelPromptDownload(null));
   useBackButtonClose(showBookmarksDrawer, () => setShowBookmarksDrawer(false));
   useBackButtonClose(showSnippetsDrawer, () => setShowSnippetsDrawer(false));
-  // The two full-screen dropdown backdrops (model picker, mode menu) count
+  // The full-screen dropdown backdrops count
   // as overlays too: back dismisses them instead of exiting the app.
   useBackButtonClose(showModelPicker, () => setShowModelPicker(false));
-  useBackButtonClose(showModeMenu, () => setShowModeMenu(false));
   useBackButtonClose(showMoreTools, () => setShowMoreTools(false));
   useBackButtonClose(showQuickActions, () => setShowQuickActions(false));
 
@@ -552,35 +549,13 @@ export default function ChatView() {
     ? messages.filter((m) => m.content.toLowerCase().includes(searchQuery.toLowerCase()) || m.role.toLowerCase().includes(searchQuery.toLowerCase()))
     : messages;
 
-  // Filter models based on the currently selected operatingMode
-  // e.g. In image-gen mode, only display image models. In vision mode, vision models. In voice mode, voice models. In agent or chat mode, text/reasoning models.
-  const modeCategory = operatingMode === 'image-gen'
-    ? 'image'
-    : operatingMode === 'vision'
-    ? 'vision'
-    : operatingMode === 'voice'
-    ? 'voice'
-    : operatingMode === 'embedding'
-    ? 'embedding'
-    : 'text';
-
-  // Ready models list filtered by active purpose mode
+  // Models available for direct selection (category browsing consolidated in ModelHub)
   const readyModels = AVAILABLE_MODELS.filter((m) => downloads[m.id]?.isReady);
   const unreadyModels = AVAILABLE_MODELS.filter((m) => {
     if (downloads[m.id]?.isReady) return false;
     const fitsRam = !hardwareProfile || hardwareProfile.estimatedRamGB >= m.minRamGB;
     const fitsGpu = m.engine === 'cpu-wasm' || !hardwareProfile || hardwareProfile.hasWebGpu;
     return fitsRam && fitsGpu;
-  });
-
-  const filteredReadyModels = readyModels.filter((m) => {
-    if (operatingMode === 'agent') return m.capabilities.includes('tools') || m.capabilities.includes('agent') || m.category === 'text';
-    return m.category === modeCategory;
-  });
-
-  const filteredUnreadyModels = unreadyModels.filter((m) => {
-    if (operatingMode === 'agent') return m.capabilities.includes('tools') || m.capabilities.includes('agent') || m.category === 'text';
-    return m.category === modeCategory;
   });
 
   // Re-check distance-from-bottom when messages grow without a scroll event
@@ -1242,31 +1217,18 @@ export default function ChatView() {
     <div className="flex-1 flex flex-col h-full overflow-hidden bg-zinc-950 relative">
       {/* ── TOP CONTROL BAR  (2 compact rows) ── */}
       <div className="border-b border-zinc-800/80 bg-zinc-950/90 backdrop-blur-md z-20">
-        {/* Row 1: Model Selector  |  Text/Voice Tab  |  Chat/Agent Mode */}
-        <div className="px-2 pt-2 pb-1.5 flex items-center gap-1.5">
+        {/* Row 1: Model Selector (category browsing consolidated into Model Hub) */}
+        <div className="px-2 pt-2 pb-1.5 flex items-center justify-between gap-1.5">
           {/* Model Selector */}
           <div className="relative shrink-0">
             <button
               type="button"
               onClick={() => setShowModelPicker((prev) => !prev)}
               aria-label="Select AI Model"
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-700/80 active:border-cyan-500 text-[11px] font-bold text-white transition-all cursor-pointer max-w-[190px] shadow-sm select-none"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-700/80 active:border-cyan-500 text-[11px] font-bold text-white transition-all cursor-pointer max-w-[240px] shadow-sm select-none"
             >
               <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse shrink-0" />
               <span className="truncate">{currentModel?.name || 'Select Model'}</span>
-              {currentModel && (
-                <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold uppercase shrink-0 ${
-                  currentModel.category === 'vision'
-                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                    : currentModel.category === 'image'
-                    ? 'bg-fuchsia-500/20 text-fuchsia-300 border border-fuchsia-500/30'
-                    : currentModel.category === 'voice'
-                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                    : 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
-                }`}>
-                  {currentModel.category === 'vision' ? 'Vision' : currentModel.category === 'image' ? 'Image' : currentModel.category === 'voice' ? 'Voice' : 'Text'}
-                </span>
-              )}
               <ChevronDown className={`w-3 h-3 text-zinc-400 shrink-0 transition-transform ${showModelPicker ? 'rotate-180' : ''}`} />
             </button>
 
@@ -1281,34 +1243,22 @@ export default function ChatView() {
 
                 {/* Dropdown Menu */}
                 <div className="absolute left-0 top-full mt-1.5 w-84 max-w-[92vw] bg-zinc-900 border border-zinc-700/80 rounded-2xl shadow-2xl p-2.5 z-50 space-y-2 max-h-[28rem] overflow-y-auto">
-                  {/* Purpose Category Mode Header */}
+                  {/* Model Selector Header */}
                   <div className="flex items-center justify-between pb-1.5 border-b border-zinc-800 text-xs font-bold text-zinc-300">
-                    <span className="capitalize text-cyan-400">
-                      {operatingMode === 'image-gen'
-                        ? '🎨 Image Generation Models'
-                        : operatingMode === 'vision'
-                        ? '👁️ Multimodal & Vision Models'
-                        : operatingMode === 'voice'
-                        ? '🔊 Neural Voice Models'
-                        : operatingMode === 'embedding'
-                        ? '🔍 Semantic File Search Models'
-                        : operatingMode === 'agent'
-                        ? '🤖 Agent Compatible Models'
-                        : '💬 Chat & Reasoning Models'}
-                    </span>
+                    <span className="text-cyan-400">Select Local Model</span>
                     <span className="text-[10px] text-zinc-500 font-mono">
-                      Filtered for Mode
+                      {readyModels.length} Ready
                     </span>
                   </div>
 
                   {/* Ready Models Section */}
                   <div className="px-1 py-0.5 text-[10px] uppercase font-bold text-emerald-400 flex items-center justify-between">
-                    <span>Ready Local Models ({filteredReadyModels.length})</span>
+                    <span>Ready Local Models ({readyModels.length})</span>
                     <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
                   </div>
 
-                  {filteredReadyModels.length > 0 ? (
-                    filteredReadyModels.map((m) => {
+                  {readyModels.length > 0 ? (
+                    readyModels.map((m) => {
                       const isCur = m.id === selectedModelId;
                       return (
                         <button
@@ -1316,6 +1266,19 @@ export default function ChatView() {
                           type="button"
                           onClick={() => {
                             setSelectedModelId(m.id);
+                            if (m.category === 'image') {
+                              setOperatingMode('image-gen');
+                            } else if (m.category === 'vision') {
+                              setOperatingMode('vision');
+                            } else if (m.category === 'voice') {
+                              setOperatingMode('voice');
+                            } else if (m.category === 'embedding') {
+                              setOperatingMode('embedding');
+                            } else if (m.capabilities.includes('agent')) {
+                              setOperatingMode('agent');
+                            } else {
+                              setOperatingMode('chat');
+                            }
                             setShowModelPicker(false);
                           }}
                           className={`w-full text-left px-3 py-2 rounded-xl text-xs flex items-center justify-between transition-all cursor-pointer select-none ${
@@ -1325,19 +1288,8 @@ export default function ChatView() {
                           }`}
                         >
                           <div className="truncate pr-2">
-                            <div className="truncate font-semibold text-white flex items-center gap-1.5">
-                              <span>{m.name}</span>
-                              <span className={`text-[8px] px-1.5 py-0.2 rounded font-bold uppercase ${
-                                m.category === 'vision'
-                                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                                  : m.category === 'image'
-                                  ? 'bg-fuchsia-500/20 text-fuchsia-300 border border-fuchsia-500/30'
-                                  : m.category === 'voice'
-                                  ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                                  : 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
-                              }`}>
-                                {m.category === 'vision' ? '👁️ Vision' : m.category === 'image' ? '🎨 Art' : m.category === 'voice' ? '🔊 Voice' : '📝 Text'}
-                              </span>
+                            <div className="truncate font-semibold text-white">
+                              {m.name}
                             </div>
                             <div className="text-[10px] text-zinc-400 mt-0.5">{m.parameters} • {m.quantization} • {m.tagline}</div>
                           </div>
@@ -1351,19 +1303,19 @@ export default function ChatView() {
                     })
                   ) : (
                     <div className="px-3 py-2 text-zinc-400 text-[11px] italic bg-zinc-950/80 border border-zinc-800 rounded-xl">
-                      No ready models in this category. Tap below to install.
+                      No ready models yet. Tap below to install.
                     </div>
                   )}
 
                   {/* Available Models (To Download) */}
-                  {filteredUnreadyModels.length > 0 && (
+                  {unreadyModels.length > 0 && (
                     <>
                       <div className="pt-2 border-t border-zinc-800 px-1 py-0.5 text-[10px] uppercase font-bold text-zinc-400 flex items-center justify-between">
-                        <span>Available To Download ({filteredUnreadyModels.length})</span>
+                        <span>Available To Download ({unreadyModels.length})</span>
                         <Download className="w-3.5 h-3.5 text-cyan-400" />
                       </div>
 
-                      {filteredUnreadyModels.map((m) => (
+                      {unreadyModels.map((m) => (
                         <button
                           key={m.id}
                           type="button"
@@ -1374,19 +1326,8 @@ export default function ChatView() {
                           className="w-full text-left px-3 py-2 rounded-xl text-xs flex items-center justify-between bg-zinc-950/40 hover:bg-zinc-800/80 active:bg-zinc-800 border border-zinc-800/60 text-zinc-400 transition-all cursor-pointer select-none"
                         >
                           <div className="truncate pr-2">
-                            <div className="truncate text-zinc-200 font-medium flex items-center gap-1.5">
-                              <span>{m.name}</span>
-                              <span className={`text-[8px] px-1.5 py-0.2 rounded font-bold uppercase ${
-                                m.category === 'vision'
-                                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                                  : m.category === 'image'
-                                  ? 'bg-fuchsia-500/20 text-fuchsia-300 border border-fuchsia-500/30'
-                                  : m.category === 'voice'
-                                  ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                                  : 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
-                              }`}>
-                                {m.category === 'vision' ? '👁️ Vision' : m.category === 'image' ? '🎨 Art' : m.category === 'voice' ? '🔊 Voice' : '📝 Text'}
-                              </span>
+                            <div className="truncate text-zinc-200 font-medium">
+                              {m.name}
                             </div>
                             <div className="text-[10px] text-zinc-500 mt-0.5">{(m.sizeMB / 1024).toFixed(1)} GB • {m.tagline}</div>
                           </div>
@@ -1398,181 +1339,21 @@ export default function ChatView() {
                       ))}
                     </>
                   )}
-                </div>
-              </>
-            )}
-          </div>
 
-          {/* Burger Menu Button & Purpose Selector */}
-          <div className="relative shrink-0 ml-auto">
-            <button
-              onClick={() => setShowModeMenu((prev) => !prev)}
-              aria-label="Select Mode Purpose"
-              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-[11px] font-bold transition-all cursor-pointer shadow-sm ${
-                operatingMode === 'image-gen'
-                  ? 'bg-fuchsia-950/80 border-fuchsia-500/50 text-fuchsia-300'
-                  : operatingMode === 'vision'
-                  ? 'bg-emerald-950/80 border-emerald-500/50 text-emerald-300'
-                  : operatingMode === 'voice'
-                  ? 'bg-amber-950/80 border-amber-500/50 text-amber-300'
-                  : operatingMode === 'embedding'
-                  ? 'bg-blue-950/80 border-blue-500/50 text-blue-300'
-                  : operatingMode === 'agent'
-                  ? 'bg-indigo-950/80 border-indigo-500/50 text-indigo-300'
-                  : 'bg-zinc-900 border-zinc-700/80 text-zinc-200 hover:text-white'
-              }`}
-            >
-              <Menu className="w-3.5 h-3.5" />
-              <span className="capitalize font-extrabold">
-                {operatingMode === 'image-gen'
-                  ? '🎨 Image Studio'
-                  : operatingMode === 'vision'
-                  ? '👁️ Vision AI'
-                  : operatingMode === 'voice'
-                  ? '🔊 Voice Synthesis'
-                  : operatingMode === 'embedding'
-                  ? '🔍 File Search'
-                  : operatingMode === 'agent'
-                  ? '🤖 Hermes Agent'
-                  : '💬 Chat Mode'}
-              </span>
-              <ChevronDown className={`w-3 h-3 transition-transform ${showModeMenu ? 'rotate-180' : ''}`} />
-            </button>
-
-            {/* Burger Dropdown Modal / Popover */}
-            {showModeMenu && (
-              <>
-                <div
-                  className="fixed inset-0 z-40 bg-black/40 backdrop-blur-[1px]"
-                  onClick={() => setShowModeMenu(false)}
-                />
-                <div className="absolute right-0 top-full mt-1.5 w-64 bg-zinc-900 border border-zinc-700/90 rounded-2xl shadow-2xl p-2 z-50 space-y-1 animate-in fade-in zoom-in-95 duration-150">
-                  <div className="px-2 py-1 text-[10px] uppercase font-bold text-zinc-400 tracking-wider border-b border-zinc-800">
-                    Select Mode Purpose
+                  {/* Link to ModelHub where all categories/use-cases live */}
+                  <div className="pt-2 border-t border-zinc-800">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowModelPicker(false);
+                        setCurrentTab('models');
+                      }}
+                      className="w-full py-2 px-3 rounded-xl bg-zinc-800/70 hover:bg-zinc-800 border border-zinc-700/60 text-cyan-400 hover:text-cyan-300 text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                    >
+                      <Layers className="w-3.5 h-3.5" />
+                      <span>Browse Categories in Model Hub →</span>
+                    </button>
                   </div>
-
-                  {/* 1. Chat */}
-                  <button
-                    onClick={() => {
-                      setOperatingMode('chat');
-                      setShowModeMenu(false);
-                    }}
-                    className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-left transition-all cursor-pointer ${
-                      operatingMode === 'chat'
-                        ? 'bg-cyan-500/20 text-cyan-300 font-bold border border-cyan-500/40'
-                        : 'hover:bg-zinc-800 text-zinc-300'
-                    }`}
-                  >
-                    <MessageSquare className="w-4 h-4 text-cyan-400 shrink-0" />
-                    <div className="truncate">
-                      <div className="text-xs font-bold">💬 General Chat</div>
-                      <div className="text-[10px] text-zinc-400">Conversational Q&A & Writing</div>
-                    </div>
-                  </button>
-
-                  {/* 2. Image Generate */}
-                  <button
-                    onClick={() => {
-                      setOperatingMode('image-gen');
-                      const imgModel = AVAILABLE_MODELS.find((m) => m.category === 'image');
-                      if (imgModel) setSelectedModelId(imgModel.id);
-                      setShowModeMenu(false);
-                    }}
-                    className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-left transition-all cursor-pointer ${
-                      operatingMode === 'image-gen'
-                        ? 'bg-fuchsia-500/20 text-fuchsia-300 font-bold border border-fuchsia-500/40'
-                        : 'hover:bg-zinc-800 text-zinc-300'
-                    }`}
-                  >
-                    <ImageIcon className="w-4 h-4 text-fuchsia-400 shrink-0" />
-                    <div className="truncate">
-                      <div className="text-xs font-bold">🎨 Image Generate</div>
-                      <div className="text-[10px] text-zinc-400">Diffusion Art & Concept Drawing</div>
-                    </div>
-                  </button>
-
-                  {/* 3. Vision */}
-                  <button
-                    onClick={() => {
-                      setOperatingMode('vision');
-                      const visModel = AVAILABLE_MODELS.find((m) => m.category === 'vision');
-                      if (visModel) setSelectedModelId(visModel.id);
-                      setShowModeMenu(false);
-                    }}
-                    className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-left transition-all cursor-pointer ${
-                      operatingMode === 'vision'
-                        ? 'bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/40'
-                        : 'hover:bg-zinc-800 text-zinc-300'
-                    }`}
-                  >
-                    <Eye className="w-4 h-4 text-emerald-400 shrink-0" />
-                    <div className="truncate">
-                      <div className="text-xs font-bold">👁️ Vision & Photo QA</div>
-                      <div className="text-[10px] text-zinc-400">Camera OCR & Visual Reasoning</div>
-                    </div>
-                  </button>
-
-                  {/* 4. Voice */}
-                  <button
-                    onClick={() => {
-                      setOperatingMode('voice');
-                      setIsVoiceOutputEnabled(true);
-                      const voiceModel = AVAILABLE_MODELS.find((m) => m.category === 'voice');
-                      if (voiceModel) setSelectedModelId(voiceModel.id);
-                      setShowModeMenu(false);
-                    }}
-                    className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-left transition-all cursor-pointer ${
-                      operatingMode === 'voice'
-                        ? 'bg-amber-500/20 text-amber-300 font-bold border border-amber-500/40'
-                        : 'hover:bg-zinc-800 text-zinc-300'
-                    }`}
-                  >
-                    <Volume2 className="w-4 h-4 text-amber-400 shrink-0" />
-                    <div className="truncate">
-                      <div className="text-xs font-bold">🔊 Voice Synthesis</div>
-                      <div className="text-[10px] text-zinc-400">Spoken Readout & Neural TTS</div>
-                    </div>
-                  </button>
-
-                  {/* 5. Autonomous Agent */}
-                  <button
-                    onClick={() => {
-                      setOperatingMode('agent');
-                      setShowModeMenu(false);
-                    }}
-                    className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-left transition-all cursor-pointer ${
-                      operatingMode === 'agent'
-                        ? 'bg-indigo-500/20 text-indigo-300 font-bold border border-indigo-500/40'
-                        : 'hover:bg-zinc-800 text-zinc-300'
-                    }`}
-                  >
-                    <Bot className="w-4 h-4 text-indigo-400 shrink-0" />
-                    <div className="truncate">
-                      <div className="text-xs font-bold">🤖 Hermes Agent</div>
-                      <div className="text-[10px] text-zinc-400">Autonomous Tools & Multi-Step Logic</div>
-                    </div>
-                  </button>
-
-                  {/* 6. Embedding & Device Files */}
-                  <button
-                    onClick={() => {
-                      setOperatingMode('embedding');
-                      const embModel = AVAILABLE_MODELS.find((m) => m.category === 'embedding');
-                      if (embModel) setSelectedModelId(embModel.id);
-                      setShowModeMenu(false);
-                    }}
-                    className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-left transition-all cursor-pointer ${
-                      operatingMode === 'embedding'
-                        ? 'bg-blue-500/20 text-blue-300 font-bold border border-blue-500/40'
-                        : 'hover:bg-zinc-800 text-zinc-300'
-                    }`}
-                  >
-                    <Search className="w-4 h-4 text-blue-400 shrink-0" />
-                    <div className="truncate">
-                      <div className="text-xs font-bold">🔍 Embedding & File Search</div>
-                      <div className="text-[10px] text-zinc-400">Find Videos, Photos, Code & Docs</div>
-                    </div>
-                  </button>
                 </div>
               </>
             )}
@@ -2686,49 +2467,8 @@ export default function ChatView() {
               onChange={handleFileUpload}
             />
 
-            {/* Mode & Category Context Pill inside Chatbox */}
+            {/* Clean Prompt Input Area */}
             <div className="flex flex-col flex-1 min-w-0">
-              <div className="flex items-center gap-1.5 px-1 pt-0.5 pb-0.5 text-[9px] font-mono text-zinc-400">
-                <span className={`px-1.5 py-0.2 rounded font-bold uppercase tracking-wider ${
-                  operatingMode === 'vision' || currentModel?.category === 'vision'
-                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                    : operatingMode === 'image-gen' || currentModel?.category === 'image'
-                    ? 'bg-fuchsia-500/20 text-fuchsia-300 border border-fuchsia-500/30'
-                    : operatingMode === 'voice' || currentModel?.category === 'voice'
-                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                    : operatingMode === 'embedding' || currentModel?.category === 'embedding'
-                    ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
-                    : operatingMode === 'agent'
-                    ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30'
-                    : 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'
-                }`}>
-                  {operatingMode === 'vision' || currentModel?.category === 'vision'
-                    ? '👁️ Vision Mode'
-                    : operatingMode === 'image-gen' || currentModel?.category === 'image'
-                    ? '🎨 Image Studio'
-                    : operatingMode === 'voice' || currentModel?.category === 'voice'
-                    ? '🔊 Neural Voice'
-                    : operatingMode === 'embedding' || currentModel?.category === 'embedding'
-                    ? '🔍 Embedding Search'
-                    : operatingMode === 'agent'
-                    ? '🤖 Hermes Agent'
-                    : '💬 Chat & Text'}
-                </span>
-                <span className="truncate text-zinc-500">
-                  {operatingMode === 'vision' || currentModel?.category === 'vision'
-                    ? 'Attach photos or tap Camera for scene QA'
-                    : operatingMode === 'image-gen' || currentModel?.category === 'image'
-                    ? 'Describe an image to draw locally'
-                    : operatingMode === 'voice' || currentModel?.category === 'voice'
-                    ? 'Type text to synthesize speech or record mic'
-                    : operatingMode === 'embedding' || currentModel?.category === 'embedding'
-                    ? 'Search phone videos, photos, code, documents by meaning'
-                    : operatingMode === 'agent'
-                    ? 'Autonomous multi-step tools & code execution'
-                    : 'Fast reasoning, conversation, and document review'}
-                </span>
-              </div>
-
               {/* Prompt Textarea */}
               <textarea
                 value={inputVal}
@@ -2841,6 +2581,19 @@ export default function ChatView() {
                   setModelPromptDownload(null);
                   startDownloadModel(m.id);
                   setSelectedModelId(m.id);
+                  if (m.category === 'image') {
+                    setOperatingMode('image-gen');
+                  } else if (m.category === 'vision') {
+                    setOperatingMode('vision');
+                  } else if (m.category === 'voice') {
+                    setOperatingMode('voice');
+                  } else if (m.category === 'embedding') {
+                    setOperatingMode('embedding');
+                  } else if (m.capabilities.includes('agent')) {
+                    setOperatingMode('agent');
+                  } else {
+                    setOperatingMode('chat');
+                  }
                   setCurrentTab('models');
                 }}
                 className="flex-1 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 text-white text-xs font-bold shadow-md shadow-cyan-500/20 flex items-center justify-center gap-1.5"
