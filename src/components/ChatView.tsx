@@ -402,7 +402,7 @@ export default function ChatView() {
   const [showQuickActions, setShowQuickActions] = useState(false);
   const [showModelPicker, setShowModelPicker] = useState(false);
   const [modelSearchQuery, setModelSearchQuery] = useState('');
-  const [modelCategoryFilter, setModelCategoryFilter] = useState<'all' | 'ready' | 'vision' | 'agent' | 'text'>('all');
+  const [modelCategoryFilter, setModelCategoryFilter] = useState<'all' | 'ready' | 'vision' | 'agent' | 'text' | 'code'>('all');
   const [showSessionPicker, setShowSessionPicker] = useState(false);
   const [modelPromptDownload, setModelPromptDownload] = useState<ModelSpec | null>(null);
   const [expandedSteps, setExpandedSteps] = useState<Record<string, boolean>>({});
@@ -990,6 +990,7 @@ export default function ChatView() {
     if (modelCategoryFilter === 'vision') return m.category === 'vision' || m.capabilities.includes('vision');
     if (modelCategoryFilter === 'agent') return m.capabilities.includes('agent');
     if (modelCategoryFilter === 'text') return m.category === 'text';
+    if (modelCategoryFilter === 'code') return m.capabilities.includes('code');
     return true;
   });
 
@@ -1951,7 +1952,7 @@ export default function ChatView() {
 
                   {/* Category Filter Pills */}
                   <div className="flex items-center gap-1 overflow-x-auto pb-1 text-[10px] font-bold">
-                    {(['all', 'ready', 'vision', 'agent', 'text'] as const).map((cat) => (
+                    {(['all', 'ready', 'text', 'code', 'agent', 'vision'] as const).map((cat) => (
                       <button
                         key={cat}
                         type="button"
@@ -2049,6 +2050,11 @@ export default function ChatView() {
                               <span className="px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-300">
                                 {m.parameters} • {m.quantization}
                               </span>
+                              {m.contextWindow && (
+                                <span className="px-1.5 py-0.5 rounded bg-zinc-800 text-cyan-300">
+                                  {Math.round(m.contextWindow / 1024)}k ctx
+                                </span>
+                              )}
                               <span className={`px-1.5 py-0.5 rounded ${
                                 m.engine === 'webgpu' ? 'bg-purple-900/40 text-purple-300 border border-purple-700/40' : 'bg-amber-900/30 text-amber-300 border border-amber-700/40'
                               }`}>
