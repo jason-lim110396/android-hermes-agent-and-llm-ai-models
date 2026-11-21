@@ -268,3 +268,20 @@ export function clearAllEndpointCooldowns(): void {
   endpointCooldowns.clear();
 }
 
+/**
+ * Returns all endpoints currently in an active cooldown window.
+ * Prunes expired entries automatically.
+ */
+export function getAllActiveCooldowns(): EndpointCooldown[] {
+  const now = Date.now();
+  const active: EndpointCooldown[] = [];
+  for (const [key, entry] of Array.from(endpointCooldowns.entries())) {
+    if (entry.until > now) {
+      active.push(entry);
+    } else {
+      endpointCooldowns.delete(key);
+    }
+  }
+  return active;
+}
+

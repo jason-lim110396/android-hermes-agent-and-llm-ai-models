@@ -62,6 +62,7 @@ import {
   HardDrive,
   Plus,
   Type,
+  Clock,
 } from 'lucide-react';
 import {
   getChatFontSize,
@@ -70,7 +71,14 @@ import {
   type ChatFontSize,
 } from '@/utils/fontSettings';
 import { useAppStore } from '@/appStore';
-import { FREE_FALLBACK_PRESETS, FallbackModelEntry } from '@/utils/modelFallback';
+import {
+  FREE_FALLBACK_PRESETS,
+  FallbackModelEntry,
+  isEndpointInCooldown,
+  clearEndpointCooldown,
+  clearAllEndpointCooldowns,
+  getAllActiveCooldowns,
+} from '@/utils/modelFallback';
 
 export interface FirewallCustomRule {
   id: string;
@@ -188,6 +196,16 @@ export default function SettingsView() {
   const [isAuditingCache, setIsAuditingCache] = useState(false);
   const [isPurgingOrphans, setIsPurgingOrphans] = useState(false);
   const [purgeStatusMessage, setPurgeStatusMessage] = useState<string | null>(null);
+  const [cooldownTick, setCooldownTick] = useState(0);
+
+  useEffect(() => {
+    const active = getAllActiveCooldowns();
+    if (active.length === 0) return;
+    const interval = setInterval(() => {
+      setCooldownTick((t) => t + 1);
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [cooldownTick]);
 
   const refreshStorage = async () => {
     try {
@@ -1340,11 +1358,40 @@ export default function SettingsView() {
             </div>
           )}
 
+          {(() => {
+            const activeCooldowns = getAllActiveCooldowns();
+            if (activeCooldowns.length === 0) return null;
+            return (
+              <div className="flex items-center justify-between gap-2 bg-amber-950/40 border border-amber-500/40 rounded-xl px-2.5 py-1.5">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <Clock className="w-3.5 h-3.5 text-amber-400 shrink-0 animate-spin" />
+                  <span className="text-[10px] text-amber-200 font-medium truncate">
+                    {activeCooldowns.length} endpoint{activeCooldowns.length > 1 ? 's' : ''} in rate-limit cooldown
+                  </span>
+                </div>
+                <button
+                  onClick={() => {
+                    triggerHaptic(10);
+                    clearAllEndpointCooldowns();
+                    setCooldownTick((t) => t + 1);
+                  }}
+                  className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-amber-900/60 border border-amber-500/50 text-amber-300 hover:text-amber-100 text-[9px] font-bold transition-colors cursor-pointer shrink-0"
+                  title="Clear all active endpoint cooldowns"
+                >
+                  <RefreshCw className="w-2.5 h-2.5" />
+                  Reset All Cooldowns
+                </button>
+              </div>
+            );
+          })()}
+
           <div className="space-y-1.5">
             {modelFallbackChain.length === 0 && (
               <p className="text-[10px] text-zinc-500">No fallback models yet - add a free preset below.</p>
             )}
-            {modelFallbackChain.map((entry: FallbackModelEntry, idx: number) => (
+            {modelFallbackChain.map((entry: FallbackModelEntry, idx: number) => {
+              const cooldownInfo = isEndpointInCooldown(entry.endpoint, entry.model);
+              return (
               <div
                 key={entry.id || idx}
                 className="flex items-center justify-between gap-2 bg-zinc-950/80 border border-zinc-800 rounded-xl px-2.5 py-1.5"
@@ -1359,6 +1406,25 @@ export default function SettingsView() {
                     {entry.model ? ` - ${entry.model}` : ''}
                     {entry.apiKey ? ' - key set' : ''}
                   </p>
+                  {cooldownInfo.inCooldown && (
+                    <div className="flex items-center gap-1.5 mt-1 bg-amber-950/60 border border-amber-500/40 rounded px-1.5 py-0.5 w-fit">
+                      <Clock className="w-2.5 h-2.5 text-amber-400 shrink-0" />
+                      <span className="text-[8px] font-mono text-amber-200">
+                        Cooldown: {cooldownInfo.reason || 'rate-limited'} ({cooldownInfo.remainingSeconds}s left)
+                      </span>
+                      <button
+                        onClick={() => {
+                          triggerHaptic(5);
+                          clearEndpointCooldown(entry.endpoint, entry.model);
+                          setCooldownTick((t) => t + 1);
+                        }}
+                        className="text-[8px] font-bold text-amber-300 hover:text-amber-100 underline ml-0.5 cursor-pointer"
+                        title="Clear cooldown immediately"
+                      >
+                        Reset
+                      </button>
+                    </div>
+                  )}
                   {fallbackTestResults[entry.id || String(idx)] && (
                     <span className={`text-[8px] font-mono px-1.5 py-0.2 rounded border inline-block mt-0.5 ${
                       fallbackTestResults[entry.id || String(idx)].ok
@@ -1419,7 +1485,8 @@ export default function SettingsView() {
                   </button>
                 </div>
               </div>
-            ))}
+            );
+            })}
           </div>
 
           <div className="flex flex-wrap gap-1.5">
