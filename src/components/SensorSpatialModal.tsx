@@ -25,6 +25,8 @@ import {
   Cpu,
 } from 'lucide-react';
 import { useBackButtonClose } from '@/utils/backButton';
+import { isGeolocationPermissionDenied } from '@/utils/nativeAppSettings';
+import PermissionDeniedNotice from './PermissionDeniedNotice';
 
 interface SensorSpatialModalProps {
   isOpen: boolean;
@@ -93,6 +95,11 @@ export default function SensorSpatialModal({
     speed: 0.0,
     locality: 'Downtown Metropolis · Precision GPS Fix',
   });
+  // Honest GPS state: 'live' after a real fix, 'denied' after the user
+  // refused the permission (Android then auto-denies silently forever),
+  // 'unavailable' when the fix fails for another reason. Before the
+  // callback it stays 'acquiring'.
+  const [gpsStatus, setGpsStatus] = useState<'acquiring' | 'live' | 'denied' | 'unavailable'>('acquiring');
   const [ambientLux, setAmbientLux] = useState<number>(340);
   const [luxCategory, setLuxCategory] = useState<string>('Indoor / Office Studio (300-500 lux)');
   const [isCopied, setIsCopied] = useState<boolean>(false);
@@ -115,6 +122,9 @@ export default function SensorSpatialModal({
     let conn: any = null;
     let updateConn: (() => void) | null = null;
     let ambientSensor: any = null;
+    // Each open starts a fresh GPS attempt: the status shown must belong to
+    // this open's fix, not the previous one.
+    setGpsStatus('acquiring');
 
     // 1. Battery API
     if (typeof navigator !== 'undefined' && 'getBattery' in navigator) {
@@ -190,6 +200,7 @@ export default function SensorSpatialModal({
     if (typeof navigator !== 'undefined' && 'geolocation' in navigator) {
       navigator.geolocation.getCurrentPosition(
         (pos) => {
+          setGpsStatus('live');
           setGeoLoc({
             latitude: +pos.coords.latitude.toFixed(4),
             longitude: +pos.coords.longitude.toFixed(4),
@@ -200,8 +211,13 @@ export default function SensorSpatialModal({
             locality: 'Live GPS Satellite Fix · Real-Time Coordinates',
           });
         },
-        () => {
-          // Graceful simulated default coordinates
+        (err) => {
+          // The native permission dialog fires at this moment of use. A
+          // denial means Android auto-denies every later request silently;
+          // the old catch-all here just left the fabricated demo
+          // coordinates on screen as if they were a real fix.
+          if (cancelled) return;
+          setGpsStatus(isGeolocationPermissionDenied(err) ? 'denied' : 'unavailable');
         },
         { enableHighAccuracy: true, timeout: 6000 }
       );
@@ -498,17 +514,25 @@ export default function SensorSpatialModal({
                 <MapPin className="w-3.5 h-3.5" />
                 <span>GPS Spatial Coordinates</span>
               </div>
-              <div className="text-[10px] font-mono text-zinc-300 space-y-1">
-                <div>
-                  <span className="text-zinc-500">Lat:</span> {geoLoc.latitude}° N
+              {gpsStatus === 'denied' ? (
+                <PermissionDeniedNotice permissionName="Location (GPS)" />
+              ) : gpsStatus === 'unavailable' ? (
+                <p className="text-[10px] font-mono text-amber-300/90 leading-snug">
+                  No GPS fix available on this device right now. Coordinates shown below are not a live position.
+                </p>
+              ) : (
+                <div className="text-[10px] font-mono text-zinc-300 space-y-1">
+                  <div>
+                    <span className="text-zinc-500">Lat:</span> {geoLoc.latitude}° N
+                  </div>
+                  <div>
+                    <span className="text-zinc-500">Long:</span> {geoLoc.longitude}° E
+                  </div>
+                  <div>
+                    <span className="text-zinc-500">Accuracy:</span> ±{geoLoc.accuracy} m
+                  </div>
                 </div>
-                <div>
-                  <span className="text-zinc-500">Long:</span> {geoLoc.longitude}° E
-                </div>
-                <div>
-                  <span className="text-zinc-500">Accuracy:</span> ±{geoLoc.accuracy} m
-                </div>
-              </div>
+              )}
             </div>
 
             {/* Ambient Lux */}

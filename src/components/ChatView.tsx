@@ -79,6 +79,8 @@ import OfflinePhraseBookModal from './OfflinePhraseBookModal';
 import SensorSpatialModal from './SensorSpatialModal';
 import NetworkSpeedModal from './NetworkSpeedModal';
 import { abortAllInference } from '@/inferenceEngine';
+import { isPermissionDeniedError } from '@/utils/nativeAppSettings';
+import PermissionDeniedNotice from './PermissionDeniedNotice';
 import { attachGuardedRecognition, voiceChunkBelongsToCurrentNote } from '@/utils/voiceSession';
 import { useBackButtonClose } from '@/utils/backButton';
 import MarkdownNotepadModal from './MarkdownNotepadModal';
@@ -593,6 +595,9 @@ export default function ChatView() {
   // WhatsApp-Style Voice Note State
   const [isRecordingVoice, setIsRecordingVoice] = useState(false);
   const [recordDurationSec, setRecordDurationSec] = useState(0);
+  // Microphone permanently denied (Android auto-denies silently after that):
+  // the composer shows an honest notice with the app-settings way out.
+  const [micPermissionDenied, setMicPermissionDenied] = useState(false);
   const [activeAudioPlayingId, setActiveAudioPlayingId] = useState<string | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -672,6 +677,7 @@ export default function ChatView() {
     audioChunksRef.current = [];
     currentTranscriptRef.current = '';
     setRecordDurationSec(0);
+    setMicPermissionDenied(false);
 
     // Explicitly check / prompt for microphone permission if supported
     try {
@@ -679,7 +685,9 @@ export default function ChatView() {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const permStatus = await navigator.permissions.query({ name: 'microphone' as any });
         if (permStatus.state === 'denied') {
-          alert('Microphone permission is blocked. Please grant microphone access in Android App Settings.');
+          // Already permanently denied: the native dialog will not reappear.
+          // Say so with the settings way out instead of a bare alert.
+          setMicPermissionDenied(true);
           return;
         }
       }
@@ -796,8 +804,10 @@ export default function ChatView() {
         try { rec.stop(); } catch (_) {}
       }
       voiceRequestIdRef.current++;
-      if (err?.name === 'NotAllowedError' || err?.name === 'PermissionDeniedError') {
-        alert('Microphone permission was denied. Please allow microphone access to record voice messages.');
+      if (isPermissionDeniedError(err)) {
+        // The native dialog fired at this moment of use; a denial here means
+        // Android auto-denies silently from now on. Show the settings way out.
+        setMicPermissionDenied(true);
       } else {
         alert('Microphone unavailable or timed out. Voice note was not started - please try again.');
       }
@@ -818,6 +828,7 @@ export default function ChatView() {
     // Commit: this request now owns the live recognition session.
     recognitionRef.current = rec;
     setIsRecordingVoice(true);
+    setMicPermissionDenied(false);
 
     // Recording seconds ticker
     if (voiceTimerRef.current) clearInterval(voiceTimerRef.current);
@@ -2393,6 +2404,16 @@ export default function ChatView() {
             <span>Device Audit</span>
           </button>
         </div>
+        )}
+
+        {/* Microphone permission permanently denied: honest notice with the
+            app-settings way out, instead of a bare alert. */}
+        {micPermissionDenied && !isRecordingVoice && (
+          <PermissionDeniedNotice
+            permissionName="Microphone"
+            onRetry={startWhatsAppVoiceRecording}
+            onDismiss={() => setMicPermissionDenied(false)}
+          />
         )}
 
         {isRecordingVoice ? (

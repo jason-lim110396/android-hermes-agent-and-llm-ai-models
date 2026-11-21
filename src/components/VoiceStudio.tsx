@@ -39,6 +39,8 @@ import {
 import { useAppStore } from '@/appStore';
 import { AVAILABLE_MODELS } from '@/models';
 import { speakGuarded } from '@/utils/speechGuard';
+import { isSpeechRecognitionPermissionDenied } from '@/utils/nativeAppSettings';
+import PermissionDeniedNotice from './PermissionDeniedNotice';
 import { attachGuardedRecognition } from '@/utils/voiceSession';
 import { startVisibleInterval } from '@/utils/visibleInterval';
 
@@ -90,6 +92,10 @@ export default function VoiceStudio() {
   const [rate, setRate] = useState<number>(1.0);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingDuration, setRecordingDuration] = useState(0);
+  // Microphone permanently denied (Android auto-denies silently after the
+  // first denial): the STT card shows an honest notice with the settings way
+  // out instead of failing without a word.
+  const [dictationPermissionDenied, setDictationPermissionDenied] = useState(false);
   const [transcribedText, setTranscribedText] = useState('');
   // Live partial from the recognizer: shown as a transient preview while
   // speaking, committed to transcribedText only when a result is final.
@@ -604,6 +610,8 @@ export default function VoiceStudio() {
       alert('Speech Recognition is not supported by your current browser environment.');
       return;
     }
+    // A fresh attempt clears any stale denied notice.
+    setDictationPermissionDenied(false);
 
     try {
       if (navigator.vibrate) navigator.vibrate([40]);
@@ -623,9 +631,14 @@ export default function VoiceStudio() {
           recognitionRef.current = null;
           setIsRecording(false);
         },
-        onError: () => {
+        onError: (event) => {
           recognitionRef.current = null;
           setIsRecording(false);
+          // A denied microphone used to fail completely silently here: the
+          // button just flipped back with no explanation. Name it.
+          if (isSpeechRecognitionPermissionDenied(event)) {
+            setDictationPermissionDenied(true);
+          }
         },
         onResult: (event) => {
           // Android speech engines fire onresult repeatedly with growing
@@ -1019,6 +1032,16 @@ export default function VoiceStudio() {
                   )}
                 </div>
               </div>
+
+              {/* Microphone permanently denied: honest notice with the
+                  app-settings way out (Android no longer shows the dialog). */}
+              {dictationPermissionDenied && !isRecording && (
+                <PermissionDeniedNotice
+                  permissionName="Microphone"
+                  onRetry={handleToggleRecord}
+                  onDismiss={() => setDictationPermissionDenied(false)}
+                />
+              )}
             </div>
 
             {/* Real-time Audio DSP & Acoustic Noise Gate Filter */}
