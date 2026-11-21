@@ -25,6 +25,18 @@ body {
   overflow: hidden;
 }
 
+/* viewportFit=cover extends the WebView under the Android status bar and the
+   gesture navigation bar. Pad the app chrome so the tab header and the bottom
+   navigation stay clear of them; env() is 0 where no inset exists, so the
+   original spacing is the floor. */
+.app-safe-top {
+  padding-top: max(0.375rem, env(safe-area-inset-top));
+}
+
+.app-safe-bottom {
+  padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+}
+
 @keyframes spin-slow {
   from {
     transform: rotate(0deg);

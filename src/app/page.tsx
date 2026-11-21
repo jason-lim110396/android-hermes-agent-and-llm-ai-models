@@ -101,7 +101,7 @@ export default function Home() {
     <ErrorBoundary>
       <main className="fixed inset-0 w-full h-full bg-zinc-950 text-white flex flex-col overflow-hidden font-sans select-none">
       {/* Top Workspace & Studio Switcher Bar */}
-      <header className="w-full shrink-0 z-30 bg-zinc-950/95 border-b border-zinc-800/80 px-2 py-1.5 flex items-center gap-1.5 overflow-x-auto scrollbar-none">
+      <header className="w-full shrink-0 z-30 bg-zinc-950/95 border-b border-zinc-800/80 px-2 pb-1.5 app-safe-top flex items-center gap-1.5 overflow-x-auto scrollbar-none">
         {studioTabs.map((item) => {
           const isActive = currentTab === item.id;
           const Icon = item.icon;
@@ -212,7 +212,7 @@ export default function Home() {
       )}
 
       {/* Mobile Fixed Bottom Navigation Bar in Flex Flow */}
-      <nav className="w-full shrink-0 z-30 bg-zinc-950/98 border-t border-zinc-800/80 backdrop-blur-xl px-2 py-2 flex items-center justify-around">
+      <nav className="w-full shrink-0 z-30 bg-zinc-950/98 border-t border-zinc-800/80 backdrop-blur-xl px-2 pt-2 app-safe-bottom flex items-center justify-around">
         <button
           onClick={() => setCurrentTab('chat')}
           className={`flex flex-col items-center gap-0.5 px-3 py-1 rounded-xl transition-all cursor-pointer ${
