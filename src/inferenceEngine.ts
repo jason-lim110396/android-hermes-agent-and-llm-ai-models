@@ -671,29 +671,28 @@ export async function callRealLLMInference({
           // Forwarding a prompt to a different provider is only justified when
           // the current one rejected it for usage/quota reasons (429/402/403
           // quota/503 limit) or went unreachable. A plain HTTP failure such as
-          // 404 or a malformed-request 400 means the prompt/route is wrong;
-          // replaying it down the whole free chain just burns every endpoint.
+          // 404 or a malformed-request 400 on the primary endpoint means the
+          // prompt/route is wrong; replaying it down the whole free chain just burns
+          // every endpoint. However, if candidate i > 0 (already a fallback candidate)
+          // fails with an endpoint-specific HTTP error, continue to candidate i + 1.
           const isTerminalHttpError =
             lastFailure instanceof RemoteEndpointError &&
             !isUsageLimitFailure(lastFailure.status, lastFailure.detail);
           if (isTerminalHttpError) {
             console.warn(
-              `Inference endpoint "${candidate.label}" failed with a non-quota HTTP error; not forwarding the prompt to another provider:`,
+              `Inference endpoint "${candidate.label}" failed with a non-quota HTTP error:`,
               err
             );
-            break;
+            if (i === 0) {
+              break;
+            }
+            continue;
           }
           // A failed fetch with no HTTP status is a transport fault: offline,
           // DNS failure, TLS error, or a dead local endpoint. A stalled request
           // (no response, or no data mid-stream) is the same class of failure.
-          // Replaying the same prompt down every remaining endpoint cannot help
-          // here and on a phone it adds seconds of lag while the user waits for
-          // an answer that will never arrive. Stop the chain and let the caller
-          // fall through to on-device inference instead.
-          // Only a genuine fetch/transport failure is terminal here. A stream
-          // parsing error (non-RemoteEndpointError thrown while reading the
-          // body) is NOT a network fault: another provider may still serve the
-          // prompt, so keep the chain moving for those.
+          // If the device is genuinely offline, no remote endpoint can succeed;
+          // stop the chain immediately and fall through to on-device inference.
           const errMessage = (lastFailure?.message || '').toLowerCase();
           const isTimeout = lastFailure instanceof RemoteTimeoutError;
           const isFetchFailure =
@@ -706,28 +705,22 @@ export async function callRealLLMInference({
             typeof navigator !== 'undefined' && typeof navigator.onLine === 'boolean'
               ? !navigator.onLine
               : false;
-          if (isFetchFailure || offline || isTimeout) {
+          if (offline) {
             console.warn(
-              offline
-                ? `Inference endpoint "${candidate.label}" unreachable while offline; not forwarding the prompt to other providers.`
-                : isTimeout
-                  ? `Inference endpoint "${candidate.label}" stopped responding; not replaying the prompt down the chain.`
-                  : `Inference endpoint "${candidate.label}" failed at the network layer; not replaying the prompt down the chain.`,
+              `Inference endpoint "${candidate.label}" unreachable while offline; not forwarding the prompt to other providers.`,
               err
             );
-            // Give the exhausted-chain notice a meaningful reason instead of
-            // a generic "failed to fetch" so the UI can explain the switch.
-            // Preserve the original error as `cause` so diagnostics keep the
-            // stack and detail that produced the switch.
-            lastFailure = new Error(
-              offline
-                ? 'device is offline'
-                : isTimeout
-                  ? lastFailure.message
-                  : 'network unreachable',
-              { cause: err }
-            );
+            lastFailure = new Error('device is offline', { cause: err });
             break;
+          }
+          if (isFetchFailure || isTimeout) {
+            console.warn(
+              isTimeout
+                ? `Inference endpoint "${candidate.label}" stopped responding; trying next candidate.`
+                : `Inference endpoint "${candidate.label}" failed at the network layer; trying next candidate.`,
+              err
+            );
+            continue;
           }
           const reason =
             lastFailure instanceof RemoteEndpointError
