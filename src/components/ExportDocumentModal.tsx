@@ -224,10 +224,17 @@ export default function ExportDocumentModal({
         setShared(true);
         setTimeout(() => setShared(false), 2000);
         if (navigator.vibrate) navigator.vibrate([20, 20]);
-      } catch (_) {}
-    } else {
-      handleCopy();
+        return;
+      } catch (err) {
+        // The user dismissing the sheet is not an error; other failures
+        // fall through to the honest clipboard copy below.
+        if ((err as { name?: string })?.name !== 'AbortError') {
+          handleCopy();
+        }
+        return;
+      }
     }
+    handleCopy();
   };
 
   const handleCopy = () => {

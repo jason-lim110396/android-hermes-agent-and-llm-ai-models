@@ -89,16 +89,39 @@ export default function ModelHub() {
         return;
       }
       let totalFreedMB = 0;
+      let purged = 0;
+      const failedNames: string[] = [];
       for (const m of downloadedModels) {
         await deleteModel(m.id);
-        totalFreedMB += m.sizeMB;
+        // deleteModel only drops the entry when the cache confirms the
+        // weights are gone; a failed delete keeps the model ready with an
+        // error message. Count only real removals.
+        const stillListed = useAppStore.getState().downloads[m.id]?.isReady;
+        if (stillListed) {
+          failedNames.push(m.name);
+        } else {
+          purged++;
+          totalFreedMB += m.sizeMB;
+        }
       }
       await checkCacheStatus();
+      if (failedNames.length > 0) {
+        setEvictSuccessMsg(
+          purged > 0
+            ? `Purged ${purged} model(s) freeing ${(totalFreedMB / 1024).toFixed(1)} GB; could NOT remove ${failedNames.join(', ')} - they remain stored.`
+            : `Could not remove ${failedNames.join(', ')} - they remain stored. Nothing was purged.`
+        );
+        setTimeout(() => setEvictSuccessMsg(null), 5000);
+        return;
+      }
       setEvictSuccessMsg(`Purged ${downloadedModels.length} model(s), freeing ${(totalFreedMB / 1024).toFixed(1)} GB phone storage!`);
       if (navigator.vibrate) navigator.vibrate([60, 40, 60]);
       setTimeout(() => setEvictSuccessMsg(null), 4000);
-    } catch (_) {
-      setEvictSuccessMsg('Eviction completed with partial release.');
+    } catch (err: unknown) {
+      // Name the failure; the old catch claimed success whatever actually
+      // went wrong.
+      setEvictSuccessMsg(`Smart eviction failed: ${(err as Error)?.message || 'cache delete error'}. No success was claimed.`);
+      setTimeout(() => setEvictSuccessMsg(null), 4000);
     } finally {
       setIsEvicting(false);
     }
@@ -565,9 +588,18 @@ export default function ModelHub() {
                   </div>
                 ) : isDownloaded ? (
                   <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-1.5 text-emerald-400 text-xs font-bold">
-                      <Check className="w-4 h-4" />
-                      <span>Ready Locally</span>
+                    <div className="flex flex-col gap-1.5">
+                      <div className="flex items-center gap-1.5 text-emerald-400 text-xs font-bold">
+                        <Check className="w-4 h-4" />
+                        <span>Ready Locally</span>
+                      </div>
+                      {/* A failed delete keeps the model here with the reason. */}
+                      {dlState?.errorMessage && (
+                        <div className="flex items-start gap-1.5 px-2 py-1.5 rounded-lg bg-rose-950/40 border border-rose-800/50 text-rose-300 text-[10px] leading-relaxed">
+                          <AlertTriangle className="w-3 h-3 text-rose-400 shrink-0 mt-0.5" />
+                          <span>{dlState.errorMessage}</span>
+                        </div>
+                      )}
                     </div>
                     <div className="flex items-center gap-2">
                       <button

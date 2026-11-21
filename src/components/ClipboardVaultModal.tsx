@@ -128,6 +128,14 @@ export default function ClipboardVaultModal({
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [newText, setNewText] = useState('');
   const [isAdding, setIsAdding] = useState(false);
+  // Transient copy/share outcome: a rejected clipboard write must not show
+  // the "Copied" badge, and the user deserves to see what actually happened.
+  const [clipboardNotice, setClipboardNotice] = useState<{ kind: 'error' | 'info'; text: string } | null>(null);
+  const showClipboardNotice = (kind: 'error' | 'info', text: string) => {
+    setClipboardNotice({ kind, text });
+    if (kind === 'error' && typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate([30, 30]);
+    setTimeout(() => setClipboardNotice(null), 3000);
+  };
 
   // Load from localStorage + seed
   useEffect(() => {
@@ -208,11 +216,17 @@ export default function ClipboardVaultModal({
   };
 
   const handleCopy = async (entry: ClipEntry) => {
+    if (typeof navigator === 'undefined' || !navigator.clipboard) {
+      showClipboardNotice('error', 'Clipboard is unavailable in this WebView - the text was not copied.');
+      return;
+    }
     try {
-      if (typeof navigator !== 'undefined' && navigator.clipboard) {
-        await navigator.clipboard.writeText(entry.text);
-      }
-    } catch (_) {}
+      await navigator.clipboard.writeText(entry.text);
+    } catch {
+      // Only the resolved write may claim "Copied".
+      showClipboardNotice('error', 'Clipboard write was blocked - the text was not copied. Long-press the entry to select it manually.');
+      return;
+    }
     setCopiedId(entry.id);
     if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(25);
     setTimeout(() => setCopiedId(null), 2000);
@@ -232,11 +246,23 @@ export default function ClipboardVaultModal({
       try {
         await navigator.share({ text });
         return;
-      } catch (_) {}
+      } catch (err) {
+        // The user dismissing the share sheet is not an error; anything
+        // else falls through to an honest clipboard attempt.
+        if ((err as { name?: string })?.name === 'AbortError') return;
+      }
     }
     if (typeof navigator !== 'undefined' && navigator.clipboard) {
-      navigator.clipboard.writeText(text);
+      try {
+        await navigator.clipboard.writeText(text);
+        showClipboardNotice('info', 'Share sheet unavailable - text copied to the clipboard instead.');
+        return;
+      } catch {
+        showClipboardNotice('error', 'Neither the share sheet nor the clipboard worked - nothing was shared or copied.');
+        return;
+      }
     }
+    showClipboardNotice('error', 'Sharing is unavailable on this device - nothing was shared.');
   };
 
   const handleAudit = (text: string) => {
@@ -288,6 +314,19 @@ export default function ClipboardVaultModal({
             <X className="w-5 h-5" />
           </button>
         </div>
+
+        {/* Copy/share outcome: the honest answer to "what just happened". */}
+        {clipboardNotice && (
+          <div
+            className={`mx-4 mt-3 px-3 py-2 rounded-xl border text-[11px] font-semibold leading-snug ${
+              clipboardNotice.kind === 'error'
+                ? 'bg-rose-950/40 border-rose-500/40 text-rose-300'
+                : 'bg-cyan-950/40 border-cyan-500/40 text-cyan-300'
+            }`}
+          >
+            {clipboardNotice.text}
+          </div>
+        )}
 
         {/* Search & Filter Bar */}
         <div className="px-4 py-3 border-b border-zinc-800/60 bg-zinc-900/40 flex flex-col gap-2 shrink-0">

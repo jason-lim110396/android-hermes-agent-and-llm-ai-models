@@ -209,6 +209,27 @@ export default function TaskWorkflowsStudio() {
   const [finalOutput, setFinalOutput] = useState<string | null>(null);
   const [generatedFile, setGeneratedFile] = useState<{ name: string; url: string; size: string } | null>(null);
   const [copied, setCopied] = useState(false);
+  // Transient copy/share failure: shown next to the output actions instead
+  // of leaving a rejected write silent (or falsely "Copied").
+  const [copyFailed, setCopyFailed] = useState(false);
+  const showCopyFailure = () => {
+    setCopyFailed(true);
+    if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate([30, 30]);
+    setTimeout(() => setCopyFailed(false), 3000);
+  };
+  const copyOutputToClipboard = () => {
+    if (typeof navigator === 'undefined' || !navigator.clipboard) {
+      showCopyFailure();
+      return;
+    }
+    navigator.clipboard
+      .writeText(finalOutput || '')
+      .then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      })
+      .catch(() => showCopyFailure());
+  };
   const [isToolTesterOpen, setIsToolTesterOpen] = useState(false);
 
   // Every workflow run mints a fresh Blob URL for its export file. Revoke the
@@ -231,7 +252,28 @@ export default function TaskWorkflowsStudio() {
     setFinalOutput(null);
     setGeneratedFile(null);
     setLogs([]);
+    try {
+      await runWorkflowSteps(workflowId, customPrompt);
+    } catch (err: unknown) {
+      // A crash mid-pipeline must not leave the studio stuck "running" with
+      // a dead Run button: name the failure in the log and the output.
+      const reason = (err as Error)?.message || String(err);
+      setLogs((prev) => [
+        ...prev,
+        {
+          step: prev.length + 1,
+          toolName: 'pipeline',
+          status: 'failed' as const,
+          detail: `Workflow crashed: ${reason}`,
+        },
+      ]);
+      setFinalOutput(`⚠️ **Workflow failed**: ${reason}. Steps after the crash did not run.`);
+    } finally {
+      setIsRunning(false);
+    }
+  };
 
+  const runWorkflowSteps = async (workflowId: string, customPrompt?: string) => {
     // A pasted unified diff in the goal box routes to the diff auditor: Run
     // Task auto-detects diff-looking text, and the auditor card's Execute
     // passes the goal text, so the real diff parser is reachable from both
@@ -1216,7 +1258,7 @@ export default function TaskWorkflowsStudio() {
       );
     }
 
-    setIsRunning(false);
+    // The finally in runWorkflow always clears the running state.
   };
 
   const handleShareResult = async () => {
@@ -1227,12 +1269,14 @@ export default function TaskWorkflowsStudio() {
           title: 'Hermes AI Task Result',
           text: finalOutput,
         });
-      } catch (_) {}
-    } else if (typeof navigator !== 'undefined' && navigator.clipboard) {
-      navigator.clipboard.writeText(finalOutput);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+        return;
+      } catch (err) {
+        // Dismissal is not a failure; anything else falls through to the
+        // honest clipboard attempt below.
+        if ((err as { name?: string })?.name === 'AbortError') return;
+      }
     }
+    copyOutputToClipboard();
   };
 
   return (
@@ -1425,16 +1469,17 @@ export default function TaskWorkflowsStudio() {
                   <span>Share to Apps</span>
                 </button>
                 <button
-                  onClick={() => {
-                    navigator.clipboard.writeText(finalOutput);
-                    setCopied(true);
-                    setTimeout(() => setCopied(false), 2000);
-                  }}
+                  onClick={copyOutputToClipboard}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white font-bold text-xs transition-all cursor-pointer"
                 >
                   {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
                   <span>{copied ? 'Copied' : 'Copy'}</span>
                 </button>
+                {copyFailed && (
+                  <span className="text-[10px] text-rose-300 font-semibold leading-snug">
+                    Copy failed - clipboard blocked. Nothing was copied.
+                  </span>
+                )}
               </div>
             </div>
           )}

@@ -163,9 +163,10 @@ export default function OfflinePhraseBookModal({ isOpen, onClose }: OfflinePhras
 
   const handleCopy = async (phrase: Phrase) => {
     const text = `${phrase.english}\n${phrase.translations[selectedLang.code]} (${phrase.phonetics[selectedLang.code]})`;
-    if (typeof navigator !== 'undefined' && navigator.clipboard) {
-      try { await navigator.clipboard.writeText(text); } catch (_) {}
-    }
+    if (typeof navigator === 'undefined' || !navigator.clipboard) return;
+    // Only the resolved write may show the "Copied" checkmark; a rejected
+    // write leaves the row untouched instead of claiming success.
+    try { await navigator.clipboard.writeText(text); } catch (_) { return; }
     setCopiedId(phrase.id);
     if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(25);
     setTimeout(() => setCopiedId(null), 2000);

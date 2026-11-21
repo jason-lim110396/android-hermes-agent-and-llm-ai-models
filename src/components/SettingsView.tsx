@@ -150,6 +150,12 @@ export default function SettingsView() {
     // Allow re-picking the same file later.
     e.target.value = '';
     const reader = new FileReader();
+    reader.onerror = () => {
+      // A failed read must not be silent: the user picked a file and
+      // nothing happened.
+      setBackupStatus('Could not read the selected backup file. Nothing was imported.');
+      setTimeout(() => setBackupStatus(null), 4000);
+    };
     reader.onload = (event) => {
       let parsed: unknown;
       try {
@@ -375,17 +381,28 @@ export default function SettingsView() {
   }, []);
 
   const handleRequestPermission = async () => {
-    if (typeof window !== 'undefined' && 'Notification' in window) {
-      try {
-        const res = await Notification.requestPermission();
-        setNotifPermission(res);
-        if (res === 'granted') {
-          setTestNotifSuccess('System notification permission granted!');
-          if (navigator.vibrate) navigator.vibrate([40, 30, 40]);
-          setTimeout(() => setTestNotifSuccess(null), 3000);
-        }
-      } catch (_) {}
+    if (typeof window === 'undefined' || !('Notification' in window)) {
+      setTestNotifSuccess('Notifications are not supported in this WebView.');
+      setTimeout(() => setTestNotifSuccess(null), 3000);
+      return;
     }
+    try {
+      const res = await Notification.requestPermission();
+      setNotifPermission(res);
+      if (res === 'granted') {
+        setTestNotifSuccess('System notification permission granted!');
+        if (navigator.vibrate) navigator.vibrate([40, 30, 40]);
+      } else if (res === 'denied') {
+        // A denial must be said out loud: the dialog will not reappear until
+        // the user re-enables notifications in the app's system settings.
+        setTestNotifSuccess('Notification permission was DENIED - no reminder can pop up. Re-enable notifications for Hermes in Android App Settings.');
+      } else {
+        setTestNotifSuccess('Notification permission request was dismissed - nothing was changed.');
+      }
+    } catch (err) {
+      setTestNotifSuccess(`Notification permission request failed: ${(err as Error)?.message || 'request threw'}. Nothing was changed.`);
+    }
+    setTimeout(() => setTestNotifSuccess(null), 5000);
   };
 
   const handleTestInstantNotification = () => {
@@ -966,7 +983,13 @@ export default function SettingsView() {
             </button>
 
             {testNotifSuccess && (
-              <span className="text-[10px] text-emerald-400 font-mono font-bold animate-fadeIn">
+              <span
+                className={`text-[10px] font-mono font-bold animate-fadeIn ${
+                  /DENIED|failed|dismissed|not supported/i.test(testNotifSuccess)
+                    ? 'text-rose-400'
+                    : 'text-emerald-400'
+                }`}
+              >
                 {testNotifSuccess}
               </span>
             )}
@@ -1277,7 +1300,13 @@ export default function SettingsView() {
               <p className="text-[10px] text-zinc-400">Export or restore all on-device conversation histories, personas, and scratchpads in JSON format.</p>
             </div>
             {backupStatus && (
-              <span className="text-[10px] text-emerald-400 font-bold font-mono">{backupStatus}</span>
+              <span
+                className={`text-[10px] font-bold font-mono ${
+                  /Failed|Invalid|Could not/i.test(backupStatus || '') ? 'text-rose-400' : 'text-emerald-400'
+                }`}
+              >
+                {backupStatus}
+              </span>
             )}
           </div>
 
