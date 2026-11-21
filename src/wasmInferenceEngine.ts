@@ -24,23 +24,25 @@ function getWllamaWasmUrl(): string {
 let activeWllama: Wllama | null = null;
 let currentLoadedGgufUrl: string | null = null;
 
-// Mutex to prevent concurrent init/unload races
+// Mutex to prevent concurrent init/unload races.
+//
+// Each acquisition enqueues its OWN resolver; a single overwritten "current"
+// resolver slot would release the wrong waiter and deadlock the rest (stuck
+// model switch / delete). A FIFO pairs every acquire with exactly one release.
 let engineInitLock: Promise<void> = Promise.resolve();
-let engineInitLockResolve: (() => void) | null = null;
+const engineInitLockQueue: Array<() => void> = [];
 
 function acquireEngineInitLock(): Promise<void> {
   const prev = engineInitLock;
   let resolve!: () => void;
   engineInitLock = new Promise<void>((r) => { resolve = r; });
-  engineInitLockResolve = resolve;
+  engineInitLockQueue.push(resolve);
   return prev;
 }
 
 function releaseEngineInitLock(): void {
-  if (engineInitLockResolve) {
-    engineInitLockResolve();
-    engineInitLockResolve = null;
-  }
+  const resolve = engineInitLockQueue.shift();
+  if (resolve) resolve();
 }
 
 let cpuInferenceAborted = false;
