@@ -84,7 +84,12 @@ import NetworkSpeedModal from './NetworkSpeedModal';
 import { abortAllInference } from '@/inferenceEngine';
 import { isPermissionDeniedError } from '@/utils/nativeAppSettings';
 import PermissionDeniedNotice from './PermissionDeniedNotice';
-import { attachGuardedRecognition, voiceChunkBelongsToCurrentNote } from '@/utils/voiceSession';
+import {
+  attachGuardedRecognition,
+  voiceChunkBelongsToCurrentNote,
+  createSilenceDetector,
+  SilenceDetector,
+} from '@/utils/voiceSession';
 import { useBackButtonClose } from '@/utils/backButton';
 import MarkdownNotepadModal from './MarkdownNotepadModal';
 import QRCodeStudioModal from './QRCodeStudioModal';
@@ -740,7 +745,31 @@ export default function ChatView() {
   const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
   const currentTranscriptRef = useRef<string>('');
 
+  // Audio Analyser & Real-Time Waveform State
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const animFrameRef = useRef<number | null>(null);
+  const silenceDetectorRef = useRef<SilenceDetector | null>(null);
+  const [waveformBars, setWaveformBars] = useState<number[]>([25, 45, 60, 35, 70, 50, 85, 60, 45, 75, 50, 65, 35]);
+  const [isAutoSendOnSilence, setIsAutoSendOnSilence] = useState(true);
+  const [currentAudioDb, setCurrentAudioDb] = useState<number>(0);
 
+  const cleanupAudioVisualizer = () => {
+    if (animFrameRef.current) {
+      cancelAnimationFrame(animFrameRef.current);
+      animFrameRef.current = null;
+    }
+    if (audioContextRef.current) {
+      try {
+        if (audioContextRef.current.state !== 'closed') {
+          audioContextRef.current.close();
+        }
+      } catch (_) {}
+      audioContextRef.current = null;
+    }
+    analyserRef.current = null;
+    silenceDetectorRef.current?.clear();
+  };
 
   // Release every voice-capture resource when this view goes away, including a
   // getUserMedia request that is still pending at unmount time.
@@ -748,6 +777,7 @@ export default function ChatView() {
     isVoiceMountedRef.current = true;
     return () => {
       isVoiceMountedRef.current = false;
+      cleanupAudioVisualizer();
       const store = useAppStore.getState();
       // A generation still running must be REALLY stopped, not cosmetically
       // marked: the old hand-rolled surgery left the inference loop alive in
@@ -848,6 +878,9 @@ export default function ChatView() {
               .join(' ');
             currentTranscriptRef.current = transcript;
             setInputVal(transcript);
+            if (isAutoSendOnSilence) {
+              silenceDetectorRef.current?.reset();
+            }
           },
           onError: (event) => {
             console.warn('SpeechRecognition notice:', event?.error);
@@ -922,6 +955,58 @@ export default function ChatView() {
           };
 
           mediaRecorder.start(100);
+
+          // 3. Connect Web Audio API Analyser for real-time waveform visualization
+          try {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const AudioCtxClass = window.AudioContext || (window as any).webkitAudioContext;
+            if (AudioCtxClass) {
+              const ctx = new AudioCtxClass();
+              const source = ctx.createMediaStreamSource(stream);
+              const analyser = ctx.createAnalyser();
+              analyser.fftSize = 64;
+              analyser.smoothingTimeConstant = 0.8;
+              source.connect(analyser);
+
+              audioContextRef.current = ctx;
+              analyserRef.current = analyser;
+
+              const dataArray = new Uint8Array(analyser.frequencyBinCount);
+              const updateVisualizer = () => {
+                if (!isVoiceMountedRef.current || !analyserRef.current) return;
+                analyserRef.current.getByteFrequencyData(dataArray);
+
+                const bars: number[] = [];
+                let total = 0;
+                const step = Math.max(1, Math.floor(dataArray.length / 13));
+                for (let i = 0; i < 13; i++) {
+                  const val = dataArray[i * step] || 0;
+                  total += val;
+                  const pct = Math.min(100, Math.max(12, Math.round((val / 255) * 100)));
+                  bars.push(pct);
+                }
+                setWaveformBars(bars);
+
+                const avg = total / 13;
+                const db = avg > 0 ? Math.round(20 * Math.log10(avg / 255) + 60) : 0;
+                setCurrentAudioDb(Math.max(0, db));
+
+                animFrameRef.current = requestAnimationFrame(updateVisualizer);
+              };
+              animFrameRef.current = requestAnimationFrame(updateVisualizer);
+            }
+          } catch (e) {
+            console.warn('AudioContext visualizer notice:', e);
+          }
+
+          // 4. Set up auto-silence detector (2.8s of speech silence triggers auto-send if enabled)
+          if (silenceDetectorRef.current) silenceDetectorRef.current.clear();
+          silenceDetectorRef.current = createSilenceDetector(2800, () => {
+            if (isVoiceMountedRef.current && currentTranscriptRef.current.trim().length > 0) {
+              triggerHaptic([20, 30]);
+              finishVoiceRecordingAndSend();
+            }
+          });
         }
       }
     } catch (err: any) {
@@ -969,6 +1054,7 @@ export default function ChatView() {
 
   // Cancel recording without sending (WhatsApp trash / slide to cancel)
   const cancelVoiceRecording = () => {
+    cleanupAudioVisualizer();
     voiceRequestIdRef.current++;
     if (voiceTimerRef.current) clearInterval(voiceTimerRef.current);
     if (recognitionRef.current) {
@@ -999,6 +1085,7 @@ export default function ChatView() {
     // Ignore overlapping Send taps: a second call would clear isFinalizingVoiceRef
     // while the first call is still awaiting its final audio chunk.
     if (isFinalizingVoiceRef.current) return;
+    cleanupAudioVisualizer();
     voiceRequestIdRef.current++;
     if (voiceTimerRef.current) clearInterval(voiceTimerRef.current);
     const duration = recordDurationSec;
@@ -2905,45 +2992,66 @@ export default function ChatView() {
         {isRecordingVoice ? (
           /* WhatsApp-Style Voice Recording Bar */
           <div className="relative flex items-center justify-between gap-2 bg-gradient-to-r from-zinc-950 via-zinc-900 to-zinc-950 border border-emerald-500/40 rounded-2xl px-3 py-2 shadow-2xl animate-in fade-in duration-200">
-            {/* Pulsing Recording Indicator & Timer */}
-            <div className="flex items-center gap-2.5">
+            {/* Pulsing Recording Indicator & Timer & dB Meter */}
+            <div className="flex items-center gap-2">
               <span className="relative flex h-3 w-3">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
                 <span className="relative inline-flex rounded-full h-3 w-3 bg-rose-500"></span>
               </span>
-              <span className="font-mono text-xs font-bold text-rose-400 tracking-wider">
-                {Math.floor(recordDurationSec / 60)}:{(recordDurationSec % 60).toString().padStart(2, '0')}
-              </span>
+              <div className="flex flex-col">
+                <span className="font-mono text-xs font-bold text-rose-400 tracking-wider">
+                  {Math.floor(recordDurationSec / 60)}:{(recordDurationSec % 60).toString().padStart(2, '0')}
+                </span>
+                {currentAudioDb > 0 && (
+                  <span className="font-mono text-[8px] text-zinc-400 leading-none">{currentAudioDb} dB</span>
+                )}
+              </div>
             </div>
 
-            {/* Live Audio Waves Simulation */}
-            <div className="flex-1 flex items-center justify-center gap-1 max-w-[180px] px-2">
-              {[40, 75, 100, 60, 85, 45, 95, 70, 50, 90, 65, 80, 40].map((h, i) => (
+            {/* Real-time Dynamic Waveform Bars */}
+            <div className="flex-1 flex items-center justify-center gap-1 max-w-[150px] sm:max-w-[200px] px-1 h-7">
+              {waveformBars.map((heightPct, idx) => (
                 <div
-                  key={i}
-                  className="w-1 bg-emerald-400 rounded-full animate-pulse"
+                  key={idx}
+                  className="w-1 rounded-full transition-all duration-75"
                   style={{
-                    height: `${Math.max(15, (h * ((i + (recordDurationSec % 5)) % 4 + 1) / 4))}%`,
-                    animationDuration: `${400 + (i % 3) * 150}ms`
+                    height: `${heightPct}%`,
+                    backgroundColor: heightPct > 65 ? '#34d399' : heightPct > 35 ? '#10b981' : '#059669',
                   }}
                 />
               ))}
             </div>
 
-            {/* Actions: Cancel (Trash) & Send (WhatsApp Paper Airplane) */}
-            <div className="flex items-center gap-2">
+            {/* Hands-free Auto-send Toggle & Actions */}
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => {
+                  triggerHaptic(10);
+                  setIsAutoSendOnSilence((prev) => !prev);
+                }}
+                title={isAutoSendOnSilence ? 'Auto-send enabled (sends 2.8s after pause)' : 'Manual send mode'}
+                className={`px-2 py-1.5 rounded-xl text-[9px] font-bold border transition-colors cursor-pointer shrink-0 select-none ${
+                  isAutoSendOnSilence
+                    ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                    : 'bg-zinc-800/80 text-zinc-400 border-zinc-700'
+                }`}
+              >
+                {isAutoSendOnSilence ? 'Auto-Send' : 'Manual'}
+              </button>
+
               <button
                 onClick={cancelVoiceRecording}
                 title="Slide / Tap to cancel recording"
                 className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-zinc-800/80 hover:bg-rose-950/60 border border-zinc-700/60 hover:border-rose-500/50 text-zinc-400 hover:text-rose-400 text-xs font-medium transition-all cursor-pointer"
               >
                 <Trash2 className="w-3.5 h-3.5" />
-                <span className="text-[10px]">Cancel</span>
+                <span className="text-[10px] hidden sm:inline">Cancel</span>
               </button>
               <button
                 onClick={finishVoiceRecordingAndSend}
                 title="Send voice note to LLM"
-                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-black font-bold text-xs shadow-lg shadow-emerald-500/20 transition-all cursor-pointer"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-black font-bold text-xs shadow-lg shadow-emerald-500/20 transition-all cursor-pointer"
               >
                 <Send className="w-3.5 h-3.5 fill-current" />
                 <span>Send</span>
