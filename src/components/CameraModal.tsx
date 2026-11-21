@@ -51,6 +51,7 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
   // auto-denies silently - the only way out is the app's settings page.
   const [permissionDenied, setPermissionDenied] = useState(false);
   const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment');
+  const [zoomLevel, setZoomLevel] = useState<1 | 2 | 3>(1);
   const [torchEnabled, setTorchEnabled] = useState(false);
   const [hasTorch, setHasTorch] = useState(false);
   const [scanMode, setScanMode] = useState<'photo' | 'document' | 'ar-hud' | 'keyframes'>('photo');
@@ -249,7 +250,15 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
     c.height = v.videoHeight;
     const ctx = c.getContext('2d');
     if (ctx) {
-      ctx.drawImage(v, 0, 0, c.width, c.height);
+      if (zoomLevel > 1) {
+        const sw = v.videoWidth / zoomLevel;
+        const sh = v.videoHeight / zoomLevel;
+        const sx = (v.videoWidth - sw) / 2;
+        const sy = (v.videoHeight - sh) / 2;
+        ctx.drawImage(v, sx, sy, sw, sh, 0, 0, c.width, c.height);
+      } else {
+        ctx.drawImage(v, 0, 0, c.width, c.height);
+      }
       const dataUrl = c.toDataURL('image/jpeg', 0.90);
       setCapturedUrl(dataUrl);
       stopCamera();
@@ -293,7 +302,15 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
         return;
       }
       setBurstCount(i + 1);
-      ctx.drawImage(v, 0, 0, c.width, c.height);
+      if (zoomLevel > 1) {
+        const sw = v.videoWidth / zoomLevel;
+        const sh = v.videoHeight / zoomLevel;
+        const sx = (v.videoWidth - sw) / 2;
+        const sy = (v.videoHeight - sh) / 2;
+        ctx.drawImage(v, sx, sy, sw, sh, 0, 0, c.width, c.height);
+      } else {
+        ctx.drawImage(v, 0, 0, c.width, c.height);
+      }
       const url = c.toDataURL('image/jpeg', 0.85);
       captured.push({
         id: `frame-${i + 1}`,
@@ -472,6 +489,11 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
                 autoPlay
                 playsInline
                 muted
+                style={{
+                  transform: zoomLevel > 1 ? `scale(${zoomLevel})` : undefined,
+                  transformOrigin: 'center center',
+                  transition: 'transform 0.2s ease-out',
+                }}
                 className="w-full h-full object-cover max-h-[440px]"
               />
 
@@ -580,6 +602,17 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
                 </button>
                 <button
                   onClick={() => {
+                    setZoomLevel((prev) => (prev === 1 ? 2 : prev === 2 ? 3 : 1));
+                    triggerHaptic(20);
+                  }}
+                  aria-label={`Toggle Zoom: Current ${zoomLevel}x`}
+                  className="min-w-[44px] min-h-[44px] flex items-center justify-center p-2.5 rounded-full bg-black/60 text-cyan-300 font-bold text-xs hover:bg-black/80 backdrop-blur-md cursor-pointer transition-all"
+                  title="Toggle 1x / 2x / 3x digital zoom"
+                >
+                  <span>{zoomLevel}x</span>
+                </button>
+                <button
+                  onClick={() => {
                     setShowTelemetry((prev) => !prev);
                     triggerHaptic(15);
                   }}
@@ -603,12 +636,12 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
             <Sparkles className="w-3.5 h-3.5" />
             <span>
               {scanMode === 'document'
-                ? 'OCR Text Extractor'
+                ? `OCR Text Extractor • ${zoomLevel}x`
                 : scanMode === 'ar-hud'
-                ? 'MiniCPM-V AR Bounding Boxes'
+                ? `MiniCPM-V AR Bounding Boxes • ${zoomLevel}x`
                 : scanMode === 'keyframes'
-                ? 'Motion Keyframe Burst (4 Frames)'
-                : 'Vision Scene Pipeline'}
+                ? `Motion Keyframe Burst • ${zoomLevel}x`
+                : `${facingMode === 'environment' ? 'Rear Camera' : 'Front Selfie'} • ${zoomLevel}x`}
             </span>
           </div>
 
