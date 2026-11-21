@@ -459,6 +459,65 @@ export default function ChatView() {
     });
   };
 
+  // Swipe-to-quote & Mobile Touch Gesture State
+  const [swipingMsgId, setSwipingMsgId] = useState<string | null>(null);
+  const [swipeOffset, setSwipeOffset] = useState<number>(0);
+  const touchStartRef = useRef<{ x: number; y: number; time: number; msgId: string } | null>(null);
+  const lastTapRef = useRef<{ msgId: string; time: number }>({ msgId: '', time: 0 });
+
+  const handleTouchStart = (msgId: string, e: React.TouchEvent) => {
+    const t = e.touches[0];
+    if (t) {
+      touchStartRef.current = { x: t.clientX, y: t.clientY, time: Date.now(), msgId };
+    }
+  };
+
+  const handleTouchMove = (msgId: string, e: React.TouchEvent) => {
+    if (!touchStartRef.current || touchStartRef.current.msgId !== msgId) return;
+    const t = e.touches[0];
+    if (!t) return;
+    const dx = t.clientX - touchStartRef.current.x;
+    const dy = t.clientY - touchStartRef.current.y;
+    // Only capture horizontal swipes when predominantly horizontal and moved > 12px
+    if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 12) {
+      setSwipingMsgId(msgId);
+      // Soft-resistance clamp between -75 and 75
+      const clamped = Math.max(-75, Math.min(75, dx));
+      setSwipeOffset(clamped);
+    }
+  };
+
+  const handleTouchEnd = (msg: ChatMessage) => {
+    const start = touchStartRef.current;
+    const currentOffset = swipeOffset;
+    touchStartRef.current = null;
+    setSwipingMsgId(null);
+    setSwipeOffset(0);
+
+    if (start && start.msgId === msg.id) {
+      // Threshold >= 42px triggers Quote-reply
+      if (Math.abs(currentOffset) >= 42) {
+        handleQuoteMessage(msg);
+        triggerHaptic(25);
+        return;
+      }
+
+      // Check double-tap
+      const now = Date.now();
+      if (
+        lastTapRef.current.msgId === msg.id &&
+        now - lastTapRef.current.time < 320 &&
+        Math.abs(currentOffset) < 10
+      ) {
+        toggleStarMessage(msg.id);
+        triggerHaptic([30, 40]);
+        lastTapRef.current = { msgId: '', time: 0 };
+        return;
+      }
+      lastTapRef.current = { msgId: msg.id, time: now };
+    }
+  };
+
   const handleRunInSandbox = (text: string) => {
     const match = text.match(/```(?:html|javascript|js|css|svg)?\s*([\s\S]*?)```/);
     if (match && match[1]) {
@@ -2559,96 +2618,126 @@ export default function ChatView() {
                   </div>
                 )}
 
-                {/* Message Bubble */}
-                {/* For image-gen messages, make the bubble wider (up to full column width) with no padding */}
-                {msg.content.includes('![') && msg.content.includes('](data:image') ? (
-                  <div className="w-full rounded-2xl overflow-hidden border border-zinc-700/80 bg-zinc-950 shadow-xl">
-                    {(() => {
-                      // Manual parsing to avoid regexp literals that trigger Turbopack issues
-                      const content = msg.content;
-                      const imgStart = content.indexOf('](data:image');
-                      const altStart = imgStart > 0 ? content.lastIndexOf('![', imgStart) : -1;
-                      const imgUrlEnd = imgStart > 0 ? content.indexOf(')', imgStart) : -1;
-                      const caption = altStart >= 0 && imgStart > altStart ? content.slice(altStart + 2, imgStart) : '';
-                      const imgSrc = imgStart >= 0 && imgUrlEnd > imgStart ? content.slice(imgStart + 2, imgUrlEnd) : '';
-                      const remainingText = (altStart >= 0 && imgUrlEnd >= 0)
-                        ? (content.slice(0, altStart) + content.slice(imgUrlEnd + 1)).trim()
-                        : content.trim();
+                {/* Message Bubble with Mobile Touch Gestures */}
+                <div
+                  className="relative w-full touch-pan-y"
+                  style={{
+                    transform: swipingMsgId === msg.id ? `translateX(${swipeOffset}px)` : undefined,
+                    transition: swipingMsgId === msg.id ? 'none' : 'transform 0.2s cubic-bezier(0.2, 0.9, 0.4, 1)',
+                  }}
+                  onTouchStart={(e) => handleTouchStart(msg.id, e)}
+                  onTouchMove={(e) => handleTouchMove(msg.id, e)}
+                  onTouchEnd={() => handleTouchEnd(msg)}
+                  onTouchCancel={() => {
+                    touchStartRef.current = null;
+                    setSwipingMsgId(null);
+                    setSwipeOffset(0);
+                  }}
+                >
+                  {/* Swipe reply indicator */}
+                  {swipingMsgId === msg.id && Math.abs(swipeOffset) > 18 && (
+                    <div
+                      className={`absolute top-1/2 -translate-y-1/2 flex items-center justify-center w-7 h-7 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 pointer-events-none z-10 transition-transform ${
+                        swipeOffset > 0 ? '-left-8' : '-right-8'
+                      }`}
+                      style={{
+                        transform: `translateY(-50%) scale(${Math.min(1.2, Math.abs(swipeOffset) / 36)})`,
+                      }}
+                    >
+                      <CornerUpLeft className="w-3.5 h-3.5" />
+                    </div>
+                  )}
 
-                      return (
-                        <>
-                          {imgSrc && (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img
-                              src={imgSrc}
-                              alt={caption || 'Generated AI Image'}
-                              className="w-full object-cover block"
-                            />
-                          )}
-                          {remainingText && (
-                            <div className="p-2.5 text-xs text-zinc-300 whitespace-pre-wrap font-sans border-t border-zinc-800/80 bg-zinc-900">
-                              {remainingText}
-                            </div>
-                          )}
-                        </>
-                      );
-                    })()}
-                  </div>
-                ) : (
-                  <div
-                    onDoubleClick={() => {
-                      if (!isUser) {
-                        toggleStarMessage(msg.id);
-                        triggerHaptic([30, 30]);
-                      }
-                    }}
-                    title={!isUser ? 'Double-tap to save/bookmark this message' : undefined}
-                    className={`p-3 rounded-2xl text-xs leading-relaxed transition-all ${
-                      isUser
-                        ? 'bg-cyan-600 text-white rounded-br-xs shadow-md'
-                        : 'bg-zinc-900 border border-zinc-800 text-zinc-200 rounded-bl-xs shadow-md select-text'
-                    }`}
-                  >
-                    <div className="space-y-2 font-sans text-xs">
+                  {/* For image-gen messages, make the bubble wider (up to full column width) with no padding */}
+                  {msg.content.includes('![') && msg.content.includes('](data:image') ? (
+                    <div className="w-full rounded-2xl overflow-hidden border border-zinc-700/80 bg-zinc-950 shadow-xl">
                       {(() => {
-                        const content = msg.content || (msg.isStreaming ? 'Thinking...' : '');
-                        // If content has <think> ... </think> or unclosed <think>
-                        if (content.includes('<think>')) {
-                          const thinkStart = content.indexOf('<think>');
-                          const thinkEnd = content.indexOf('</think>');
-                          const beforeThink = content.slice(0, thinkStart);
-                          let thinkContent = '';
-                          let afterThink = '';
-                          if (thinkEnd !== -1) {
-                            thinkContent = content.slice(thinkStart + 7, thinkEnd).trim();
-                            afterThink = content.slice(thinkEnd + 8).trim();
-                          } else {
-                            thinkContent = content.slice(thinkStart + 7).trim();
-                          }
+                        // Manual parsing to avoid regexp literals that trigger Turbopack issues
+                        const content = msg.content;
+                        const imgStart = content.indexOf('](data:image');
+                        const altStart = imgStart > 0 ? content.lastIndexOf('![', imgStart) : -1;
+                        const imgUrlEnd = imgStart > 0 ? content.indexOf(')', imgStart) : -1;
+                        const caption = altStart >= 0 && imgStart > altStart ? content.slice(altStart + 2, imgStart) : '';
+                        const imgSrc = imgStart >= 0 && imgUrlEnd > imgStart ? content.slice(imgStart + 2, imgUrlEnd) : '';
+                        const remainingText = (altStart >= 0 && imgUrlEnd >= 0)
+                          ? (content.slice(0, altStart) + content.slice(imgUrlEnd + 1)).trim()
+                          : content.trim();
 
-                          return (
-                            <>
-                              {beforeThink && renderFormattedContent(beforeThink)}
-                              {thinkContent && (
-                                <details className="rounded-xl bg-zinc-950/70 border border-zinc-800 p-2 text-zinc-400 text-[11px] font-mono select-text" open={msg.isStreaming && !afterThink}>
-                                  <summary className="cursor-pointer text-amber-400 font-bold flex items-center gap-1.5 py-0.5 select-none hover:text-amber-300">
-                                    <span>🧠 Deep Thinking Process</span>
-                                    {msg.isStreaming && !afterThink && <span className="animate-pulse text-[10px] text-amber-500">• reasoning...</span>}
-                                  </summary>
-                                  <div className="mt-1.5 pt-1.5 border-t border-zinc-800/80 whitespace-pre-wrap leading-relaxed text-zinc-300">
-                                    {thinkContent}
-                                  </div>
-                                </details>
-                              )}
-                              {afterThink && renderFormattedContent(afterThink)}
-                            </>
-                          );
-                        }
-                        return renderFormattedContent(content);
+                        return (
+                          <>
+                            {imgSrc && (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img
+                                src={imgSrc}
+                                alt={caption || 'Generated AI Image'}
+                                className="w-full object-cover block"
+                              />
+                            )}
+                            {remainingText && (
+                              <div className="p-2.5 text-xs text-zinc-300 whitespace-pre-wrap font-sans border-t border-zinc-800/80 bg-zinc-900">
+                                {remainingText}
+                              </div>
+                            )}
+                          </>
+                        );
                       })()}
                     </div>
-                  </div>
-                )}
+                  ) : (
+                    <div
+                      onDoubleClick={() => {
+                        if (!isUser) {
+                          toggleStarMessage(msg.id);
+                          triggerHaptic([30, 30]);
+                        }
+                      }}
+                      title={!isUser ? 'Double-tap to save/bookmark this message' : undefined}
+                      className={`p-3 rounded-2xl text-xs leading-relaxed transition-all ${
+                        isUser
+                          ? 'bg-cyan-600 text-white rounded-br-xs shadow-md'
+                          : 'bg-zinc-900 border border-zinc-800 text-zinc-200 rounded-bl-xs shadow-md select-text'
+                      }`}
+                    >
+                      <div className="space-y-2 font-sans text-xs">
+                        {(() => {
+                          const content = msg.content || (msg.isStreaming ? 'Thinking...' : '');
+                          // If content has <think> ... </think> or unclosed <think>
+                          if (content.includes('<think>')) {
+                            const thinkStart = content.indexOf('<think>');
+                            const thinkEnd = content.indexOf('</think>');
+                            const beforeThink = content.slice(0, thinkStart);
+                            let thinkContent = '';
+                            let afterThink = '';
+                            if (thinkEnd !== -1) {
+                              thinkContent = content.slice(thinkStart + 7, thinkEnd).trim();
+                              afterThink = content.slice(thinkEnd + 8).trim();
+                            } else {
+                              thinkContent = content.slice(thinkStart + 7).trim();
+                            }
+
+                            return (
+                              <>
+                                {beforeThink && renderFormattedContent(beforeThink)}
+                                {thinkContent && (
+                                  <details className="rounded-xl bg-zinc-950/70 border border-zinc-800 p-2 text-zinc-400 text-[11px] font-mono select-text" open={msg.isStreaming && !afterThink}>
+                                    <summary className="cursor-pointer text-amber-400 font-bold flex items-center gap-1.5 py-0.5 select-none hover:text-amber-300">
+                                      <span>🧠 Deep Thinking Process</span>
+                                      {msg.isStreaming && !afterThink && <span className="animate-pulse text-[10px] text-amber-500">• reasoning...</span>}
+                                    </summary>
+                                    <div className="mt-1.5 pt-1.5 border-t border-zinc-800/80 whitespace-pre-wrap leading-relaxed text-zinc-300">
+                                      {thinkContent}
+                                    </div>
+                                  </details>
+                                )}
+                                {afterThink && renderFormattedContent(afterThink)}
+                              </>
+                            );
+                          }
+                          return renderFormattedContent(content);
+                        })()}
+                      </div>
+                    </div>
+                  )}
+                </div>
 
                 {/* Assistant Message Actions Toolbar */}
                 {!isUser && !msg.isStreaming && (
