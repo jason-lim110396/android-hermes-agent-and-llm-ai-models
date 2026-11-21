@@ -87,6 +87,7 @@ import { attachGuardedRecognition, voiceChunkBelongsToCurrentNote } from '@/util
 import { useBackButtonClose } from '@/utils/backButton';
 import MarkdownNotepadModal from './MarkdownNotepadModal';
 import QRCodeStudioModal from './QRCodeStudioModal';
+import { isLowMemory, isCriticalMemoryPressure } from '@/utils/memoryGuard';
 
 // Isolated real-time hardware ticker: owns its 1.5s interval and the liveTps
 // store subscription, so the full ChatView tree no longer re-renders on every
@@ -552,9 +553,23 @@ export default function ChatView() {
     [messages]
   );
 
-  const visibleMessages = searchQuery.trim()
+  const activeSessionKey = operatingMode === 'agent' ? activeAgentSessionId : activeChatSessionId;
+  const initialWindowSize = React.useMemo(() => (isCriticalMemoryPressure() ? 25 : 40), []);
+  const [messagesWindowLimit, setMessagesWindowLimit] = useState<number>(initialWindowSize);
+
+  // Reset window limit when switching conversations so large historical chats don't cause DOM spike
+  React.useEffect(() => {
+    setMessagesWindowLimit(initialWindowSize);
+  }, [activeSessionKey, initialWindowSize]);
+
+  const isSearching = searchQuery.trim().length > 0;
+  const filteredMessages = isSearching
     ? messages.filter((m) => m.content.toLowerCase().includes(searchQuery.toLowerCase()) || m.role.toLowerCase().includes(searchQuery.toLowerCase()))
     : messages;
+
+  const hasEarlierMessages = !isSearching && messages.length > messagesWindowLimit;
+  const hiddenCount = hasEarlierMessages ? messages.length - messagesWindowLimit : 0;
+  const visibleMessages = hasEarlierMessages ? messages.slice(-messagesWindowLimit) : filteredMessages;
 
   // Models available for direct selection (category browsing consolidated in ModelHub)
   const readyModels = AVAILABLE_MODELS.filter((m) => downloads[m.id]?.isReady);
@@ -1776,6 +1791,34 @@ export default function ChatView() {
               </div>
             )}
 
+            {hasEarlierMessages && (
+              <div className="flex items-center justify-center gap-2 py-3 px-2 my-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    triggerHaptic(10);
+                    setMessagesWindowLimit((prev) => prev + 35);
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-zinc-300 hover:text-white text-[11px] font-medium shadow-sm transition-all active:scale-95 cursor-pointer"
+                  aria-label={`Load 35 earlier messages, ${hiddenCount} hidden`}
+                >
+                  <History className="w-3.5 h-3.5 text-zinc-400" />
+                  <span>Load earlier messages ({hiddenCount} hidden)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    triggerHaptic(15);
+                    setMessagesWindowLimit(messages.length);
+                  }}
+                  className="px-2.5 py-1.5 rounded-full bg-zinc-900/60 border border-zinc-800/80 hover:border-zinc-700 text-zinc-400 hover:text-zinc-200 text-[10px] font-medium transition-all active:scale-95 cursor-pointer"
+                  aria-label="Show all messages"
+                >
+                  Show all
+                </button>
+              </div>
+            )}
+
             {visibleMessages.map((msg) => {
               const isUser = msg.role === 'user';
               const isStepsOpen = expandedSteps[msg.id] ?? true;
@@ -1813,7 +1856,12 @@ export default function ChatView() {
                         FALLBACK
                       </button>
                       {activeFallbackTooltipId === msg.id && (
-                        <div className="absolute left-0 top-full mt-1 z-30 min-w-[210px] max-w-[280px] p-2 rounded-lg bg-zinc-900 border border-amber-500/50 shadow-xl text-[10px] text-zinc-200 leading-snug animate-in fade-in duration-150">
+                        <>
+                          <div
+                            className="fixed inset-0 z-20 cursor-default"
+                            onClick={() => setActiveFallbackTooltipId(null)}
+                          />
+                          <div className="absolute left-0 top-full mt-1 z-30 min-w-[210px] max-w-[280px] p-2 rounded-lg bg-zinc-900 border border-amber-500/50 shadow-xl text-[10px] text-zinc-200 leading-snug animate-in fade-in duration-150">
                           <div className="flex items-center justify-between gap-1 mb-1 font-bold text-amber-300">
                             <span className="flex items-center gap-1">
                               <ArrowRightLeft className="w-3 h-3" />
@@ -1831,6 +1879,7 @@ export default function ChatView() {
                             {msg.fallbackReason ? `Trigger: ${msg.fallbackReason}` : 'Primary provider rate-limited or unavailable; served via free fallback preset.'}
                           </p>
                         </div>
+                        </>
                       )}
                     </div>
                   )}
