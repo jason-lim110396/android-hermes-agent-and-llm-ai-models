@@ -9,6 +9,7 @@ import {
   User,
   Sparkles,
   Zap,
+  Flame,
   CheckCircle2,
   Check,
   ChevronDown,
@@ -88,6 +89,7 @@ import { useBackButtonClose } from '@/utils/backButton';
 import MarkdownNotepadModal from './MarkdownNotepadModal';
 import QRCodeStudioModal from './QRCodeStudioModal';
 import { isLowMemory, isCriticalMemoryPressure } from '@/utils/memoryGuard';
+import { subscribeThermalTelemetry, getThermalTelemetry, type ThermalTelemetry } from '@/utils/thermalGuard';
 
 // Isolated real-time hardware ticker: owns its 1.5s interval and the liveTps
 // store subscription, so the full ChatView tree no longer re-renders on every
@@ -237,6 +239,7 @@ export default function ChatView() {
   // Without this the picker clears and the file is silently skipped, so the
   // user thinks it is attached and sends a prompt with no document.
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [thermalTelemetry, setThermalTelemetry] = useState<ThermalTelemetry>(() => getThermalTelemetry());
 
   // Starred Bookmarks State
   const [starredMessageIds, setStarredMessageIds] = useState<string[]>(() => {
@@ -589,6 +592,10 @@ export default function ChatView() {
       return () => clearTimeout(timer);
     }
   }, [fallbackNotice, clearFallbackNotice]);
+
+  React.useEffect(() => {
+    return subscribeThermalTelemetry(setThermalTelemetry);
+  }, []);
 
   // Re-check distance-from-bottom when messages grow without a scroll event
   // (e.g. streaming chunks extend the timeline) so isAwayFromBottom stays accurate.
@@ -1437,6 +1444,27 @@ export default function ChatView() {
               </>
             )}
           </div>
+
+          {/* Thermal Indicator */}
+          {thermalTelemetry.state !== 'nominal' && (
+            <button
+              type="button"
+              onClick={() => {
+                triggerHaptic('light');
+                setCurrentTab('device');
+              }}
+              aria-label={`Thermal state: ${thermalTelemetry.state}, ${thermalTelemetry.temperatureC} degrees Celsius`}
+              className={`flex items-center gap-1 px-2 py-1 rounded-xl text-[10px] font-mono font-bold border transition-all cursor-pointer select-none shrink-0 ${
+                thermalTelemetry.state === 'throttled'
+                  ? 'bg-rose-500/20 border-rose-500/50 text-rose-300 animate-pulse'
+                  : 'bg-amber-500/20 border-amber-500/40 text-amber-300'
+              }`}
+              title={`Thermal Governor: ${thermalTelemetry.state.toUpperCase()} (${thermalTelemetry.temperatureC}°C, +${thermalTelemetry.yieldDelayMs}ms delay)`}
+            >
+              <Flame className="w-3 h-3 shrink-0" />
+              <span>{thermalTelemetry.temperatureC}°C</span>
+            </button>
+          )}
         </div>
 
         {/* Row 2: Action buttons - the five primary actions stay visible;

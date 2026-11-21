@@ -33,6 +33,13 @@ import {
 import { useAppStore } from '@/appStore';
 import { AVAILABLE_MODELS } from '@/models';
 import { startVisibleInterval } from '@/utils/visibleInterval';
+import {
+  setThermalGovernor,
+  updateThermalTelemetry,
+  getThermalTelemetry,
+  type ThermalGovernorMode,
+  type ThermalState,
+} from '@/utils/thermalGuard';
 
 export default function DeviceDiagnostics() {
   const hardwareProfile = useAppStore((s) => s.hardwareProfile);
@@ -275,6 +282,15 @@ export default function DeviceDiagnostics() {
       triggerHaptic(30);
     }
   };
+
+  useEffect(() => {
+    updateThermalTelemetry({
+      tempC: thermalTemp,
+      warnThresholdC: warnTempThreshold,
+      criticalThresholdC: criticalTempThreshold,
+      autoThrottleEnabled,
+    });
+  }, [thermalTemp, warnTempThreshold, criticalTempThreshold, autoThrottleEnabled]);
 
   // Read battery if supported
   useEffect(() => {
@@ -561,6 +577,7 @@ export default function DeviceDiagnostics() {
                   key={gov.id}
                   onClick={() => {
                     setGovernorMode(gov.id as any);
+                    setThermalGovernor(gov.id as any);
                     triggerHaptic(20);
                   }}
                   className={`p-2 rounded-xl text-left border transition-all cursor-pointer ${

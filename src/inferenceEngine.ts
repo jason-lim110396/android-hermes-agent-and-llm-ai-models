@@ -3,6 +3,7 @@ import { AVAILABLE_MODELS, ModelSpec } from './models';
 import { describeLimitFailure, isLimitFailureText, isUsageLimitFailure } from './utils/modelFallback';
 import { speakGuarded } from './utils/speechGuard';
 import { redactSensitiveMessages } from './utils/sensitiveContent';
+import { getThermalYieldDelay } from './utils/thermalGuard';
 import {
   isCpuModelCached,
   downloadCpuModelWeights,
@@ -836,11 +837,15 @@ export async function callRealLLMInference({
           if (delta) {
             fullGenerated += delta;
             onStreamChunk(fullGenerated);
-            // Dynamic Background Power Saver:
+            // Dynamic Background Power Saver & Thermal Adaptive Yield:
             // When user switches away or locks phone during inference, throttle pacing
             // to 40ms to eliminate GPU thermal runaway and prevent Android LMK killing.
+            // Also clamp pacing by thermal governor yield delay when SoC heats up.
             const isBackgrounded = typeof document !== 'undefined' && document.visibilityState === 'hidden';
-            const effectiveDelay = isBackgrounded ? Math.max(pacingDelayMs, 40) : pacingDelayMs;
+            const thermalDelay = getThermalYieldDelay();
+            const effectiveDelay = isBackgrounded
+              ? Math.max(pacingDelayMs, 40, thermalDelay)
+              : Math.max(pacingDelayMs, thermalDelay);
             if (effectiveDelay > 0) {
               await new Promise((r) => setTimeout(r, effectiveDelay));
             }
