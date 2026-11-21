@@ -11,7 +11,12 @@ export type HapticPattern =
   | 'heavy'
   | 'success'
   | 'warning'
-  | 'error';
+  | 'error'
+  | 'complete'
+  | 'code_exec'
+  | 'bookmark'
+  | 'copy'
+  | 'alert';
 
 export type HapticIntensity = 'off' | 'subtle' | 'crisp' | 'normal' | 'heavy';
 
@@ -25,6 +30,11 @@ export const HAPTIC_PATTERNS: Record<HapticPattern, number | number[]> = {
   success: [30, 40, 30],
   warning: [40, 60, 40],
   error: [60, 40, 60, 40],
+  complete: [20, 35, 20],
+  code_exec: [15, 25, 45],
+  bookmark: [10, 40, 15],
+  copy: [15, 25],
+  alert: [50, 60, 50, 60],
 };
 
 const INTENSITY_MULTIPLIERS: Record<HapticIntensity, number> = {

@@ -917,6 +917,29 @@ export default function SettingsView() {
               );
             })}
           </div>
+
+          {/* Contextual Vibration Pattern Previewers */}
+          <div className="pt-2 border-t border-zinc-800/80">
+            <span className="text-[10px] text-zinc-400 block mb-1.5 font-medium">Contextual Pattern Feedback:</span>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+              {[
+                { label: 'Generation Done', pattern: 'complete' as const },
+                { label: 'Code Executed', pattern: 'code_exec' as const },
+                { label: 'Bookmark Saved', pattern: 'bookmark' as const },
+                { label: 'Thermal Alert', pattern: 'alert' as const },
+              ].map((p) => (
+                <button
+                  key={p.pattern}
+                  type="button"
+                  disabled={hapticIntensity === 'off'}
+                  onClick={() => triggerHaptic(p.pattern)}
+                  className="px-2 py-1.5 rounded-lg bg-zinc-950/70 border border-zinc-800 hover:border-cyan-500/40 text-[10px] text-zinc-300 hover:text-cyan-300 font-semibold text-center transition-all disabled:opacity-40 cursor-pointer"
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
 
         {/* Speech Synthesis & On-Device Voice Tuning */}

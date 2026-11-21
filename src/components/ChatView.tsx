@@ -514,7 +514,7 @@ export default function ChatView() {
         Math.abs(currentOffset) < 10
       ) {
         toggleStarMessage(msg.id);
-        triggerHaptic([30, 40]);
+        triggerHaptic('bookmark');
         lastTapRef.current = { msgId: '', time: 0 };
         return;
       }
@@ -530,7 +530,7 @@ export default function ChatView() {
       setSandboxInitialCode(text.trim());
     }
     setIsCodeSandboxOpen(true);
-    triggerHaptic(20);
+    triggerHaptic('code_exec');
   };
 
   // Markdown Table & Spreadsheet Modal State
@@ -1038,6 +1038,15 @@ export default function ChatView() {
       lastContentLengthRef.current = curLen;
     }
   }, [messages, isGenerating, isAwayFromBottom]);
+
+  // Contextual Haptic Feedback on Generation Completion
+  const prevIsGeneratingRef = useRef(false);
+  React.useEffect(() => {
+    if (prevIsGeneratingRef.current && !isGenerating) {
+      triggerHaptic('complete');
+    }
+    prevIsGeneratingRef.current = isGenerating;
+  }, [isGenerating]);
 
   // WhatsApp-Style Voice Note State
   const [isRecordingVoice, setIsRecordingVoice] = useState(false);
