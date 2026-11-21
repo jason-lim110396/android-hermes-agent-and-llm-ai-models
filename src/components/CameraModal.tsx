@@ -356,8 +356,14 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-md p-3">
-      <div className="relative w-full max-w-md bg-zinc-950 border border-zinc-800 rounded-2xl overflow-hidden shadow-2xl flex flex-col max-h-[92vh]">
+    <div
+      onClick={onClose}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-md p-3"
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="relative w-full max-w-md bg-zinc-950 border border-zinc-800 rounded-2xl overflow-hidden shadow-2xl flex flex-col max-h-[92vh]"
+      >
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-800 bg-zinc-900/60">
           <div className="flex items-center gap-2">
@@ -371,7 +377,8 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg bg-zinc-800 text-zinc-400 hover:text-white"
+            aria-label="Close camera"
+            className="min-w-[44px] min-h-[44px] flex items-center justify-center p-2.5 rounded-lg bg-zinc-800 text-zinc-400 hover:text-white"
           >
             <X className="w-4 h-4" />
           </button>
@@ -543,7 +550,8 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
               <div className="absolute top-3 right-3 flex items-center gap-1.5">
                 <button
                   onClick={() => setShowGrid(!showGrid)}
-                  className={`p-2 rounded-full backdrop-blur-md transition-all ${
+                  aria-label="Toggle 3x3 Grid"
+                  className={`min-w-[44px] min-h-[44px] flex items-center justify-center p-2.5 rounded-full backdrop-blur-md transition-all ${
                     showGrid ? 'bg-cyan-500 text-black shadow-md' : 'bg-black/60 text-white hover:bg-black/80'
                   }`}
                   title="Toggle 3x3 Grid"
@@ -553,7 +561,8 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
                 {hasTorch && (
                   <button
                     onClick={toggleTorch}
-                    className={`p-2 rounded-full backdrop-blur-md transition-all ${
+                    aria-label="Toggle Flashlight Torch"
+                    className={`min-w-[44px] min-h-[44px] flex items-center justify-center p-2.5 rounded-full backdrop-blur-md transition-all ${
                       torchEnabled ? 'bg-amber-400 text-black shadow-lg shadow-amber-400/50' : 'bg-black/60 text-white hover:bg-black/80'
                     }`}
                     title="Toggle Flashlight Torch"
@@ -563,7 +572,8 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
                 )}
                 <button
                   onClick={toggleFacingMode}
-                  className="p-2 rounded-full bg-black/60 text-white hover:bg-black/80 backdrop-blur-md"
+                  aria-label="Flip Camera (Front/Back)"
+                  className="min-w-[44px] min-h-[44px] flex items-center justify-center p-2.5 rounded-full bg-black/60 text-white hover:bg-black/80 backdrop-blur-md"
                   title="Flip Camera (Front/Back)"
                 >
                   <FlipHorizontal className="w-4 h-4" />
@@ -573,7 +583,8 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
                     setShowTelemetry((prev) => !prev);
                     triggerHaptic(15);
                   }}
-                  className={`p-2 rounded-full backdrop-blur-md transition-all ${
+                  aria-label="Toggle FPS and WebGPU Latency HUD"
+                  className={`min-w-[44px] min-h-[44px] flex items-center justify-center p-2.5 rounded-full backdrop-blur-md transition-all ${
                     showTelemetry ? 'bg-emerald-400 text-black shadow-md shadow-emerald-400/40' : 'bg-black/60 text-white hover:bg-black/80'
                   }`}
                   title="Toggle FPS & WebGPU Latency HUD"

@@ -303,8 +303,14 @@ export default function MarkdownNotepadModal({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-2 sm:p-4">
-      <div className="bg-zinc-950 border border-zinc-800 rounded-2xl w-full max-w-4xl h-[92vh] flex flex-col overflow-hidden shadow-2xl">
+    <div
+      onClick={onClose}
+      className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-2 sm:p-4"
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="bg-zinc-950 border border-zinc-800 rounded-2xl w-full max-w-4xl h-[92vh] flex flex-col overflow-hidden shadow-2xl"
+      >
         {/* Modal Header */}
         <div className="px-4 py-3 bg-zinc-900/90 border-b border-zinc-800 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2.5">
@@ -327,14 +333,15 @@ export default function MarkdownNotepadModal({
           <div className="flex items-center gap-2">
             <button
               onClick={handleCreateNote}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow-lg shadow-emerald-900/30 transition-all cursor-pointer"
+              className="flex items-center gap-1.5 px-3 py-1.5 min-h-[44px] rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow-lg shadow-emerald-900/30 transition-all cursor-pointer"
             >
               <Plus className="w-3.5 h-3.5" />
               <span>New Note</span>
             </button>
             <button
               onClick={onClose}
-              className="p-1.5 rounded-xl text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 transition-colors"
+              aria-label="Close notepad"
+              className="min-w-[44px] min-h-[44px] flex items-center justify-center p-2.5 rounded-xl text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 transition-colors"
             >
               <X className="w-5 h-5" />
             </button>
@@ -491,8 +498,9 @@ export default function MarkdownNotepadModal({
                   {/* Pin toggle */}
                   <button
                     onClick={() => handleTogglePin(activeNote.id)}
+                    aria-label={activeNote.isPinned ? 'Unpin note' : 'Pin note'}
                     title={activeNote.isPinned ? 'Unpin Note' : 'Pin Note'}
-                    className={`p-1.5 rounded-xl border transition-all ${
+                    className={`min-w-[44px] min-h-[44px] flex items-center justify-center p-2.5 rounded-xl border transition-all ${
                       activeNote.isPinned
                         ? 'bg-amber-500/10 border-amber-500/30 text-amber-400'
                         : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-zinc-200'
@@ -504,8 +512,9 @@ export default function MarkdownNotepadModal({
                   {/* Copy */}
                   <button
                     onClick={handleCopyContent}
+                    aria-label="Copy markdown content"
                     title="Copy Markdown"
-                    className="p-1.5 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-zinc-200 transition-all"
+                    className="min-w-[44px] min-h-[44px] flex items-center justify-center p-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-zinc-200 transition-all"
                   >
                     {copied ? (
                       <Check className="w-3.5 h-3.5 text-emerald-400" />
@@ -517,8 +526,9 @@ export default function MarkdownNotepadModal({
                   {/* Export .md */}
                   <button
                     onClick={handleExportFile}
+                    aria-label="Export note as markdown"
                     title="Export as .md"
-                    className="p-1.5 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-zinc-200 transition-all"
+                    className="min-w-[44px] min-h-[44px] flex items-center justify-center p-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-zinc-200 transition-all"
                   >
                     <Download className="w-3.5 h-3.5" />
                   </button>
@@ -527,8 +537,9 @@ export default function MarkdownNotepadModal({
                   {onInsertIntoChat && (
                     <button
                       onClick={handleInsertChat}
+                      aria-label="Insert note into active chat"
                       title="Insert note into active chat"
-                      className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-300 hover:text-emerald-400 hover:border-emerald-500/30 transition-all"
+                      className="min-h-[44px] flex items-center gap-1 px-2.5 py-1 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-300 hover:text-emerald-400 hover:border-emerald-500/30 transition-all"
                     >
                       {inserted ? (
                         <Check className="w-3 h-3 text-emerald-400" />
@@ -542,8 +553,9 @@ export default function MarkdownNotepadModal({
                   {/* Delete */}
                   <button
                     onClick={() => handleDeleteNote(activeNote.id)}
+                    aria-label="Delete note"
                     title="Delete Note"
-                    className="p-1.5 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-red-400 hover:border-red-500/30 transition-all"
+                    className="min-w-[44px] min-h-[44px] flex items-center justify-center p-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-red-400 hover:border-red-500/30 transition-all"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
