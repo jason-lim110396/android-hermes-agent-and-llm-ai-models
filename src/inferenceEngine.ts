@@ -816,8 +816,13 @@ export async function callRealLLMInference({
           if (delta) {
             fullGenerated += delta;
             onStreamChunk(fullGenerated);
-            if (pacingDelayMs > 0) {
-              await new Promise((r) => setTimeout(r, pacingDelayMs));
+            // Dynamic Background Power Saver:
+            // When user switches away or locks phone during inference, throttle pacing
+            // to 40ms to eliminate GPU thermal runaway and prevent Android LMK killing.
+            const isBackgrounded = typeof document !== 'undefined' && document.visibilityState === 'hidden';
+            const effectiveDelay = isBackgrounded ? Math.max(pacingDelayMs, 40) : pacingDelayMs;
+            if (effectiveDelay > 0) {
+              await new Promise((r) => setTimeout(r, effectiveDelay));
             }
           }
         }

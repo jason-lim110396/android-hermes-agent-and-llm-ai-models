@@ -503,7 +503,7 @@ export default function SettingsView() {
                 )}
               </div>
               <p className="text-[10px] text-zinc-400 leading-tight">
-                Slow output pacing, lowest battery drain, zero overheating. Perfect for prolonged sessions.
+                Slow output pacing, lowest battery drain, auto-throttles when backgrounded.
               </p>
             </button>
 
