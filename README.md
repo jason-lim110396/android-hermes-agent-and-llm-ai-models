@@ -1,9 +1,11 @@
-# 🤖 Hermes AI Agent & Local LLM Studio for Android （Beta - only LLM loaded now）
+# 🤖 Hermes AI Agent & Local LLM Studio for Android (v1.1.0 Release Candidate)
 
 [![Android](https://img.shields.io/badge/Platform-Android%20%7C%20WebGPU-green.svg)](https://developer.android.com/)
+[![Version](https://img.shields.io/badge/Release-v1.1.0-blue.svg)](https://github.com/jason-lim110396/android-hermes-agent-and-llm-ai-models/releases)
 [![WebLLM](https://img.shields.io/badge/Engine-%40mlc--ai%2Fweb--llm-blue.svg)](https://github.com/mlc-ai/web-llm)
 [![Capacitor](https://img.shields.io/badge/Runtime-Capacitor%206-indigo.svg)](https://capacitorjs.com/)
 [![Next.js](https://img.shields.io/badge/Frontend-Next.js%2016-black.svg)](https://nextjs.org/)
+[![Milestone](https://img.shields.io/badge/Delivered%20PRs-200%2F200-success.svg)](https://github.com/jason-lim110396/android-hermes-agent-and-llm-ai-models/pulls)
 
 A sovereign, **100% private, on-device mobile AI assistant and autonomous agent environment** for Android smartphones. Built with **NousResearch Hermes 3**, **WebLLM**, and **WebGPU tensor acceleration**, this app profiles your phone's chipset in real time, automatically recommends and downloads quantized AI models, and enables multi-step autonomous tool execution without sending data to the cloud.
 

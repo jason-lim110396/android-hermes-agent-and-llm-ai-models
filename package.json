@@ -1,6 +1,6 @@
 {
   "name": "android-hermes-studio",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "On-device Hermes AI Agent & Local LLM Studio for Android with WebGPU acceleration",
   "private": true,
   "scripts": {
