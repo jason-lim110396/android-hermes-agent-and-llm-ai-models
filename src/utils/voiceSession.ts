@@ -75,3 +75,40 @@ export function voiceChunkBelongsToCurrentNote(args: {
     (args.finalizing && args.isActiveRecorder)
   );
 }
+
+/**
+ * Auto-silence timer manager for speech recognition.
+ * Arms a timer whenever new speech/interim results arrive.
+ * Calls onSilence() if no further speech event fires within timeoutMs.
+ */
+export interface SilenceDetector {
+  reset: () => void;
+  clear: () => void;
+  isActive: () => boolean;
+}
+
+export function createSilenceDetector(
+  timeoutMs: number,
+  onSilence: () => void
+): SilenceDetector {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+
+  return {
+    reset: () => {
+      if (timer) clearTimeout(timer);
+      if (timeoutMs > 0) {
+        timer = setTimeout(() => {
+          timer = null;
+          onSilence();
+        }, timeoutMs);
+      }
+    },
+    clear: () => {
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+    },
+    isActive: () => timer !== null,
+  };
+}
