@@ -15,6 +15,7 @@
 //   before that, and only then are histories trimmed from the oldest side.
 
 import type { ChatMessage, ChatSession } from '@/appStore';
+import { App as CapApp } from '@capacitor/app';
 
 const STORAGE_KEY = 'hermes_sessions_v1';
 const PERSIST_DEBOUNCE_MS = 1000;
@@ -150,7 +151,7 @@ function mapNoAttachments(sessions: Record<string, ChatSession>): Record<string,
 }
 
 /** Synchronous write of the most recent snapshot. Never throws. */
-function flushPersistNow(): void {
+export function flushPersistNow(): void {
   if (typeof window === 'undefined') return;
   if (persistTimer) {
     clearTimeout(persistTimer);
@@ -175,14 +176,37 @@ function flushPersistNow(): void {
   }
 }
 
+/** Discards any pending debounced persist write. */
+export function clearPendingPersist(): void {
+  if (persistTimer) {
+    clearTimeout(persistTimer);
+    persistTimer = null;
+  }
+  if (maxWaitTimer) {
+    clearTimeout(maxWaitTimer);
+    maxWaitTimer = null;
+  }
+  pendingSnapshot = null;
+}
+
 // The WebView suspends JS timers when backgrounded, so a debounced write that
 // has not fired yet would be lost exactly when Android is about to kill the
-// app. Flush synchronously at that moment.
+// app. Flush synchronously on visibility changes, page hide, beforeunload,
+// and the native Capacitor appStateChange event.
 if (typeof window !== 'undefined') {
   window.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') flushPersistNow();
   });
   window.addEventListener('pagehide', flushPersistNow);
+  window.addEventListener('beforeunload', flushPersistNow);
+
+  try {
+    CapApp.addListener('appStateChange', (state) => {
+      if (!state.isActive) flushPersistNow();
+    });
+  } catch (_) {
+    // Non-Capacitor web environments ignore native bridge.
+  }
 }
 
 /** Debounced save of the full chat + agent session trees. Never throws. */
@@ -206,8 +230,19 @@ function sanitizeSessions(raw: unknown): Record<string, ChatSession> | null {
   const out: Record<string, ChatSession> = {};
   for (const [id, sess] of Object.entries(raw as Record<string, unknown>)) {
     if (!isValidSession(id, sess)) continue;
-    const messages = sess.messages.filter(isValidMessage).map((m) => ({ ...m, isStreaming: false }));
-    out[id] = { ...sess, messages };
+    const createdAt =
+      typeof sess.createdAt === 'number' && Number.isFinite(sess.createdAt) && sess.createdAt > 0
+        ? sess.createdAt
+        : Date.now();
+    const messages = sess.messages.filter(isValidMessage).map((m) => ({
+      ...m,
+      isStreaming: false,
+      timestamp:
+        typeof m.timestamp === 'number' && Number.isFinite(m.timestamp) && m.timestamp > 0
+          ? m.timestamp
+          : Date.now(),
+    }));
+    out[id] = { ...sess, createdAt, messages };
   }
   return Object.keys(out).length > 0 ? out : null;
 }

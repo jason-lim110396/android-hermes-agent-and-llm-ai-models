@@ -59,6 +59,8 @@ import {
   Clipboard,
   Globe,
   Wifi,
+  WifiOff,
+  RotateCcw,
   QrCode,
 } from 'lucide-react';
 import { useAppStore, Attachment } from '@/appStore';
@@ -177,6 +179,8 @@ export default function ChatView() {
   const selectedModelId = useAppStore((s) => s.selectedModelId);
   const setSelectedModelId = useAppStore((s) => s.setSelectedModelId);
   const isOnline = useAppStore((s) => s.isOnline);
+  const justReconnected = useAppStore((s) => s.justReconnected);
+  const setJustReconnected = useAppStore((s) => s.setJustReconnected);
   const downloads = useAppStore((s) => s.downloads);
   const startDownloadModel = useAppStore((s) => s.startDownloadModel);
   const setCurrentTab = useAppStore((s) => s.setCurrentTab);
@@ -1003,8 +1007,48 @@ export default function ChatView() {
     });
   };
 
+  const handleRetryMessage = (failedMsgId: string) => {
+    const session = operatingMode === 'agent'
+      ? agentSessions[activeAgentSessionId]
+      : chatSessions[activeChatSessionId];
+    if (!session || isGenerating) return;
+    const msgs = session.messages || [];
+    const failedIdx = msgs.findIndex((m) => m.id === failedMsgId);
+    if (failedIdx <= 0) return;
+    let userMsgToRetry = null;
+    for (let i = failedIdx - 1; i >= 0; i--) {
+      if (msgs[i].role === 'user') {
+        userMsgToRetry = msgs[i];
+        break;
+      }
+    }
+    if (!userMsgToRetry) return;
+    const updatedMessages = msgs.filter((m) => m.id !== failedMsgId);
+    if (operatingMode === 'agent') {
+      useAppStore.setState((s) => ({
+        agentSessions: {
+          ...s.agentSessions,
+          [activeAgentSessionId]: { ...session, messages: updatedMessages },
+        },
+      }));
+    } else {
+      useAppStore.setState((s) => ({
+        chatSessions: {
+          ...s.chatSessions,
+          [activeChatSessionId]: { ...session, messages: updatedMessages },
+        },
+      }));
+    }
+    triggerHaptic(20);
+    sendMessage(userMsgToRetry.content);
+  };
+
   const handleSend = () => {
     if ((!inputVal.trim() && pendingAttachments.length === 0) || isGenerating) return;
+    if (!isOnline && !downloads[selectedModelId]?.isReady) {
+      setUploadError('You are currently offline. Please switch to a downloaded on-device model or connect to Wi-Fi/cellular.');
+      return;
+    }
     const text = inputVal;
     setInputVal('');
     sendMessage(text);
@@ -1976,6 +2020,18 @@ export default function ChatView() {
                       )}
                     </button>
 
+                    {/* Retry Button on failed generation */}
+                    {msg.content.includes('*[Generation failed:') && !msg.isStreaming && (
+                      <button
+                        onClick={() => handleRetryMessage(msg.id)}
+                        title="Retry generating response"
+                        className="flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold bg-rose-950/70 hover:bg-rose-900/80 text-rose-300 hover:text-white border border-rose-700/80 transition-all cursor-pointer shadow-sm"
+                      >
+                        <RotateCcw className="w-3 h-3 text-rose-400" />
+                        <span>Retry</span>
+                      </button>
+                    )}
+
                     {/* Copy Message Button */}
                     <button
                       onClick={() => handleCopyMessage(msg.id, msg.content)}
@@ -2239,11 +2295,32 @@ export default function ChatView() {
         className="p-2 bg-zinc-950 border-t border-zinc-800 z-20 shrink-0"
         style={{ paddingBottom: keyboardHeight > 0 ? `${keyboardHeight}px` : undefined }}
       >
-          {!isOnline && (
-            <div className="mb-1.5 px-2 py-1 rounded-lg bg-amber-950/40 border border-amber-500/30 text-amber-200 text-[10px] font-bold">
-              Offline - cached models only
+        {justReconnected && isOnline && (
+          <div className="mb-1.5 px-2.5 py-1.5 rounded-lg bg-emerald-950/70 border border-emerald-500/50 text-emerald-200 text-[11px] font-semibold flex items-center justify-between shadow-md">
+            <div className="flex items-center gap-2">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+              </span>
+              <span>Back Online — Connection restored</span>
             </div>
-          )}
+            <button
+              onClick={() => setJustReconnected(false)}
+              aria-label="Dismiss reconnect notification"
+              className="p-1 -mr-1 text-emerald-400 hover:text-emerald-100 transition-colors cursor-pointer"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+        {!isOnline && (
+          <div className="mb-1.5 px-2.5 py-1.5 rounded-lg bg-amber-950/50 border border-amber-500/40 text-amber-200 text-[11px] font-medium flex items-center justify-between shadow-sm">
+            <div className="flex items-center gap-1.5">
+              <WifiOff className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+              <span>Offline mode — on-device models only</span>
+            </div>
+          </div>
+        )}
         {/* Quick Actions (hidden only while the soft keyboard is open): the
             four former scroller chips now live behind one button + the same
             dropdown pattern as the mode menu - one visible control instead of
