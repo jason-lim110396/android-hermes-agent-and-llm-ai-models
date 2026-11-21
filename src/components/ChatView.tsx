@@ -90,6 +90,7 @@ import MarkdownNotepadModal from './MarkdownNotepadModal';
 import QRCodeStudioModal from './QRCodeStudioModal';
 import { isLowMemory, isCriticalMemoryPressure } from '@/utils/memoryGuard';
 import { subscribeThermalTelemetry, getThermalTelemetry, type ThermalTelemetry } from '@/utils/thermalGuard';
+import { copyToClipboardSafe, formatMessageForCopy } from '@/utils/clipboardGuard';
 
 // Isolated real-time hardware ticker: owns its 1.5s interval and the liveTps
 // store subscription, so the full ChatView tree no longer re-renders on every
@@ -459,23 +460,29 @@ export default function ChatView() {
     { label: '🎙️ Kokoro Voice Brief', prompt: 'Summarize today\'s offline device status and prepare a voice briefing script.' },
   ];
 
-  const handleCopyMessage = (msgId: string, content: string) => {
-    if (typeof navigator !== 'undefined' && navigator.clipboard) {
-      // clipboard.writeText needs a user gesture + focus and can reject in
-      // WebViews (backgrounded app, permission policy). Show the "Copied"
-      // badge only when the write actually landed; a rejection is logged
-      // quietly instead of surfacing as an unhandled promise in crash
-      // reporting with a false success badge on screen.
-      navigator.clipboard
-        .writeText(content)
-        .then(() => {
-          setCopiedMessageId(msgId);
-          setTimeout(() => setCopiedMessageId((cur) => (cur === msgId ? null : cur)), 2000);
-        })
-        .catch((err) => {
-          console.warn('Clipboard write failed:', err);
-        });
+  const [copyMenuMsgId, setCopyMenuMsgId] = useState<string | null>(null);
+
+  const handleCopyMessage = async (
+    msgId: string,
+    content: string,
+    format: 'plain' | 'markdown' | 'attributed' = 'plain',
+    modelName?: string
+  ) => {
+    const formatted = formatMessageForCopy(content, {
+      format,
+      modelName,
+      timestamp: new Date().toLocaleString(),
+    });
+    const success = await copyToClipboardSafe(formatted, {
+      saveToVault: true,
+      modelName,
+    });
+    if (success) {
+      setCopiedMessageId(msgId);
+      triggerHaptic('success');
+      setTimeout(() => setCopiedMessageId((cur) => (cur === msgId ? null : cur)), 2000);
     }
+    setCopyMenuMsgId(null);
   };
 
   const handleSpeakMessage = (msgId: string, content: string) => {
@@ -2192,24 +2199,66 @@ export default function ChatView() {
                       </button>
                     )}
 
-                    {/* Copy Message Button */}
-                    <button
-                      onClick={() => handleCopyMessage(msg.id, msg.content)}
-                      title="Copy full response"
-                      className="flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-medium bg-zinc-900/80 hover:bg-zinc-800 text-zinc-400 hover:text-white border border-zinc-800/80 transition-all cursor-pointer"
-                    >
-                      {copiedMessageId === msg.id ? (
+                    {/* Copy Message with Multi-Format Options */}
+                    <div className="relative inline-flex items-center">
+                      <button
+                        onClick={() => handleCopyMessage(msg.id, msg.content, 'plain', msg.modelUsed)}
+                        title="Copy message text"
+                        className="flex items-center gap-1 px-2 py-0.5 rounded-l-lg text-[10px] font-medium bg-zinc-900/80 hover:bg-zinc-800 text-zinc-400 hover:text-white border border-zinc-800/80 transition-all cursor-pointer"
+                      >
+                        {copiedMessageId === msg.id ? (
+                          <>
+                            <Check className="w-3 h-3 text-emerald-400" />
+                            <span className="text-emerald-400 font-bold">Copied</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-3 h-3" />
+                            <span>Copy</span>
+                          </>
+                        )}
+                      </button>
+                      <button
+                        onClick={() => {
+                          triggerHaptic('selection');
+                          setCopyMenuMsgId((cur) => (cur === msg.id ? null : msg.id));
+                        }}
+                        title="Copy options"
+                        aria-label="Copy formatting options"
+                        className="px-1 py-0.5 rounded-r-lg text-[10px] bg-zinc-900/80 hover:bg-zinc-800 text-zinc-400 hover:text-white border-y border-r border-zinc-800/80 transition-all cursor-pointer"
+                      >
+                        <ChevronDown className={`w-3 h-3 transition-transform ${copyMenuMsgId === msg.id ? 'rotate-180' : ''}`} />
+                      </button>
+
+                      {copyMenuMsgId === msg.id && (
                         <>
-                          <Check className="w-3 h-3 text-emerald-400" />
-                          <span className="text-emerald-400 font-bold">Copied</span>
-                        </>
-                      ) : (
-                        <>
-                          <Copy className="w-3 h-3" />
-                          <span>Copy</span>
+                          <div className="fixed inset-0 z-30" onClick={() => setCopyMenuMsgId(null)} />
+                          <div className="absolute left-0 bottom-full mb-1 z-40 w-44 bg-zinc-900 border border-zinc-700/80 rounded-xl shadow-xl p-1.5 space-y-1 text-xs">
+                            <button
+                              onClick={() => handleCopyMessage(msg.id, msg.content, 'plain', msg.modelUsed)}
+                              className="w-full text-left px-2 py-1.5 rounded-lg hover:bg-zinc-800 text-zinc-300 hover:text-white text-[11px] flex items-center justify-between cursor-pointer"
+                            >
+                              <span>Plain Text</span>
+                              <FileText className="w-3 h-3 text-zinc-500" />
+                            </button>
+                            <button
+                              onClick={() => handleCopyMessage(msg.id, msg.content, 'attributed', msg.modelUsed)}
+                              className="w-full text-left px-2 py-1.5 rounded-lg hover:bg-zinc-800 text-zinc-300 hover:text-white text-[11px] flex items-center justify-between cursor-pointer"
+                            >
+                              <span>With Model Info</span>
+                              <Bot className="w-3 h-3 text-cyan-400" />
+                            </button>
+                            <button
+                              onClick={() => handleCopyMessage(msg.id, msg.content, 'markdown', msg.modelUsed)}
+                              className="w-full text-left px-2 py-1.5 rounded-lg hover:bg-zinc-800 text-zinc-300 hover:text-white text-[11px] flex items-center justify-between cursor-pointer"
+                            >
+                              <span>Markdown</span>
+                              <FileCode className="w-3 h-3 text-purple-400" />
+                            </button>
+                          </div>
                         </>
                       )}
-                    </button>
+                    </div>
 
                     {/* Run in Code Sandbox (for code blocks) */}
                     {(msg.content.includes('```') || msg.content.includes('<html') || msg.content.includes('<svg')) && (
