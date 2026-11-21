@@ -1024,6 +1024,25 @@ export default function VoiceStudio() {
                     onChange={(e) => setRate(parseFloat(e.target.value))}
                     className="w-full accent-amber-500 cursor-pointer"
                   />
+                  <div className="flex items-center gap-1 mt-1">
+                    {[0.75, 1.0, 1.25, 1.5].map((preset) => (
+                      <button
+                        key={preset}
+                        type="button"
+                        onClick={() => {
+                          setRate(preset);
+                          triggerHaptic(10);
+                        }}
+                        className={`flex-1 py-0.5 rounded text-[9px] font-mono font-bold transition-all cursor-pointer ${
+                          rate === preset
+                            ? 'bg-amber-500 text-black'
+                            : 'bg-zinc-800 text-zinc-400 hover:text-white'
+                        }`}
+                      >
+                        {preset}x
+                      </button>
+                    ))}
+                  </div>
                 </div>
                 <div>
                   <div className="flex justify-between text-[11px] text-zinc-400 mb-1">
@@ -1039,6 +1058,25 @@ export default function VoiceStudio() {
                     onChange={(e) => setPitch(parseFloat(e.target.value))}
                     className="w-full accent-amber-500 cursor-pointer"
                   />
+                  <div className="flex items-center gap-1 mt-1">
+                    {[0.8, 1.0, 1.2].map((pPreset) => (
+                      <button
+                        key={pPreset}
+                        type="button"
+                        onClick={() => {
+                          setPitch(pPreset);
+                          triggerHaptic(10);
+                        }}
+                        className={`flex-1 py-0.5 rounded text-[9px] font-mono font-bold transition-all cursor-pointer ${
+                          pitch === pPreset
+                            ? 'bg-amber-500 text-black'
+                            : 'bg-zinc-800 text-zinc-400 hover:text-white'
+                        }`}
+                      >
+                        {pPreset === 0.8 ? 'Low' : pPreset === 1.0 ? 'Natural' : 'High'}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
 
