@@ -1,5 +1,6 @@
 'use client';
 
+import { triggerHaptic } from '@/utils/haptics';
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   X,
@@ -263,7 +264,7 @@ export default function SensorSpatialModal({
 
   const handleCalibrate = () => {
     setIsCalibrating(true);
-    if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate([40, 30, 40]);
+    triggerHaptic([40, 30, 40]);
     setTimeout(() => {
       setOrientation((prev) => ({
         alpha: +((prev.alpha + 5) % 360).toFixed(1),
@@ -303,7 +304,7 @@ export default function SensorSpatialModal({
     if (typeof navigator !== 'undefined' && navigator.clipboard) {
       navigator.clipboard.writeText(text);
       setIsCopied(true);
-      if (navigator.vibrate) navigator.vibrate(30);
+      triggerHaptic(30);
       setTimeout(() => setIsCopied(false), 2500);
     }
   };
@@ -311,7 +312,7 @@ export default function SensorSpatialModal({
   const handleInsert = () => {
     if (onInsertTelemetry) {
       onInsertTelemetry(getTelemetryReport());
-      if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(40);
+      triggerHaptic(40);
       onClose();
     }
   };
@@ -320,7 +321,7 @@ export default function SensorSpatialModal({
     if (onAuditWithAgent) {
       const prompt = `Please audit my smartphone's current real-time sensor telemetry and environmental status:\n\n${getTelemetryReport()}\n\nIdentify any battery drain issues, check signal latency, evaluate ambient lighting for camera OCR, and recommend power profile tuning.`;
       onAuditWithAgent(prompt);
-      if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate([30, 20, 50]);
+      triggerHaptic([30, 20, 50]);
       onClose();
     }
   };

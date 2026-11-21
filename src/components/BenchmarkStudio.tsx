@@ -1,5 +1,6 @@
 'use client';
 
+import { triggerHaptic } from '@/utils/haptics';
 import React, { useState, useEffect } from 'react';
 import {
   Gauge,
@@ -93,7 +94,7 @@ export default function BenchmarkStudio() {
       await new Promise((r) => setTimeout(r, 450));
       const elapsed = Math.round(performance.now() - start);
       setStressTestFeedback(`Tensor buffer test passed in ${elapsed}ms: 0 memory fragmentation, GC clean.`);
-      if (navigator.vibrate) navigator.vibrate([20, 20]);
+      triggerHaptic([20, 20]);
     } catch (err: any) {
       setStressTestFeedback(`Allocation failed: ${err?.message || err}`);
     } finally {
@@ -202,9 +203,7 @@ export default function BenchmarkStudio() {
     });
 
     setIsBurnInRunning(false);
-    if (typeof navigator !== 'undefined' && navigator.vibrate) {
-      navigator.vibrate([40, 60, 40]);
-    }
+    triggerHaptic([40, 60, 40]);
   };
 
   const handleExportThermalReport = () => {
@@ -248,7 +247,7 @@ export default function BenchmarkStudio() {
     setProgress(5);
     setTestStage('Initializing WebGPU Compute Pipeline...');
 
-    if (navigator.vibrate) navigator.vibrate(30);
+    triggerHaptic(30);
 
     await new Promise((r) => setTimeout(r, 600));
     setProgress(25);
@@ -364,7 +363,7 @@ export default function BenchmarkStudio() {
       window.localStorage.setItem('hermes_benchmark_result', JSON.stringify(benchmarkResult));
     }
 
-    if (navigator.vibrate) navigator.vibrate([40, 60, 40]);
+    triggerHaptic([40, 60, 40]);
   };
 
   const handleShareCertificate = async () => {
@@ -902,7 +901,7 @@ export default function BenchmarkStudio() {
               const idList = tokens.map((t) => t.id);
               navigator.clipboard.writeText(JSON.stringify(idList));
               setIsCopiedTokens(true);
-              if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(30);
+              triggerHaptic(30);
               setTimeout(() => setIsCopiedTokens(false), 2000);
             };
 

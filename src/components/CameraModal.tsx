@@ -1,5 +1,6 @@
 ﻿'use client';
 
+import { triggerHaptic } from '@/utils/haptics';
 import React, { useRef, useState, useEffect } from 'react';
 import {
   Camera,
@@ -207,14 +208,14 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
       // @ts-expect-error torch is valid in modern Android WebKit / Chrome
       await track.applyConstraints({ advanced: [{ torch: nextState }] });
       setTorchEnabled(nextState);
-      if (navigator.vibrate) navigator.vibrate(25);
+      triggerHaptic(25);
     } catch {
       // ignore torch constraint failures on unsupported devices
     }
   };
 
   const toggleFacingMode = () => {
-    if (navigator.vibrate) navigator.vibrate(30);
+    triggerHaptic(30);
     setFacingMode((prev) => (prev === 'environment' ? 'user' : 'environment'));
   };
 
@@ -238,10 +239,10 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
     // spec no-op, producing a solid black JPEG the user would attach with no
     // warning. Refuse the shot instead.
     if (!v.videoWidth) {
-      if (navigator.vibrate) navigator.vibrate([40, 60, 40]);
+      triggerHaptic([40, 60, 40]);
       return;
     }
-    if (navigator.vibrate) navigator.vibrate(60);
+    triggerHaptic(60);
 
     const c = canvasRef.current;
     c.width = v.videoWidth;
@@ -261,7 +262,7 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
     // Same HAVE_NOTHING guard as the single snapshot: a burst taken before
     // the stream delivers frames would attach four black JPEGs.
     if (!v0.videoWidth) {
-      if (navigator.vibrate) navigator.vibrate([40, 60, 40]);
+      triggerHaptic([40, 60, 40]);
       return;
     }
     setIsBurstCapturing(true);
@@ -301,9 +302,7 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
         motionDelta: deltas[i],
         isPeak: i === 2,
       });
-      if (typeof navigator !== 'undefined' && navigator.vibrate) {
-        navigator.vibrate(35);
-      }
+      triggerHaptic(35);
       if (i < 3) {
         await new Promise((r) => setTimeout(r, 220));
       }
@@ -383,7 +382,7 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
           <button
             onClick={() => {
               setScanMode('photo');
-              if (navigator.vibrate) navigator.vibrate(20);
+              triggerHaptic(20);
             }}
             className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold transition-all cursor-pointer ${
               scanMode === 'photo'
@@ -397,7 +396,7 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
           <button
             onClick={() => {
               setScanMode('document');
-              if (navigator.vibrate) navigator.vibrate(20);
+              triggerHaptic(20);
             }}
             className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold transition-all cursor-pointer ${
               scanMode === 'document'
@@ -411,7 +410,7 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
           <button
             onClick={() => {
               setScanMode('ar-hud');
-              if (navigator.vibrate) navigator.vibrate(20);
+              triggerHaptic(20);
             }}
             className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold transition-all cursor-pointer ${
               scanMode === 'ar-hud'
@@ -425,7 +424,7 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
           <button
             onClick={() => {
               setScanMode('keyframes');
-              if (navigator.vibrate) navigator.vibrate(20);
+              triggerHaptic(20);
             }}
             className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold transition-all cursor-pointer ${
               scanMode === 'keyframes'
@@ -572,7 +571,7 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
                 <button
                   onClick={() => {
                     setShowTelemetry((prev) => !prev);
-                    if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(15);
+                    triggerHaptic(15);
                   }}
                   className={`p-2 rounded-full backdrop-blur-md transition-all ${
                     showTelemetry ? 'bg-emerald-400 text-black shadow-md shadow-emerald-400/40' : 'bg-black/60 text-white hover:bg-black/80'
@@ -650,7 +649,7 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
                   onClick={() => {
                     setSelectedFrameIndex(idx);
                     setCapturedUrl(frame.url);
-                    if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(15);
+                    triggerHaptic(15);
                   }}
                   className={`relative rounded-lg overflow-hidden border-2 aspect-video transition-all cursor-pointer ${
                     selectedFrameIndex === idx

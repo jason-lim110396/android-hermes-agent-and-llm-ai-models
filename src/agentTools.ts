@@ -10,6 +10,8 @@ export interface AgentTool {
   execute: (args: Record<string, unknown>) => Promise<string>;
 }
 
+import { triggerHaptic, hasVibration } from './utils/haptics';
+
 export interface AgentStep {
   thought?: string;
   toolCall?: {
@@ -502,9 +504,9 @@ export const AGENT_TOOLS: AgentTool[] = [
       else if (pattern === 'alert') vibPattern = [200, 100, 200, 100, 300];
       else if (pattern === 'sos') vibPattern = [100, 50, 100, 50, 100, 150, 250, 50, 250, 50, 250, 150, 100, 50, 100, 50, 100];
 
-      if (typeof navigator !== 'undefined' && navigator.vibrate) {
+      if (hasVibration()) {
         try {
-          const success = navigator.vibrate(vibPattern);
+          const success = triggerHaptic(vibPattern);
           return success
             ? `📳 **Haptic Actuation Succeeded**: Phone vibration motor triggered with pattern: [${pattern.toUpperCase()}].`
             : `📳 **Haptic Not Triggered**: the platform rejected the vibration request (pattern ${pattern.toUpperCase()}) - nothing was vibrated.`;

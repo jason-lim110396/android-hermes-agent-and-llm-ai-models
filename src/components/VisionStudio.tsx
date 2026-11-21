@@ -1,5 +1,6 @@
 'use client';
 
+import { triggerHaptic } from '@/utils/haptics';
 import React, { useState, useRef } from 'react';
 import {
   Camera,
@@ -137,7 +138,7 @@ export default function VisionStudio() {
     setOcrTranslateLang(target);
     setIsTranslatingOcr(true);
     setOcrTranslateFeedback(`Translating OCR text into ${target} via on-device MiniCPM-V...`);
-    if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(20);
+    triggerHaptic(20);
 
     await new Promise((r) => setTimeout(r, 600));
 
@@ -172,13 +173,13 @@ export default function VisionStudio() {
     setIsTranslatingOcr(false);
     setOcrTranslateFeedback(`Translation into ${target} complete!`);
     setTimeout(() => setOcrTranslateFeedback(null), 3000);
-    if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate([30, 20, 30]);
+    triggerHaptic([30, 20, 30]);
   };
 
   const handleSpeakOcrTranslation = async () => {
     if (!ocrTranslatedResult) return;
     setIsSpeakingOcrTranslation(true);
-    if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(30);
+    triggerHaptic(30);
 
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       const utterance = new SpeechSynthesisUtterance(ocrTranslatedResult);
@@ -507,7 +508,7 @@ export default function VisionStudio() {
     try {
       await new Promise((r) => setTimeout(r, 1500));
       setReconcileResult(DEFAULT_RECONCILE_ITEMS);
-      if (navigator.vibrate) navigator.vibrate([60, 40, 60]);
+      triggerHaptic([60, 40, 60]);
     } finally {
       setIsReconciling(false);
     }
@@ -1028,7 +1029,7 @@ export default function VisionStudio() {
                       setBarcodePayload(sample.payload);
                       setBarcodeFormat(sample.format);
                       setBarcodeActionFeedback(`Loaded ${sample.label}`);
-                      if (navigator.vibrate) navigator.vibrate(25);
+                      triggerHaptic(25);
                       setTimeout(() => setBarcodeActionFeedback(null), 2500);
                     }}
                     className={`p-2 rounded-xl text-left border text-xs font-medium cursor-pointer transition-all ${
@@ -1106,7 +1107,7 @@ export default function VisionStudio() {
                   <button
                     onClick={() => {
                       setBarcodeActionFeedback('Simulating Wi-Fi handshake: Connected to network!');
-                      if (navigator.vibrate) navigator.vibrate([40, 30, 40]);
+                      triggerHaptic([40, 30, 40]);
                       setTimeout(() => setBarcodeActionFeedback(null), 3000);
                     }}
                     className="p-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 text-white flex items-center gap-2 cursor-pointer shadow-md text-xs font-bold"
@@ -1148,7 +1149,7 @@ export default function VisionStudio() {
                       .writeText(barcodePayload)
                       .then(() => {
                         setBarcodeActionFeedback('Copied barcode payload to clipboard!');
-                        if (navigator.vibrate) navigator.vibrate(20);
+                        triggerHaptic(20);
                         setTimeout(() => setBarcodeActionFeedback(null), 2500);
                       })
                       .catch(() => {
@@ -1271,7 +1272,7 @@ export default function VisionStudio() {
                         findings: preset.findings,
                         regionsCount: preset.findings.length,
                       });
-                      if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(20);
+                      triggerHaptic(20);
                     }}
                     className="px-2 py-1 rounded-lg bg-zinc-950/70 border border-zinc-800 hover:border-zinc-700 text-zinc-300 text-[10px] font-medium cursor-pointer transition-all"
                   >
@@ -1461,7 +1462,7 @@ export default function VisionStudio() {
               <button
                 onClick={async () => {
                   setIsDiffAnalyzing(true);
-                  if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate([25, 25]);
+                  triggerHaptic([25, 25]);
                   await new Promise((r) => setTimeout(r, 900));
                   setIsDiffAnalyzing(false);
                 }}
@@ -1595,7 +1596,7 @@ export default function VisionStudio() {
                       .then(() => {
                         setOcrTranslateFeedback('Translation copied to clipboard!');
                         setTimeout(() => setOcrTranslateFeedback(null), 2500);
-                        if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(30);
+                        triggerHaptic(30);
                       })
                       .catch(() => {
                         setOcrTranslateFeedback('Copy failed - clipboard blocked. Nothing was copied.');

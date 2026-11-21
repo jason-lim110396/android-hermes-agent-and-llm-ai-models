@@ -1,5 +1,6 @@
 'use client';
 
+import { triggerHaptic } from '@/utils/haptics';
 import React, { useState, useRef, useEffect } from 'react';
 import {
   Volume2,
@@ -129,7 +130,7 @@ export default function VoiceStudio() {
       setNoiseSuppression(false);
       setHighPassHz(40);
     }
-    if (navigator.vibrate) navigator.vibrate(20);
+    triggerHaptic(20);
   };
 
   // Acoustic Noise Gate Threshold Visualizer & Calibration State
@@ -147,7 +148,7 @@ export default function VoiceStudio() {
     }
     setIsCalibratingGate(true);
     setCalibrationFeedback('Sampling ambient room acoustics for 1.5s. Please remain silent...');
-    if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(20);
+    triggerHaptic(20);
 
     await new Promise((r) => setTimeout(r, 1500));
 
@@ -158,7 +159,7 @@ export default function VoiceStudio() {
     setNoiseGateDb(recommendedGate);
     setIsCalibratingGate(false);
     setCalibrationFeedback(`Room noise floor: ${measuredAmbient} dBFS. Calibrated gate threshold to ${recommendedGate} dBFS.`);
-    if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate([40, 30, 40]);
+    triggerHaptic([40, 30, 40]);
     if (calibrationFeedbackTimeoutRef.current) {
       clearTimeout(calibrationFeedbackTimeoutRef.current);
     }
@@ -218,7 +219,7 @@ export default function VoiceStudio() {
       setDistortionDrive(1.0);
       setReverbWet(75);
     }
-    if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(25);
+    triggerHaptic(25);
   };
 
   // Audio Trimmer & Silence Cut State
@@ -236,7 +237,7 @@ export default function VoiceStudio() {
   const handleExecuteSilenceCut = async () => {
     setIsTrimming(true);
     setTrimmerStatus('Analyzing audio waveform and scanning for ambient room tone silence...');
-    if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate([20, 20]);
+    triggerHaptic([20, 20]);
     await new Promise((r) => setTimeout(r, 650));
 
     const totalSpan = Math.max(0.5, trimEndSec - trimStartSec);
@@ -249,12 +250,12 @@ export default function VoiceStudio() {
     setTrimmedSavingsPercent(savings);
     setIsTrimming(false);
     setTrimmerStatus(`Silence cut applied! Removed 5 pauses. Effective duration: ${strippedDuration}s (${savings}% reduced).`);
-    if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate([40, 30, 40]);
+    triggerHaptic([40, 30, 40]);
   };
 
   const handlePreviewTrimmedAudio = async () => {
     setIsPlayingTrimmed(true);
-    if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(30);
+    triggerHaptic(30);
 
     try {
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
@@ -306,7 +307,7 @@ export default function VoiceStudio() {
     a.click();
     URL.revokeObjectURL(url);
     setTrimmerStatus('Exported Hermes_Trimmed_Cut.wav audio bundle.');
-    if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(40);
+    triggerHaptic(40);
   };
 
   // Custom Cloned Personas State
@@ -555,7 +556,7 @@ export default function VoiceStudio() {
     setRate(newProfile.rate);
     setCloneName('');
     setSaveSuccessMsg(`Saved "${newProfile.name}" to neural voice profiles!`);
-    if (navigator.vibrate) navigator.vibrate([40, 30, 40]);
+    triggerHaptic([40, 30, 40]);
     setTimeout(() => setSaveSuccessMsg(null), 3000);
   };
 
@@ -607,7 +608,7 @@ export default function VoiceStudio() {
       }
       setIsRecording(false);
       setInterimText('');
-      if (navigator.vibrate) navigator.vibrate([30]);
+      triggerHaptic([30]);
       return;
     }
 
@@ -634,7 +635,7 @@ export default function VoiceStudio() {
     setDictationPermissionDenied(false);
 
     try {
-      if (navigator.vibrate) navigator.vibrate([40]);
+      triggerHaptic([40]);
       const recognition = new SpeechRecognition();
       recognition.continuous = true;
       recognition.interimResults = true;
@@ -1683,7 +1684,7 @@ export default function VoiceStudio() {
                   }
                   setIsAuditioningVocoder(true);
                   setVocoderFeedback(`Auditioning ${vocoderPreset.toUpperCase()} filter on Web Audio DSP...`);
-                  if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate([30, 20, 30]);
+                  triggerHaptic([30, 20, 30]);
 
                   try {
                     const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
@@ -1959,7 +1960,7 @@ export default function VoiceStudio() {
                         ? `${prev} [Trimmed Audio Clip: ${trimmedEffectiveDuration}s duration]`
                         : `[Trimmed Audio Clip: ${trimmedEffectiveDuration}s duration, ${trimmedSavingsPercent || 0}% silence stripped]`
                     );
-                    if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(30);
+                    triggerHaptic(30);
                   }}
                   className="py-2.5 rounded-xl bg-zinc-950 hover:bg-zinc-900 border border-zinc-800 text-emerald-400 font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer transition-all"
                 >

@@ -1,5 +1,6 @@
 'use client';
 
+import { triggerHaptic } from '@/utils/haptics';
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   X,
@@ -133,7 +134,7 @@ export default function ClipboardVaultModal({
   const [clipboardNotice, setClipboardNotice] = useState<{ kind: 'error' | 'info'; text: string } | null>(null);
   const showClipboardNotice = (kind: 'error' | 'info', text: string) => {
     setClipboardNotice({ kind, text });
-    if (kind === 'error' && typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate([30, 30]);
+    if (kind === 'error') triggerHaptic([30, 30]);
     setTimeout(() => setClipboardNotice(null), 3000);
   };
 
@@ -212,7 +213,7 @@ export default function ClipboardVaultModal({
     persist([entry, ...entries]);
     setNewText('');
     setIsAdding(false);
-    if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(30);
+    triggerHaptic(30);
   };
 
   const handleCopy = async (entry: ClipEntry) => {
@@ -228,13 +229,13 @@ export default function ClipboardVaultModal({
       return;
     }
     setCopiedId(entry.id);
-    if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(25);
+    triggerHaptic(25);
     setTimeout(() => setCopiedId(null), 2000);
   };
 
   const handleDelete = (id: string) => {
     persist(entries.filter((e) => e.id !== id));
-    if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate([20, 10]);
+    triggerHaptic([20, 10]);
   };
 
   const handlePin = (id: string) => {
@@ -270,7 +271,7 @@ export default function ClipboardVaultModal({
       onAuditWithAgent(
         `Please analyse the following clipboard content and extract any actionable insights, contacts, tasks, links, or code review points:\n\n${text}`
       );
-      if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate([30, 20, 50]);
+      triggerHaptic([30, 20, 50]);
       onClose();
     }
   };

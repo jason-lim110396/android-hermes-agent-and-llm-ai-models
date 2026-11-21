@@ -1,5 +1,6 @@
 'use client';
 
+import { triggerHaptic } from '@/utils/haptics';
 import React, { useState, useRef } from 'react';
 import {
   Sparkles,
@@ -206,7 +207,7 @@ export default function ImageStudio() {
       setIsScrubbed(true);
       setHasExifGps(false);
 
-      if (navigator.vibrate) navigator.vibrate([40]);
+      triggerHaptic([40]);
     };
   };
 

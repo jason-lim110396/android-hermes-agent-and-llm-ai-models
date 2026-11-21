@@ -1,5 +1,6 @@
 'use client';
 
+import { triggerHaptic } from '@/utils/haptics';
 import React, { useState, useMemo, useEffect } from 'react';
 import {
   X,
@@ -100,13 +101,13 @@ export default function ContextCompressorModal({
     const updated = [...pinnedFacts, newPinnedFact.trim()];
     savePinnedFacts(updated);
     setNewPinnedFact('');
-    if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(15);
+    triggerHaptic(15);
   };
 
   const handleRemoveFact = (index: number) => {
     const updated = pinnedFacts.filter((_, i) => i !== index);
     savePinnedFacts(updated);
-    if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(15);
+    triggerHaptic(15);
   };
 
   // Estimate tokens: ~4 characters per token
@@ -174,9 +175,7 @@ export default function ContextCompressorModal({
     const newMessages = [compressedMessage, ...retained];
     replaceSessionMessages(activeSessionId, newMessages, operatingMode === 'agent' ? 'agent' : 'chat');
 
-    if (typeof navigator !== 'undefined' && navigator.vibrate) {
-      navigator.vibrate([40, 30, 40]);
-    }
+    triggerHaptic([40, 30, 40]);
   };
 
   const handleExportCompactedSnapshot = () => {

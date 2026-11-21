@@ -1,5 +1,6 @@
 'use client';
 
+import { triggerHaptic } from '@/utils/haptics';
 import React, { useState, useRef, useEffect } from 'react';
 import {
   X,
@@ -142,7 +143,7 @@ export default function OfflinePhraseBookModal({ isOpen, onClose }: OfflinePhras
     utter.onend = () => { if (isCurrent()) setSpeakingId(null); };
     utter.onerror = () => { if (isCurrent()) setSpeakingId(null); };
     synthRef.current = utter;
-    if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(20);
+    triggerHaptic(20);
     setTtsError(false);
     // If the engine refuses the utterance outright, clear the row immediately
     // instead of leaving a phantom "Stop" state that never resolves.
@@ -188,7 +189,7 @@ export default function OfflinePhraseBookModal({ isOpen, onClose }: OfflinePhras
     // write leaves the row untouched instead of claiming success.
     try { await navigator.clipboard.writeText(text); } catch (_) { return; }
     setCopiedId(phrase.id);
-    if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(25);
+    triggerHaptic(25);
     setTimeout(() => setCopiedId(null), 2000);
   };
 

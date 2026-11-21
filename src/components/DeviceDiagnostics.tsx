@@ -1,5 +1,6 @@
 ﻿'use client';
 
+import { triggerHaptic } from '@/utils/haptics';
 import React, { useState, useEffect } from 'react';
 import {
   Cpu,
@@ -176,7 +177,7 @@ export default function DeviceDiagnostics() {
 
       setSelfTests([...updated]);
       setSelfTestProgress(Math.round(((i + 1) / updated.length) * 100));
-      if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(20);
+      triggerHaptic(20);
     }
 
     const passedCount = updated.filter((t) => t.status === 'passed').length;
@@ -192,9 +193,7 @@ export default function DeviceDiagnostics() {
     });
 
     setIsSelfTesting(false);
-    if (typeof navigator !== 'undefined' && navigator.vibrate) {
-      navigator.vibrate([40, 50, 40]);
-    }
+    triggerHaptic([40, 50, 40]);
   };
 
   const handleExportCertification = () => {
@@ -241,9 +240,9 @@ export default function DeviceDiagnostics() {
         const newTemp = +(prev + delta).toFixed(1);
         if (newTemp >= criticalTempThreshold) {
           setThermalState('throttled');
-          if (hapticAlertEnabled && typeof navigator !== 'undefined' && navigator.vibrate) {
-            navigator.vibrate([100, 50, 100]);
-          }
+          if (hapticAlertEnabled) {
+      triggerHaptic([100, 50, 100]);
+    }
         } else if (newTemp >= warnTempThreshold) {
           setThermalState('warm');
         } else {
@@ -266,16 +265,14 @@ export default function DeviceDiagnostics() {
       setIsSimulatingSpike(true);
       setThermalTemp(45.6);
       setThermalState('throttled');
-      if (hapticAlertEnabled && typeof navigator !== 'undefined' && navigator.vibrate) {
-        navigator.vibrate([150, 50, 150]);
-      }
+      if (hapticAlertEnabled) {
+      triggerHaptic([150, 50, 150]);
+    }
     } else {
       setIsSimulatingSpike(false);
       setThermalTemp(36.4);
       setThermalState('nominal');
-      if (typeof navigator !== 'undefined' && navigator.vibrate) {
-        navigator.vibrate(30);
-      }
+      triggerHaptic(30);
     }
   };
 
@@ -564,7 +561,7 @@ export default function DeviceDiagnostics() {
                   key={gov.id}
                   onClick={() => {
                     setGovernorMode(gov.id as any);
-                    if (navigator.vibrate) navigator.vibrate(20);
+                    triggerHaptic(20);
                   }}
                   className={`p-2 rounded-xl text-left border transition-all cursor-pointer ${
                     isSelected
@@ -593,7 +590,7 @@ export default function DeviceDiagnostics() {
           </div>
           <button
             onClick={() => {
-              if (navigator.vibrate) navigator.vibrate([80, 40, 80]);
+              triggerHaptic([80, 40, 80]);
             }}
             className="px-2 py-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-[10px] font-sans text-zinc-300 cursor-pointer"
           >
