@@ -153,6 +153,12 @@ const LIMIT_HINTS = [
   'origin down',
   'upstream',
   'cloudflare',
+  'slow_down',
+  'temporarily exhausted',
+  'engine is currently busy',
+  'busy',
+  'out of balance',
+  'insufficient_quota',
 ];
 
 /**
@@ -162,6 +168,8 @@ const LIMIT_HINTS = [
 export function isUsageLimitFailure(status: number, detail: string): boolean {
   // 429 (rate limit), 402 (payment required), and 408 (request timeout) are unambiguous.
   if (status === 429 || status === 402 || status === 408) return true;
+  // 529 (Site is overloaded) is returned by Anthropic, OpenRouter, and other LLM gateways.
+  if (status === 529) return true;
   // 502/503/504 are transient gateway/server failures - by definition a
   // different provider can often serve the same prompt. Free routers return
   // these constantly ("Model overloaded", "Server capacity reached",
@@ -196,6 +204,7 @@ export function describeLimitFailure(status: number, detail: string): string {
   const hint = LIMIT_HINTS.find((h) => body.includes(h));
   if (hint) return `limit: ${hint}`;
   if (status === 429) return 'rate limit';
+  if (status === 529) return 'provider overloaded (529)';
   if (status === 402) return 'payment required';
   if (status === 408) return 'request timeout (408)';
   if (status === 403) return 'quota / tier blocked';

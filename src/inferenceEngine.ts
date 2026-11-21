@@ -393,6 +393,14 @@ async function executeRemoteFallbackChain(
 
   const orderedCandidates = activeCandidates.length > 0 ? activeCandidates : uniqueCandidates;
 
+  let effectiveInitialReason = initialSwitchReason;
+  let skippedPrimaryLabel: string | null = null;
+  if (!effectiveInitialReason && uniqueCandidates.length > 0 && orderedCandidates[0] !== uniqueCandidates[0]) {
+    const primaryCd = isEndpointInCooldown(uniqueCandidates[0].endpoint, uniqueCandidates[0].model);
+    skippedPrimaryLabel = uniqueCandidates[0].label;
+    effectiveInitialReason = `Primary endpoint (${uniqueCandidates[0].label}) in cooldown (${primaryCd.reason || 'rate limit'}${primaryCd.remainingSeconds ? ` - ${primaryCd.remainingSeconds}s remaining` : ''})`;
+  }
+
   let lastFailure: RemoteEndpointError | Error | null = null;
   for (let i = 0; i < orderedCandidates.length; i++) {
     const candidate = orderedCandidates[i];
@@ -411,12 +419,12 @@ async function executeRemoteFallbackChain(
           reason: switchReason,
         });
       } catch (_) {}
-    } else if (i === 0 && initialSwitchReason) {
+    } else if (i === 0 && effectiveInitialReason) {
       try {
         config?.onFallback?.({
-          from: modelSpec?.name || 'on-device engine',
+          from: skippedPrimaryLabel || modelSpec?.name || 'primary endpoint',
           to: candidate.label,
-          reason: initialSwitchReason,
+          reason: effectiveInitialReason,
         });
       } catch (_) {}
     }
@@ -440,21 +448,23 @@ async function executeRemoteFallbackChain(
             ? lastFailure instanceof RemoteEndpointError
               ? describeLimitFailure(lastFailure.status, lastFailure.detail)
               : (lastFailure?.message || 'unavailable')
-            : initialSwitchReason;
+            : effectiveInitialReason;
 
         try {
           config?.onAnsweredModel?.({
             label: candidate.label,
             model: candidate.model,
-            isFallback: i > 0 || !!initialSwitchReason,
+            isFallback: i > 0 || !!effectiveInitialReason,
             reason,
           });
         } catch (_) {}
 
-        if ((i > 0 || initialSwitchReason) && reason) {
+        if ((i > 0 || effectiveInitialReason) && reason) {
           try {
             config?.onFallback?.({
-              from: initialSwitchReason ? (modelSpec?.name || 'on-device') : orderedCandidates[0].label,
+              from: effectiveInitialReason
+                ? (skippedPrimaryLabel || modelSpec?.name || 'primary endpoint')
+                : orderedCandidates[0].label,
               to: candidate.label,
               reason,
             });
@@ -848,6 +858,7 @@ export async function callRealLLMInference({
 
     // Option A: If User provided an external Local Server / Ollama / OpenRouter API
     // (a stray whitespace-only value must not count as a configured endpoint)
+    let remoteExhaustedReason: string | undefined = undefined;
     const remoteEndpoint = config?.apiEndpoint?.trim();
     if (config && (remoteEndpoint || (config.backendType === 'api' && config.fallbacks?.length))) {
       const primaryModel = config.customModelName || (modelId.includes('hermes') ? 'nousresearch/hermes-3-llama-3.2-3b' : modelId);
@@ -883,6 +894,7 @@ export async function callRealLLMInference({
           lastFailure instanceof RemoteEndpointError
             ? describeLimitFailure(lastFailure.status, lastFailure.detail)
             : (lastFailure.message || 'unavailable');
+        remoteExhaustedReason = reason;
         // Name the actual on-device destination: a CPU (GGUF) model must not
         // be described as a WebGPU/WebLLM download.
         const to = isCpuWasmModel(modelSpec) ? 'on-device CPU model' : 'on-device model';
@@ -904,7 +916,7 @@ export async function callRealLLMInference({
     // models dispatch to wllama/llama.cpp entirely, never to WebGPU.
     if (isCpuWasmModel(modelSpec)) {
       try {
-        return await callCpuLLMInference({
+        const cpuText = await callCpuLLMInference({
           messages,
           modelId,
           systemPrompt,
@@ -913,6 +925,17 @@ export async function callRealLLMInference({
           onProgress,
           onStreamChunk,
         });
+        if (remoteExhaustedReason) {
+          try {
+            config?.onAnsweredModel?.({
+              label: modelSpec?.name || 'On-device CPU model',
+              model: modelId,
+              isFallback: true,
+              reason: `Remote models unavailable: ${remoteExhaustedReason}`,
+            });
+          } catch (_) {}
+        }
+        return cpuText;
       } catch (cpuErr: any) {
         if (signal.aborted) throw cpuErr;
         const errorMsg = cpuErr?.message || String(cpuErr);
@@ -1009,6 +1032,16 @@ export async function callRealLLMInference({
           }
         }
 
+        if (remoteExhaustedReason) {
+          try {
+            config?.onAnsweredModel?.({
+              label: modelSpec?.name || 'On-device model',
+              model: modelId,
+              isFallback: true,
+              reason: `Remote models unavailable: ${remoteExhaustedReason}`,
+            });
+          } catch (_) {}
+        }
         return fullGenerated;
       } catch (webllmError: any) {
         if (signal.aborted) throw webllmError;
