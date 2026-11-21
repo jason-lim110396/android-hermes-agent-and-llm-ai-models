@@ -17,9 +17,12 @@ import {
   Sparkles,
   Download,
   FileJson,
+  CheckSquare,
+  Square,
 } from 'lucide-react';
 import { useAppStore, ChatSession } from '@/appStore';
 import { useBackButtonClose } from '@/utils/backButton';
+import { triggerHaptic } from '@/utils/haptics';
 
 interface ChatHistoryModalProps {
   isOpen: boolean;
@@ -48,6 +51,9 @@ export default function ChatHistoryModal({ isOpen, onClose }: ChatHistoryModalPr
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState('');
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
+  const [isSelectMode, setIsSelectMode] = useState(false);
+  const [selectedSessionIds, setSelectedSessionIds] = useState<Set<string>>(new Set());
+  const [confirmingBatchDelete, setConfirmingBatchDelete] = useState(false);
 
   const downloadBlob = (content: string, filename: string, mimeType: string) => {
     const blob = new Blob([content], { type: mimeType });
@@ -133,6 +139,66 @@ export default function ChatHistoryModal({ isOpen, onClose }: ChatHistoryModalPr
       return b.createdAt - a.createdAt;
     });
 
+  const handleExportSessionJson = (e: React.MouseEvent, s: ChatSession) => {
+    e.stopPropagation();
+    const payload = {
+      app: 'android-hermes-agent-and-llm-ai-models',
+      format: 'session-json',
+      exportedAt: new Date().toISOString(),
+      session: s,
+    };
+    downloadBlob(JSON.stringify(payload, null, 2), `${slugify(s.title)}-${stamp()}.json`, 'application/json');
+    triggerHaptic('success');
+  };
+
+  const toggleSelectSession = (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    setSelectedSessionIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+    triggerHaptic('selection');
+  };
+
+  const handleSelectAll = () => {
+    if (selectedSessionIds.size === filteredSessions.length) {
+      setSelectedSessionIds(new Set());
+    } else {
+      setSelectedSessionIds(new Set(filteredSessions.map((s) => s.id)));
+    }
+    triggerHaptic('light');
+  };
+
+  const handleBatchDelete = () => {
+    if (selectedSessionIds.size === 0) return;
+    const ids = Array.from(selectedSessionIds);
+    ids.forEach((id) => {
+      if (sessionsList.length > 1) {
+        deleteSession(id);
+      }
+    });
+    setSelectedSessionIds(new Set());
+    setIsSelectMode(false);
+    setConfirmingBatchDelete(false);
+    triggerHaptic('medium');
+  };
+
+  const handleBatchExportJson = () => {
+    const selected = sessionsList.filter((s) => selectedSessionIds.has(s.id));
+    if (selected.length === 0) return;
+    const payload = {
+      app: 'android-hermes-agent-and-llm-ai-models',
+      format: 'batch-sessions-json',
+      exportedAt: new Date().toISOString(),
+      count: selected.length,
+      sessions: selected,
+    };
+    downloadBlob(JSON.stringify(payload, null, 2), `hermes-selected-sessions-${stamp()}.json`, 'application/json');
+    triggerHaptic('success');
+  };
+
   const handleStartRename = (e: React.MouseEvent, s: ChatSession) => {
     e.stopPropagation();
     setEditingId(s.id);
@@ -185,6 +251,21 @@ export default function ChatHistoryModal({ isOpen, onClose }: ChatHistoryModalPr
           </div>
 
           <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => {
+                setIsSelectMode((cur) => !cur);
+                setSelectedSessionIds(new Set());
+                setConfirmingBatchDelete(false);
+                triggerHaptic('light');
+              }}
+              className={`px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
+                isSelectMode
+                  ? 'bg-amber-500/20 text-amber-300 border-amber-500/50'
+                  : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border-zinc-700'
+              }`}
+            >
+              {isSelectMode ? 'Cancel' : 'Select'}
+            </button>
             <button
               onClick={() => {
                 createNewSession();
@@ -270,16 +351,36 @@ export default function ChatHistoryModal({ isOpen, onClose }: ChatHistoryModalPr
                 <div
                   key={s.id}
                   onClick={() => {
-                    switchSession(s.id);
-                    onClose();
+                    if (isSelectMode) {
+                      toggleSelectSession({ stopPropagation: () => {} } as any, s.id);
+                    } else {
+                      switchSession(s.id);
+                      onClose();
+                    }
                   }}
                   className={`p-3 rounded-2xl border transition-all cursor-pointer relative group ${
-                    isActive
+                    isSelectMode && selectedSessionIds.has(s.id)
+                      ? 'bg-amber-500/10 border-amber-500/50 shadow-md ring-1 ring-amber-500/30'
+                      : isActive
                       ? 'bg-cyan-500/10 border-cyan-500/50 shadow-md ring-1 ring-cyan-500/30'
                       : 'bg-zinc-950/60 hover:bg-zinc-800/60 border-zinc-800/80 hover:border-zinc-700'
                   }`}
                 >
                   <div className="flex items-start justify-between gap-2">
+                    {isSelectMode && (
+                      <button
+                        type="button"
+                        onClick={(e) => toggleSelectSession(e, s.id)}
+                        aria-label={selectedSessionIds.has(s.id) ? 'Deselect conversation' : 'Select conversation'}
+                        className="p-1 rounded-lg text-cyan-400 hover:bg-zinc-800 transition-colors mt-0.5"
+                      >
+                        {selectedSessionIds.has(s.id) ? (
+                          <CheckSquare className="w-4 h-4 text-amber-400" />
+                        ) : (
+                          <Square className="w-4 h-4 text-zinc-600" />
+                        )}
+                      </button>
+                    )}
                     <div className="flex-1 min-w-0">
                       {/* Title & Edit */}
                       {isEditing ? (
@@ -408,6 +509,15 @@ export default function ChatHistoryModal({ isOpen, onClose }: ChatHistoryModalPr
                         <Download className="w-3.5 h-3.5" />
                       </button>
 
+                      <button
+                        onClick={(e) => handleExportSessionJson(e, s)}
+                        aria-label="Export conversation JSON"
+                        title="Export this conversation as JSON"
+                        className="h-12 w-12 p-3 rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-500 hover:text-cyan-400 hover:border-cyan-500/30 transition-all cursor-pointer flex items-center justify-center"
+                      >
+                        <FileJson className="w-3.5 h-3.5" />
+                      </button>
+
                       {sessionsList.length > 1 && (
                         <button
                           onClick={() => {
@@ -443,16 +553,61 @@ export default function ChatHistoryModal({ isOpen, onClose }: ChatHistoryModalPr
           )}
         </div>
 
-        {/* Export All Footer */}
+        {/* Footer: Export All & Batch Actions */}
         <div className="p-3 border-t border-zinc-800 bg-zinc-950/60">
-          <button
-            onClick={handleExportAll}
-            title="Download a full JSON backup of all chat and agent conversations"
-            className="w-full min-h-12 flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-bold transition-all cursor-pointer border border-zinc-700"
-          >
-            <FileJson className="w-3.5 h-3.5 text-cyan-400" />
-            <span>Export All</span>
-          </button>
+          {isSelectMode ? (
+            <div className="flex items-center justify-between gap-2">
+              <button
+                onClick={handleSelectAll}
+                className="px-3 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-bold transition-all cursor-pointer border border-zinc-700 flex items-center gap-1.5"
+              >
+                <CheckSquare className="w-3.5 h-3.5 text-amber-400" />
+                <span>
+                  {selectedSessionIds.size === filteredSessions.length ? 'Deselect All' : 'Select All'}
+                </span>
+              </button>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleBatchExportJson}
+                  disabled={selectedSessionIds.size === 0}
+                  className="px-3 py-2 rounded-xl bg-cyan-950/60 hover:bg-cyan-900 border border-cyan-700/80 text-cyan-300 text-xs font-bold transition-all cursor-pointer disabled:opacity-40 flex items-center gap-1.5"
+                >
+                  <FileJson className="w-3.5 h-3.5" />
+                  <span>Export ({selectedSessionIds.size})</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    if (confirmingBatchDelete) {
+                      handleBatchDelete();
+                    } else {
+                      setConfirmingBatchDelete(true);
+                      triggerHaptic('warning');
+                    }
+                  }}
+                  disabled={selectedSessionIds.size === 0}
+                  className={`px-3 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer disabled:opacity-40 flex items-center gap-1.5 border ${
+                    confirmingBatchDelete
+                      ? 'bg-rose-500 text-white border-rose-600 animate-pulse'
+                      : 'bg-rose-950/60 hover:bg-rose-900 border-rose-800 text-rose-300'
+                  }`}
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>{confirmingBatchDelete ? 'Confirm?' : `Delete (${selectedSessionIds.size})`}</span>
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              onClick={handleExportAll}
+              title="Download a full JSON backup of all chat and agent conversations"
+              className="w-full min-h-12 flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-bold transition-all cursor-pointer border border-zinc-700"
+            >
+              <FileJson className="w-3.5 h-3.5 text-cyan-400" />
+              <span>Export All Conversations (.json)</span>
+            </button>
+          )}
         </div>
       </div>
     </div>
