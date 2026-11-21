@@ -143,3 +143,93 @@ export async function checkStorageHeadroom(requiredMB: number): Promise<Headroom
     recommendation: `Safe storage headroom. ${remainingAfterMB} MB will remain free after model download.`,
   };
 }
+
+export interface CacheAuditResult {
+  totalCachesCount: number;
+  knownModelCaches: string[];
+  orphanCaches: string[];
+  orphanSizeEstimateMB: number;
+  integrity: 'healthy' | 'has_orphans' | 'unsupported';
+}
+
+/**
+ * Audits CacheStorage keys to identify orphan or partial model caches.
+ */
+export async function auditModelCacheIntegrity(knownModelIds: string[]): Promise<CacheAuditResult> {
+  if (typeof window === 'undefined' || !window.caches) {
+    return {
+      totalCachesCount: 0,
+      knownModelCaches: [],
+      orphanCaches: [],
+      orphanSizeEstimateMB: 0,
+      integrity: 'unsupported',
+    };
+  }
+
+  try {
+    const keys = await window.caches.keys();
+    const knownSet = new Set(knownModelIds.map((id) => id.toLowerCase()));
+
+    const knownModelCaches: string[] = [];
+    const orphanCaches: string[] = [];
+
+    for (const key of keys) {
+      const lowerKey = key.toLowerCase();
+      // Skip system or app service worker caches
+      if (lowerKey.includes('next-') || lowerKey.includes('workbox') || lowerKey.includes('sw-')) {
+        continue;
+      }
+
+      // Check if cache key matches any known model ID or prefix
+      const matchesKnown = Array.from(knownSet).some((mId) => lowerKey.includes(mId));
+      if (matchesKnown) {
+        knownModelCaches.push(key);
+      } else if (lowerKey.includes('mlc') || lowerKey.includes('wasm') || lowerKey.includes('transformers') || lowerKey.includes('huggingface') || lowerKey.includes('model')) {
+        orphanCaches.push(key);
+      }
+    }
+
+    const orphanSizeEstimateMB = orphanCaches.length * 450;
+    return {
+      totalCachesCount: keys.length,
+      knownModelCaches,
+      orphanCaches,
+      orphanSizeEstimateMB,
+      integrity: orphanCaches.length === 0 ? 'healthy' : 'has_orphans',
+    };
+  } catch (_) {
+    return {
+      totalCachesCount: 0,
+      knownModelCaches: [],
+      orphanCaches: [],
+      orphanSizeEstimateMB: 0,
+      integrity: 'unsupported',
+    };
+  }
+}
+
+/**
+ * Purges orphan model caches from window.caches.
+ */
+export async function purgeOrphanModelCaches(knownModelIds: string[]): Promise<{ purgedCount: number; freedEstMB: number }> {
+  if (typeof window === 'undefined' || !window.caches) {
+    return { purgedCount: 0, freedEstMB: 0 };
+  }
+
+  try {
+    const audit = await auditModelCacheIntegrity(knownModelIds);
+    let purgedCount = 0;
+
+    for (const orphanKey of audit.orphanCaches) {
+      const deleted = await window.caches.delete(orphanKey);
+      if (deleted) purgedCount++;
+    }
+
+    return {
+      purgedCount,
+      freedEstMB: purgedCount * 450,
+    };
+  } catch (_) {
+    return { purgedCount: 0, freedEstMB: 0 };
+  }
+}
