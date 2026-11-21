@@ -110,28 +110,25 @@ export const AGENT_TOOLS: AgentTool[] = [
     name: 'code_interpreter',
     description: 'Execute JavaScript / Math expressions in an isolated client sandbox and return calculated output.',
     parameters: [
-      { name: 'code', type: 'string', description: 'Arithmetic / number expression (digits, + - * / % ** ( ) . , and Math.* constants/functions such as Math.PI, Math.E, Math.sqrt, Math.cos). Plain JavaScript is not executed.', required: true }
+      { name: 'code', type: 'string', description: 'Arithmetic / number expression (digits, + - * / % ** ( ) . , and whitelisted Math.* functions/constants: Math.PI, Math.E, Math.sqrt, Math.abs, Math.cos, Math.sin, Math.tan, Math.log, Math.pow, Math.min, Math.max, Math.floor, Math.ceil, Math.round). Plain JavaScript is not executed.', required: true }
     ],
     execute: async (args) => {
       if (typeof args.code !== 'string' || !args.code.trim()) {
         return 'Sandbox refused: `code` must be a non-empty string expression. Nothing was executed.';
       }
       const code = args.code;
-      // Only a pure arithmetic/number expression may run. The sanitizer output
-      // is what gets evaluated: previously the sanitized string was only used
-      // for a length check while Function() ran the RAW input, so the model
-      // could execute arbitrary JavaScript (localStorage.clear(), while(true){},
-      // navigation) and then read it back as an "Execution Result".
-      const sanitized = code.replace(/[^0-9+\-*/().%^Math.sqrtbcosinlogPIE,\s]/g, '');
       if (code.includes('import') || code.includes('fetch') || code.length > 1000) {
         return 'Sandbox refused: only short arithmetic/number expressions are executed here. Nothing was run.';
       }
-      if (sanitized !== code) {
-        return 'Sandbox refused: the expression contains characters outside the arithmetic whitelist (digits, + - * / % ** ( ) . , and Math.* constants/functions - use Math.PI and Math.E, not bare PI/E). Nothing was executed.';
+      // Only numbers, operators + - * / % **, parentheses, and whitelisted Math.*
+      // functions/constants are permitted. Disallow arbitrary identifiers.
+      const stripped = code.replace(/\bMath\.(PI|E|sqrt|abs|cos|sin|tan|log|pow|min|max|floor|ceil|round)\b/g, '');
+      if (/[^0-9+\-*/().%,\s]/.test(stripped) || /[a-zA-Z_$]/.test(stripped)) {
+        return 'Sandbox refused: the expression contains characters or identifiers outside the arithmetic whitelist (digits, + - * / % ** ( ) . , and whitelisted Math.* functions/constants: Math.PI, Math.E, Math.sqrt, Math.abs, Math.cos, Math.sin, Math.tan, Math.log, Math.pow, Math.min, Math.max, Math.floor, Math.ceil, Math.round). Nothing was executed.';
       }
       try {
         // eslint-disable-next-line no-eval
-        const res = Function(`"use strict"; return (${sanitized});`)();
+        const res = Function(`"use strict"; return (${code});`)();
         return `Execution Result: ${JSON.stringify(res)}`;
       } catch (err: unknown) {
         return `Sandbox Runtime Notice: ${(err as Error)?.message || String(err)}`;

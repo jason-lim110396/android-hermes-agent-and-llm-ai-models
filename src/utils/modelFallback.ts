@@ -30,6 +30,12 @@ export const FREE_FALLBACK_PRESETS: FallbackModelEntry[] = [
     model: 'openrouter/free',
   },
   {
+    id: 'openrouter-gemini-flash-free',
+    label: 'Google Gemini Flash (free)',
+    endpoint: 'https://openrouter.ai/api/v1',
+    model: 'google/gemini-2.0-flash-exp:free',
+  },
+  {
     id: 'openrouter-ernie-free',
     label: 'ERNIE 5.5 Flash Preview (free)',
     endpoint: 'https://openrouter.ai/api/v1',
