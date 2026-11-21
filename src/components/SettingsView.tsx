@@ -136,6 +136,33 @@ export default function SettingsView() {
   const hardwareProfile = useAppStore((s) => s.hardwareProfile);
   const chatSessions = useAppStore((s) => s.chatSessions);
   const agentSessions = useAppStore((s) => s.agentSessions);
+  const voiceRate = useAppStore((s) => s.voiceRate);
+  const setVoiceRate = useAppStore((s) => s.setVoiceRate);
+  const voicePitch = useAppStore((s) => s.voicePitch);
+  const setVoicePitch = useAppStore((s) => s.setVoicePitch);
+  const voiceURI = useAppStore((s) => s.voiceURI);
+  const setVoiceURI = useAppStore((s) => s.setVoiceURI);
+  const speakText = useAppStore((s) => s.speakText);
+  const stopSpeaking = useAppStore((s) => s.stopSpeaking);
+  const isSpeaking = useAppStore((s) => s.isSpeaking);
+
+  const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([]);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      const loadVoices = () => {
+        try {
+          const v = window.speechSynthesis.getVoices();
+          if (v && v.length > 0) setAvailableVoices(v);
+        } catch (_) {}
+      };
+      loadVoices();
+      window.speechSynthesis.onvoiceschanged = loadVoices;
+      return () => {
+        window.speechSynthesis.onvoiceschanged = null;
+      };
+    }
+  }, []);
 
   const [isTestingEndpoint, setIsTestingEndpoint] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
@@ -437,6 +464,9 @@ export default function SettingsView() {
           'hermes_haptic_alerts',
           'hermes_haptic_intensity',
           'hermes_wakelock_enabled',
+          'hermes_voice_rate',
+          'hermes_voice_pitch',
+          'hermes_voice_uri',
         ]);
         // Most app data lives under 'hermes_...' (underscore) - including the
         // conversation vault hermes_sessions_v1 and every per-session
@@ -886,6 +916,122 @@ export default function SettingsView() {
                 </button>
               );
             })}
+          </div>
+        </div>
+
+        {/* Speech Synthesis & On-Device Voice Tuning */}
+        <div className="bg-zinc-900/60 border border-zinc-800 rounded-2xl p-4 space-y-3.5 shadow-xl">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="p-2 rounded-xl bg-cyan-500/10 border border-cyan-500/30 text-cyan-400">
+                <Volume2 className="w-4 h-4" />
+              </div>
+              <div>
+                <h4 className="text-xs font-bold text-white flex items-center gap-1.5">
+                  <span>Speech Synthesis & Voice Tuning</span>
+                </h4>
+                <p className="text-[10px] text-zinc-400">Configure real-time voice speech rate, pitch, and voice synthesis engine</p>
+              </div>
+            </div>
+
+            <button
+              onClick={() => {
+                if (isSpeaking) {
+                  stopSpeaking();
+                  triggerHaptic(10);
+                } else {
+                  speakText('Hello! This is your sovereign Hermes on-device AI voice assistant speaking.');
+                  triggerHaptic(20);
+                }
+              }}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
+                isSpeaking
+                  ? 'bg-rose-500/20 text-rose-300 border-rose-500/50 animate-pulse'
+                  : 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40 hover:bg-cyan-500/30'
+              }`}
+            >
+              <Volume2 className="w-3.5 h-3.5" />
+              <span>{isSpeaking ? 'Stop Speaking' : 'Test Voice'}</span>
+            </button>
+          </div>
+
+          <div className="space-y-3 pt-1">
+            {/* Speed / Rate */}
+            <div className="space-y-1">
+              <div className="flex items-center justify-between text-xs font-bold text-zinc-200">
+                <span>Speech Playback Speed</span>
+                <span className="text-cyan-400 font-mono">{voiceRate.toFixed(2)}x</span>
+              </div>
+              <input
+                type="range"
+                min="0.5"
+                max="2.0"
+                step="0.05"
+                value={voiceRate}
+                onChange={(e) => {
+                  setVoiceRate(parseFloat(e.target.value));
+                  triggerHaptic(5);
+                }}
+                className="w-full accent-cyan-500 cursor-pointer"
+              />
+              <div className="flex justify-between text-[9px] text-zinc-500">
+                <span>Slow (0.5x)</span>
+                <span>Normal (1.0x)</span>
+                <span>Fast (2.0x)</span>
+              </div>
+            </div>
+
+            {/* Pitch */}
+            <div className="space-y-1">
+              <div className="flex items-center justify-between text-xs font-bold text-zinc-200">
+                <span>Voice Tone Pitch</span>
+                <span className="text-cyan-400 font-mono">{voicePitch.toFixed(2)}</span>
+              </div>
+              <input
+                type="range"
+                min="0.5"
+                max="1.5"
+                step="0.05"
+                value={voicePitch}
+                onChange={(e) => {
+                  setVoicePitch(parseFloat(e.target.value));
+                  triggerHaptic(5);
+                }}
+                className="w-full accent-cyan-500 cursor-pointer"
+              />
+              <div className="flex justify-between text-[9px] text-zinc-500">
+                <span>Deep (0.5)</span>
+                <span>Natural (1.0)</span>
+                <span>High (1.5)</span>
+              </div>
+            </div>
+
+            {/* Device Voice Selection */}
+            {availableVoices.length > 0 && (
+              <div className="space-y-1 pt-1 border-t border-zinc-800/80">
+                <div className="flex items-center justify-between text-xs font-bold text-zinc-200">
+                  <span>Synthesizer Voice Profile</span>
+                  <span className="text-[10px] text-zinc-400 font-normal">
+                    {availableVoices.length} installed
+                  </span>
+                </div>
+                <select
+                  value={voiceURI || ''}
+                  onChange={(e) => {
+                    setVoiceURI(e.target.value || null);
+                    triggerHaptic(15);
+                  }}
+                  className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-cyan-500/60"
+                >
+                  <option value="">Auto (Best Natural/Neural Voice)</option>
+                  {availableVoices.map((v) => (
+                    <option key={v.voiceURI} value={v.voiceURI}>
+                      {v.name} ({v.lang})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
           </div>
         </div>
 
