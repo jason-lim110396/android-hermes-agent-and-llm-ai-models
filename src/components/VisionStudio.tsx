@@ -45,6 +45,12 @@ import CameraModal from './CameraModal';
 
 type VisionTaskMode = 'ocr' | 'diagram' | 'audit' | 'chat';
 
+// Each scanned page pins a full base64 image in JS memory (plus a second copy
+// when high contrast is applied) and a decoded bitmap in the thumbnail strip.
+// An unbounded page list OOM-kills low-RAM Android WebViews during a long scan,
+// so keep only the most recent pages, mirroring ImageStudio's history cap.
+const MAX_SCANNED_PAGES = 12;
+
 interface ScannedPage {
   id: string;
   name: string;
@@ -297,7 +303,7 @@ export default function VisionStudio() {
         dataUrl: optimized.dataUrl,
         isHighContrast: false,
       };
-      setScannedPages((prev) => [...prev, newPage]);
+      setScannedPages((prev) => [...prev, newPage].slice(-MAX_SCANNED_PAGES));
       setAnalysisResult(null);
     }
   };
@@ -309,8 +315,10 @@ export default function VisionStudio() {
       dataUrl: att.dataUrl,
       isHighContrast: false,
     };
-    setScannedPages((prev) => [...prev, newPage]);
-    setSelectedPageIndex(scannedPages.length);
+    setScannedPages((prev) => [...prev, newPage].slice(-MAX_SCANNED_PAGES));
+    // With the cap the just-added page is always last; select it directly
+    // instead of the pre-append length, which can point past the end.
+    setSelectedPageIndex(Math.min(scannedPages.length, MAX_SCANNED_PAGES - 1));
     setAnalysisResult(null);
   };
 
