@@ -64,7 +64,7 @@ export default function ModelHub() {
       setOperatingMode('embedding');
     } else {
       setCurrentTab('chat');
-      setOperatingMode('agent');
+      setOperatingMode(model.capabilities.includes('agent') ? 'agent' : 'chat');
     }
   };
   const checkCacheStatus = useAppStore((s) => s.checkCacheStatus);
@@ -225,19 +225,52 @@ export default function ModelHub() {
     voice: AVAILABLE_MODELS.filter((m) => m.category === 'voice').length,
   };
 
-  // The eight purpose filters (decluttering PR: listed in one dropdown
-  // instead of a horizontal scrolling pill row; every filter preserved).
+  // The eight category/purpose filters consolidated inside ModelHub.
+  // Switching use-case updates operatingMode and the active model across the app.
   const purposeFilters = [
     { id: 'all', label: 'All Models', count: categoryCounts.all },
     { id: 'downloaded', label: 'Downloaded', count: categoryCounts.downloaded },
     { id: 'recommended', label: 'Recommended', count: categoryCounts.recommended },
-    { id: 'embedding', label: 'Embedding & Files', count: categoryCounts.embedding },
-    { id: 'vision', label: 'Vision (MiniCPM-V)', count: categoryCounts.vision },
     { id: 'text', label: 'Text & Reasoning', count: categoryCounts.text },
+    { id: 'vision', label: 'Vision (MiniCPM-V)', count: categoryCounts.vision },
     { id: 'image', label: 'Image Gen', count: categoryCounts.image },
     { id: 'voice', label: 'Voice & Speech', count: categoryCounts.voice },
+    { id: 'embedding', label: 'Embedding & Files', count: categoryCounts.embedding },
   ];
   const activePurpose = purposeFilters.find((c) => c.id === selectedFamily) || purposeFilters[0];
+
+  const handleSelectFamily = (familyId: 'all' | 'downloaded' | 'recommended' | 'text' | 'vision' | 'image' | 'voice' | 'embedding') => {
+    setSelectedFamily(familyId);
+    setShowPurposeFilter(false);
+
+    // Sync active category/use-case with the rest of the app:
+    if (familyId === 'image') {
+      setOperatingMode('image-gen');
+      const imgModel = AVAILABLE_MODELS.find((m) => m.category === 'image' && downloads[m.id]?.isReady) || AVAILABLE_MODELS.find((m) => m.category === 'image');
+      if (imgModel) setSelectedModelId(imgModel.id);
+    } else if (familyId === 'vision') {
+      setOperatingMode('vision');
+      const visModel = AVAILABLE_MODELS.find((m) => m.category === 'vision' && downloads[m.id]?.isReady) || AVAILABLE_MODELS.find((m) => m.category === 'vision');
+      if (visModel) setSelectedModelId(visModel.id);
+    } else if (familyId === 'voice') {
+      setOperatingMode('voice');
+      const voiceModel = AVAILABLE_MODELS.find((m) => m.category === 'voice' && downloads[m.id]?.isReady) || AVAILABLE_MODELS.find((m) => m.category === 'voice');
+      if (voiceModel) setSelectedModelId(voiceModel.id);
+    } else if (familyId === 'embedding') {
+      setOperatingMode('embedding');
+      const embModel = AVAILABLE_MODELS.find((m) => m.category === 'embedding' && downloads[m.id]?.isReady) || AVAILABLE_MODELS.find((m) => m.category === 'embedding');
+      if (embModel) setSelectedModelId(embModel.id);
+    } else if (familyId === 'text') {
+      const cur = AVAILABLE_MODELS.find((m) => m.id === selectedModelId);
+      if (!cur || cur.category !== 'text') {
+        const textModel = AVAILABLE_MODELS.find((m) => m.category === 'text' && (downloads[m.id]?.isReady || m.isRecommended)) || AVAILABLE_MODELS.find((m) => m.category === 'text');
+        if (textModel) {
+          setSelectedModelId(textModel.id);
+          setOperatingMode(textModel.capabilities.includes('agent') ? 'agent' : 'chat');
+        }
+      }
+    }
+  };
 
   return (
     <div className="flex-1 flex flex-col overflow-y-auto bg-zinc-950 px-3 py-3 max-w-4xl mx-auto w-full pb-20">
@@ -411,18 +444,15 @@ export default function ModelHub() {
           />
         </div>
 
-        {/* Filter by Category: the eight former scroller pills now live in
-            one dropdown (same pattern as ChatView's menus) - the row no
-            longer scrolls horizontally, and the active purpose shows on the
-            trigger. Every original filter remains reachable. */}
+        {/* Filter by Category: consolidated here as the sole category browsing surface. */}
         <div className="relative flex items-center gap-1.5">
           <span className="text-[10px] font-extrabold uppercase tracking-wider text-zinc-400 flex items-center gap-1 shrink-0 mr-1">
             <Layers className="w-3 h-3 text-cyan-400" />
-            Purpose:
+            Category:
           </span>
           <button
             onClick={() => setShowPurposeFilter((prev) => !prev)}
-            aria-label="Filter models by purpose"
+            aria-label="Filter models by category"
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${
               selectedFamily === 'all'
                 ? 'bg-zinc-900 border border-zinc-800/80 text-zinc-300 hover:text-zinc-100'
@@ -448,17 +478,14 @@ export default function ModelHub() {
               />
               <div className="absolute left-0 top-full mt-1.5 w-64 max-w-[92vw] bg-zinc-900 border border-zinc-700/90 rounded-2xl shadow-2xl p-2 z-50 space-y-1 animate-in fade-in zoom-in-95 duration-150">
                 <div className="px-2 py-1 text-[10px] uppercase font-bold text-zinc-400 tracking-wider border-b border-zinc-800">
-                  Filter by Purpose
+                  Filter by Category
                 </div>
                 {purposeFilters.map((catItem) => {
                   const isActive = selectedFamily === catItem.id;
                   return (
                     <button
                       key={catItem.id}
-                      onClick={() => {
-                        setSelectedFamily(catItem.id as any);
-                        setShowPurposeFilter(false);
-                      }}
+                      onClick={() => handleSelectFamily(catItem.id as any)}
                       className={`w-full flex items-center justify-between gap-2 px-3 py-2 rounded-xl text-left text-xs font-semibold transition-all cursor-pointer ${
                         isActive
                           ? 'bg-cyan-500/20 text-cyan-300 font-bold border border-cyan-500/40'
@@ -659,7 +686,22 @@ export default function ModelHub() {
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
                       <button
-                        onClick={() => setSelectedModelId(model.id)}
+                        onClick={() => {
+                          setSelectedModelId(model.id);
+                          if (model.category === 'image') {
+                            setOperatingMode('image-gen');
+                          } else if (model.category === 'vision') {
+                            setOperatingMode('vision');
+                          } else if (model.category === 'voice') {
+                            setOperatingMode('voice');
+                          } else if (model.category === 'embedding') {
+                            setOperatingMode('embedding');
+                          } else if (model.capabilities.includes('agent')) {
+                            setOperatingMode('agent');
+                          } else {
+                            setOperatingMode('chat');
+                          }
+                        }}
                         className={`px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                           isSelected
                             ? 'bg-cyan-500 text-black shadow-md shadow-cyan-500/20'
