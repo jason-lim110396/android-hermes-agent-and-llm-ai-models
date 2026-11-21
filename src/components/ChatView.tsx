@@ -1080,7 +1080,9 @@ export default function ChatView() {
           mimeType,
           sizeBytes,
         };
-        addAttachment(att);
+        if (!addAttachment(att)) {
+          setUploadError('Attachment limit reached (10 files or 12 MB). Send this batch or remove some before adding more.');
+        }
       } catch (_) {
         // Fail-open: skip only this file, keep processing the rest.
       }
@@ -1110,7 +1112,9 @@ export default function ChatView() {
             textContent: content,
           };
           setUploadError(null);
-          addAttachment(att);
+          if (!addAttachment(att)) {
+            setUploadError('Attachment limit reached (10 files or 12 MB). Send this batch or remove some before adding more.');
+          }
         };
         textReader.onerror = () => {
           console.warn('Failed to read text file:', file.name, textReader.error);
@@ -1129,7 +1133,9 @@ export default function ChatView() {
             sizeBytes: file.size,
           };
           setUploadError(null);
-          addAttachment(att);
+          if (!addAttachment(att)) {
+            setUploadError('Attachment limit reached (10 files or 12 MB). Send this batch or remove some before adding more.');
+          }
         };
         reader.onerror = () => {
           console.warn('Failed to read file:', file.name, reader.error);
@@ -2837,7 +2843,11 @@ export default function ChatView() {
       <CameraModal
         isOpen={isCameraOpen}
         onClose={() => setIsCameraOpen(false)}
-        onCapture={(att) => addAttachment(att)}
+        onCapture={(att) => {
+          if (!addAttachment(att)) {
+            alert('Attachment limit reached (10 files or 12 MB). Send or clear the current batch first.');
+          }
+        }}
       />
 
       {/* Starred Bookmarks Drawer */}

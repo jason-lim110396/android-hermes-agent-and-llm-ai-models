@@ -445,21 +445,30 @@ export default function VisionStudio() {
   };
 
   const handleSendAllToAgent = () => {
+    let refused = false;
     scannedPages.forEach((p, idx) => {
       // Base64 inflates ~4/3 over decoded bytes; exclude the data: prefix.
       const commaIdx = p.dataUrl.indexOf(',');
       const sizeBytes = commaIdx > 0
         ? Math.max(1, Math.round(((p.dataUrl.length - commaIdx - 1) * 3) / 4))
         : p.dataUrl.length;
-      addAttachment({
+      if (!addAttachment({
         id: `scan-${Date.now()}-${idx}`,
         type: 'image',
         name: p.name,
         dataUrl: p.dataUrl,
         mimeType: p.dataUrl.startsWith('data:image/webp') ? 'image/webp' : 'image/jpeg',
         sizeBytes,
-      });
+      })) {
+        refused = true;
+      }
     });
+    if (refused) {
+      // A partial bundle is worse than none: the prompt claims "multi-page
+      // document bundle" but some/all pages were refused by the cap.
+      alert('Attachment limit reached (10 files or 12 MB). Send or clear the current batch first.');
+      return;
+    }
     sendMessage('Analyze this multi-page document bundle, extract all key data, and prepare a structured summary:');
     setCurrentTab('chat');
   };

@@ -144,7 +144,9 @@ interface AppStore {
   // Input & Messaging
   pendingAttachments: Attachment[];
   isGenerating: boolean;
-  addAttachment: (att: Attachment) => void;
+  /** Adds a pending attachment unless the count/byte budget is exhausted.
+   * Returns false when the attachment was refused so callers can tell the user. */
+  addAttachment: (att: Attachment) => boolean;
   removeAttachment: (id: string) => void;
   clearAttachments: () => void;
   sendMessage: (userText: string, options?: { isLive?: boolean }) => Promise<void>;
@@ -1186,7 +1188,28 @@ export const useAppStore = create<AppStore>((set, get) => {
   pendingAttachments: [],
   isGenerating: false,
 
-  addAttachment: (att) => set((state) => ({ pendingAttachments: [...state.pendingAttachments, att] })),
+  addAttachment: (att) => {
+    // A batch camera pick can push dozens of multi-MB base64 strings into a
+    // single React/Zustand array. Each is also decoded as a bitmap by the
+    // attachment tray, so on a low-RAM WebView this is a direct OOM/jank path.
+    // Bound both the count and the total payload; refuse overflow atomically
+    // so a partial, over-budget set is never sent.
+    const MAX_PENDING_ATTACHMENTS = 10;
+    const MAX_PENDING_BASE64_BYTES = 12 * 1024 * 1024;
+    let accepted = false;
+    set((state) => {
+      if (state.pendingAttachments.length >= MAX_PENDING_ATTACHMENTS) return {};
+      const used = state.pendingAttachments.reduce(
+        (sum, a) => sum + (a.dataUrl?.length || 0) + (a.textContent?.length || 0),
+        0
+      );
+      const add = (att.dataUrl?.length || 0) + (att.textContent?.length || 0);
+      if (used + add > MAX_PENDING_BASE64_BYTES) return {};
+      accepted = true;
+      return { pendingAttachments: [...state.pendingAttachments, att] };
+    });
+    return accepted;
+  },
   removeAttachment: (id) => set((state) => ({ pendingAttachments: state.pendingAttachments.filter((a) => a.id !== id) })),
   clearAttachments: () => set({ pendingAttachments: [] }),
 
