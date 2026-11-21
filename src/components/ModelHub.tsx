@@ -29,6 +29,7 @@ import {
   ArrowDownCircle,
   Play,
   Pause,
+  ChevronDown,
 } from 'lucide-react';
 import { AVAILABLE_MODELS, ModelSpec } from '@/models';
 import { useAppStore } from '@/appStore';
@@ -71,11 +72,15 @@ export default function ModelHub() {
   const [selectedFamily, setSelectedFamily] = useState<'all' | 'downloaded' | 'recommended' | 'text' | 'vision' | 'image' | 'voice' | 'embedding'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [showCompareModal, setShowCompareModal] = useState(false);
+  // Purpose-filter dropdown (decluttering PR): replaces the horizontal
+  // scrolling pill row.
+  const [showPurposeFilter, setShowPurposeFilter] = useState(false);
   const [isEvicting, setIsEvicting] = useState(false);
   const [evictSuccessMsg, setEvictSuccessMsg] = useState<string | null>(null);
 
   // Android hardware back closes the comparison modal instead of exiting.
   useBackButtonClose(showCompareModal, () => setShowCompareModal(false));
+  useBackButtonClose(showPurposeFilter, () => setShowPurposeFilter(false));
 
   const handleSmartEvictUnusedModels = async () => {
     setIsEvicting(true);
@@ -219,6 +224,20 @@ export default function ModelHub() {
     image: AVAILABLE_MODELS.filter((m) => m.category === 'image').length,
     voice: AVAILABLE_MODELS.filter((m) => m.category === 'voice').length,
   };
+
+  // The eight purpose filters (decluttering PR: listed in one dropdown
+  // instead of a horizontal scrolling pill row; every filter preserved).
+  const purposeFilters = [
+    { id: 'all', label: 'All Models', count: categoryCounts.all },
+    { id: 'downloaded', label: 'Downloaded', count: categoryCounts.downloaded },
+    { id: 'recommended', label: 'Recommended', count: categoryCounts.recommended },
+    { id: 'embedding', label: 'Embedding & Files', count: categoryCounts.embedding },
+    { id: 'vision', label: 'Vision (MiniCPM-V)', count: categoryCounts.vision },
+    { id: 'text', label: 'Text & Reasoning', count: categoryCounts.text },
+    { id: 'image', label: 'Image Gen', count: categoryCounts.image },
+    { id: 'voice', label: 'Voice & Speech', count: categoryCounts.voice },
+  ];
+  const activePurpose = purposeFilters.find((c) => c.id === selectedFamily) || purposeFilters[0];
 
   return (
     <div className="flex-1 flex flex-col overflow-y-auto bg-zinc-950 px-3 py-3 max-w-4xl mx-auto w-full pb-20">
@@ -392,44 +411,74 @@ export default function ModelHub() {
           />
         </div>
 
-        {/* Filter by Category: Text, Vision, Embedding, Image Generation, Voice */}
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
+        {/* Filter by Category: the eight former scroller pills now live in
+            one dropdown (same pattern as ChatView's menus) - the row no
+            longer scrolls horizontally, and the active purpose shows on the
+            trigger. Every original filter remains reachable. */}
+        <div className="relative flex items-center gap-1.5">
           <span className="text-[10px] font-extrabold uppercase tracking-wider text-zinc-400 flex items-center gap-1 shrink-0 mr-1">
             <Layers className="w-3 h-3 text-cyan-400" />
             Purpose:
           </span>
-          {[
-            { id: 'all', label: 'All Models', count: categoryCounts.all },
-            { id: 'downloaded', label: '💾 Downloaded', count: categoryCounts.downloaded },
-            { id: 'recommended', label: '★ Recommended', count: categoryCounts.recommended },
-            { id: 'embedding', label: '🔍 Embedding & Files', count: categoryCounts.embedding },
-            { id: 'vision', label: '👁️ Vision (MiniCPM-V)', count: categoryCounts.vision },
-            { id: 'text', label: '📝 Text & Reasoning', count: categoryCounts.text },
-            { id: 'image', label: '🎨 Image Gen', count: categoryCounts.image },
-            { id: 'voice', label: '🔊 Voice & Speech', count: categoryCounts.voice },
-          ].map((catItem) => {
-            const isActive = selectedFamily === catItem.id;
-            return (
-              <button
-                key={catItem.id}
-                onClick={() => setSelectedFamily(catItem.id as any)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${
-                  isActive
-                    ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-md shadow-cyan-500/20 ring-1 ring-cyan-400 font-bold'
-                    : 'bg-zinc-900 border border-zinc-800/80 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/60'
-                }`}
-              >
-                <span>{catItem.label}</span>
-                <span
-                  className={`text-[9px] px-1.5 py-0.2 rounded-full font-mono font-bold ${
-                    isActive ? 'bg-white/20 text-white' : 'bg-zinc-800 text-zinc-400'
-                  }`}
-                >
-                  {catItem.count}
-                </span>
-              </button>
-            );
-          })}
+          <button
+            onClick={() => setShowPurposeFilter((prev) => !prev)}
+            aria-label="Filter models by purpose"
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${
+              selectedFamily === 'all'
+                ? 'bg-zinc-900 border border-zinc-800/80 text-zinc-300 hover:text-zinc-100'
+                : 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-md shadow-cyan-500/20 ring-1 ring-cyan-400 font-bold'
+            }`}
+          >
+            <span>{activePurpose.label}</span>
+            <span
+              className={`text-[9px] px-1.5 py-0.2 rounded-full font-mono font-bold ${
+                selectedFamily === 'all' ? 'bg-zinc-800 text-zinc-400' : 'bg-white/20 text-white'
+              }`}
+            >
+              {activePurpose.count}
+            </span>
+            <ChevronDown className={`w-3 h-3 transition-transform ${showPurposeFilter ? 'rotate-180' : ''}`} />
+          </button>
+
+          {showPurposeFilter && (
+            <>
+              <div
+                className="fixed inset-0 z-40 bg-black/40 backdrop-blur-[1px]"
+                onClick={() => setShowPurposeFilter(false)}
+              />
+              <div className="absolute left-0 top-full mt-1.5 w-64 max-w-[92vw] bg-zinc-900 border border-zinc-700/90 rounded-2xl shadow-2xl p-2 z-50 space-y-1 animate-in fade-in zoom-in-95 duration-150">
+                <div className="px-2 py-1 text-[10px] uppercase font-bold text-zinc-400 tracking-wider border-b border-zinc-800">
+                  Filter by Purpose
+                </div>
+                {purposeFilters.map((catItem) => {
+                  const isActive = selectedFamily === catItem.id;
+                  return (
+                    <button
+                      key={catItem.id}
+                      onClick={() => {
+                        setSelectedFamily(catItem.id as any);
+                        setShowPurposeFilter(false);
+                      }}
+                      className={`w-full flex items-center justify-between gap-2 px-3 py-2 rounded-xl text-left text-xs font-semibold transition-all cursor-pointer ${
+                        isActive
+                          ? 'bg-cyan-500/20 text-cyan-300 font-bold border border-cyan-500/40'
+                          : 'text-zinc-300 hover:bg-zinc-800'
+                      }`}
+                    >
+                      <span className="truncate">{catItem.label}</span>
+                      <span
+                        className={`text-[9px] px-1.5 py-0.2 rounded-full font-mono font-bold shrink-0 ${
+                          isActive ? 'bg-cyan-500 text-black' : 'bg-zinc-800 text-zinc-400'
+                        }`}
+                      >
+                        {catItem.count}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </>
+          )}
         </div>
       </div>
 

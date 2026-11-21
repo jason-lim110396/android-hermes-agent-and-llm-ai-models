@@ -43,6 +43,7 @@ import {
   Waves,
   Octagon,
   Menu,
+  MoreHorizontal,
   Eye,
   Search,
   Share2,
@@ -210,6 +211,11 @@ export default function ChatView() {
   const [isCameraOpen, setIsCameraOpen] = useState(false);
   const [isFabOpen, setIsFabOpen] = useState(false);
   const [showModeMenu, setShowModeMenu] = useState(false);
+  // "More tools" dropdown for the Row-2 secondary actions (decluttering PR:
+  // one overflow menu instead of ten always-visible buttons).
+  const [showMoreTools, setShowMoreTools] = useState(false);
+  // "Quick Actions" dropdown for the former scroller chips above the composer.
+  const [showQuickActions, setShowQuickActions] = useState(false);
   const [showModelPicker, setShowModelPicker] = useState(false);
   const [showSessionPicker, setShowSessionPicker] = useState(false);
   const [modelPromptDownload, setModelPromptDownload] = useState<ModelSpec | null>(null);
@@ -364,6 +370,8 @@ export default function ChatView() {
   // as overlays too: back dismisses them instead of exiting the app.
   useBackButtonClose(showModelPicker, () => setShowModelPicker(false));
   useBackButtonClose(showModeMenu, () => setShowModeMenu(false));
+  useBackButtonClose(showMoreTools, () => setShowMoreTools(false));
+  useBackButtonClose(showQuickActions, () => setShowQuickActions(false));
 
   const [customSnippets, setCustomSnippets] = useState<PromptSnippet[]>(() => {
     if (typeof window !== 'undefined') {
@@ -1535,7 +1543,11 @@ export default function ChatView() {
           </div>
         </div>
 
-        {/* Row 2: Action buttons */}
+        {/* Row 2: Action buttons - the five primary actions stay visible;
+            everything else lives in the "More" dropdown so the main screen
+            shows one compact row instead of fifteen always-visible buttons.
+            No action was removed: each menu entry below is the exact former
+            button with its original onClick and title. */}
         <div className="px-2 pb-2 flex items-center gap-1.5">
           {/* New Session */}
           <button
@@ -1553,7 +1565,7 @@ export default function ChatView() {
               if (isSpeaking) stopSpeaking();
               setIsVoiceOutputEnabled(!isVoiceOutputEnabled);
             }}
-            title={isVoiceOutputEnabled ? 'Voice reply ON – tap to mute' : 'Voice reply muted – tap to enable'}
+            title={isVoiceOutputEnabled ? 'Voice reply ON - tap to mute' : 'Voice reply muted - tap to enable'}
             className={`flex items-center gap-1 px-2.5 py-1 rounded-xl border text-[10px] font-bold transition-all cursor-pointer ${
               isVoiceOutputEnabled
                 ? 'bg-cyan-500/20 border-cyan-500/40 text-cyan-300'
@@ -1590,18 +1602,6 @@ export default function ChatView() {
             <span>Threads ({Object.keys(operatingMode === 'agent' ? agentSessions : chatSessions).length})</span>
           </button>
 
-          {/* Starred Bookmarks */}
-          <button
-            onClick={() => setShowBookmarksDrawer(true)}
-            title="View saved bookmarks"
-            className={`flex items-center gap-1 px-2.5 py-1 rounded-xl border text-[10px] font-bold transition-all cursor-pointer ${
-              starredMessageIds.length > 0 ? 'bg-amber-950/70 border-amber-500/50 text-amber-300' : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white'
-            }`}
-          >
-            <Bookmark className="w-3.5 h-3.5" />
-            <span>Saved ({starredMessageIds.length})</span>
-          </button>
-
           {/* Search Session */}
           <button
             onClick={() => setShowSearch(!showSearch)}
@@ -1614,95 +1614,168 @@ export default function ChatView() {
             <span>Search</span>
           </button>
 
-          {/* Clear Session */}
-          <button
-            onClick={clearCurrentConversation}
-            title="Clear current session messages"
-            className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-rose-400 hover:border-rose-500/30 text-[10px] font-bold transition-all cursor-pointer"
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-            <span>Clear</span>
-          </button>
+          {/* More Tools & Session Actions: same dropdown pattern as the mode
+              menu - backdrop to dismiss, absolute panel, ghost rows. */}
+          <div className="relative shrink-0 ml-auto">
+            <button
+              onClick={() => setShowMoreTools((prev) => !prev)}
+              aria-label="More tools and session actions"
+              title="Saved, Clear, Export, Compress, Sensors, Clipboard, Phrases, SpeedTest, Notes, QR Studio"
+              className={`flex items-center gap-1 px-2.5 py-1 rounded-xl border text-[10px] font-bold transition-all cursor-pointer ${
+                showMoreTools ? 'bg-zinc-800 border-zinc-600 text-white' : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white'
+              }`}
+            >
+              <MoreHorizontal className="w-3.5 h-3.5" />
+              <span>More</span>
+            </button>
 
-          {/* Export Session */}
-          <button
-            onClick={() => setIsExportModalOpen(true)}
-            title="Export session to Markdown, Text, HTML or JSON"
-            className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-cyan-300 hover:border-cyan-500/40 text-[10px] font-bold transition-all cursor-pointer"
-          >
-            <Download className="w-3.5 h-3.5 text-cyan-400" />
-            <span>Export</span>
-          </button>
+            {showMoreTools && (
+              <>
+                <div
+                  className="fixed inset-0 z-40 bg-black/40 backdrop-blur-[1px]"
+                  onClick={() => setShowMoreTools(false)}
+                />
+                <div className="absolute right-0 top-full mt-1.5 w-64 max-w-[92vw] max-h-[60vh] overflow-y-auto bg-zinc-900 border border-zinc-700/90 rounded-2xl shadow-2xl p-2 z-50 space-y-1 animate-in fade-in zoom-in-95 duration-150">
+                  <div className="px-2 py-1 text-[10px] uppercase font-bold text-zinc-400 tracking-wider border-b border-zinc-800">
+                    Tools &amp; Session Actions
+                  </div>
 
-          {/* Context Window Compressor & KV-Cache Optimizer */}
-          <button
-            onClick={() => setIsCompressorModalOpen(true)}
-            title="Context Window Compressor & KV-Cache Optimizer"
-            className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-cyan-300 hover:border-cyan-500/40 text-[10px] font-bold transition-all cursor-pointer"
-          >
-            <Minimize2 className="w-3.5 h-3.5 text-cyan-400" />
-            <span>Compress</span>
-          </button>
+                  {/* Starred Bookmarks (was a Row-2 button) */}
+                  <button
+                    onClick={() => {
+                      setShowMoreTools(false);
+                      setShowBookmarksDrawer(true);
+                    }}
+                    title="View saved bookmarks"
+                    className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-left text-xs font-bold transition-all cursor-pointer ${
+                      starredMessageIds.length > 0 ? 'text-amber-300 bg-amber-950/40' : 'text-zinc-300 hover:bg-zinc-800'
+                    }`}
+                  >
+                    <Bookmark className="w-4 h-4 shrink-0" />
+                    <span className="flex-1">Saved Messages</span>
+                    <span className="text-[10px] font-mono text-zinc-400">{starredMessageIds.length}</span>
+                  </button>
 
-          {/* Spatial & Hardware Sensor Telemetry Modal */}
-          <button
-            onClick={() => setIsSensorModalOpen(true)}
-            title="Spatial & Hardware Sensor Telemetry (Compass, Battery, GPS, Lux)"
-            className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-teal-300 hover:border-teal-500/40 text-[10px] font-bold transition-all cursor-pointer"
-          >
-            <Compass className="w-3.5 h-3.5 text-teal-400" />
-            <span>Sensors</span>
-          </button>
+                  {/* Clear Session (was a Row-2 button) */}
+                  <button
+                    onClick={() => {
+                      setShowMoreTools(false);
+                      clearCurrentConversation();
+                    }}
+                    title="Clear current session messages"
+                    className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-left text-xs font-bold text-rose-300 hover:bg-rose-950/40 transition-all cursor-pointer"
+                  >
+                    <Trash2 className="w-4 h-4 shrink-0" />
+                    <span className="flex-1">Clear This Session</span>
+                  </button>
 
-          {/* Smart Clipboard Vault */}
-          <button
-            onClick={() => setIsClipboardVaultOpen(true)}
-            title="Smart Clipboard Vault — type-aware history with AI analysis"
-            className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-violet-300 hover:border-violet-500/40 text-[10px] font-bold transition-all cursor-pointer"
-          >
-            <Clipboard className="w-3.5 h-3.5 text-violet-400" />
-            <span>Clipboard</span>
-          </button>
+                  {/* Export Session (was a Row-2 button) */}
+                  <button
+                    onClick={() => {
+                      setShowMoreTools(false);
+                      setIsExportModalOpen(true);
+                    }}
+                    title="Export session to Markdown, Text, HTML or JSON"
+                    className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-left text-xs font-bold text-zinc-300 hover:bg-zinc-800 transition-all cursor-pointer"
+                  >
+                    <Download className="w-4 h-4 text-cyan-400 shrink-0" />
+                    <span className="flex-1">Export Session</span>
+                  </button>
 
-          {/* Offline Travel Phrase Book */}
-          <button
-            onClick={() => setIsPhraseBookOpen(true)}
-            title="Offline Travel Phrase Book — 8 languages, TTS pronunciation"
-            className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-emerald-300 hover:border-emerald-500/40 text-[10px] font-bold transition-all cursor-pointer"
-          >
-            <Globe className="w-3.5 h-3.5 text-emerald-400" />
-            <span>Phrases</span>
-          </button>
+                  {/* Context Compressor (was a Row-2 button) */}
+                  <button
+                    onClick={() => {
+                      setShowMoreTools(false);
+                      setIsCompressorModalOpen(true);
+                    }}
+                    title="Context Window Compressor & KV-Cache Optimizer"
+                    className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-left text-xs font-bold text-zinc-300 hover:bg-zinc-800 transition-all cursor-pointer"
+                  >
+                    <Minimize2 className="w-4 h-4 text-cyan-400 shrink-0" />
+                    <span className="flex-1">Compress Context</span>
+                  </button>
 
-          {/* Network Speed Analyzer */}
-          <button
-            onClick={() => setIsNetworkSpeedOpen(true)}
-            title="Network Speed Analyzer — Ping, Download, Upload & Jitter"
-            className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-cyan-300 hover:border-cyan-500/40 text-[10px] font-bold transition-all cursor-pointer"
-          >
-            <Wifi className="w-3.5 h-3.5 text-cyan-400" />
-            <span>SpeedTest</span>
-          </button>
+                  {/* Sensor Telemetry (was a Row-2 button) */}
+                  <button
+                    onClick={() => {
+                      setShowMoreTools(false);
+                      setIsSensorModalOpen(true);
+                    }}
+                    title="Spatial & Hardware Sensor Telemetry (Compass, Battery, GPS, Lux)"
+                    className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-left text-xs font-bold text-zinc-300 hover:bg-zinc-800 transition-all cursor-pointer"
+                  >
+                    <Compass className="w-4 h-4 text-teal-400 shrink-0" />
+                    <span className="flex-1">Sensor Telemetry</span>
+                  </button>
 
-          {/* Markdown Notepad & Document Vault */}
-          <button
-            onClick={() => setIsNotepadOpen(true)}
-            title="Markdown Notepad & Offline Document Vault"
-            className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-emerald-300 hover:border-emerald-500/40 text-[10px] font-bold transition-all cursor-pointer"
-          >
-            <FileText className="w-3.5 h-3.5 text-emerald-400" />
-            <span>Notes</span>
-          </button>
+                  {/* Smart Clipboard Vault (was a Row-2 button) */}
+                  <button
+                    onClick={() => {
+                      setShowMoreTools(false);
+                      setIsClipboardVaultOpen(true);
+                    }}
+                    title="Smart Clipboard Vault - type-aware history with AI analysis"
+                    className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-left text-xs font-bold text-zinc-300 hover:bg-zinc-800 transition-all cursor-pointer"
+                  >
+                    <Clipboard className="w-4 h-4 text-violet-400 shrink-0" />
+                    <span className="flex-1">Clipboard Vault</span>
+                  </button>
 
-          {/* QR Code & Barcode Studio */}
-          <button
-            onClick={() => setIsQRCodeStudioOpen(true)}
-            title="QR Code & Barcode Studio — Wi-Fi, Contacts, Crypto & URLs"
-            className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-cyan-300 hover:border-cyan-500/40 text-[10px] font-bold transition-all cursor-pointer"
-          >
-            <QrCode className="w-3.5 h-3.5 text-cyan-400" />
-            <span>QR Studio</span>
-          </button>
+                  {/* Offline Phrase Book (was a Row-2 button) */}
+                  <button
+                    onClick={() => {
+                      setShowMoreTools(false);
+                      setIsPhraseBookOpen(true);
+                    }}
+                    title="Offline Travel Phrase Book - 8 languages, TTS pronunciation"
+                    className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-left text-xs font-bold text-zinc-300 hover:bg-zinc-800 transition-all cursor-pointer"
+                  >
+                    <Globe className="w-4 h-4 text-emerald-400 shrink-0" />
+                    <span className="flex-1">Phrase Book</span>
+                  </button>
+
+                  {/* Network Speed Analyzer (was a Row-2 button) */}
+                  <button
+                    onClick={() => {
+                      setShowMoreTools(false);
+                      setIsNetworkSpeedOpen(true);
+                    }}
+                    title="Network Speed Analyzer - Ping, Download, Upload & Jitter"
+                    className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-left text-xs font-bold text-zinc-300 hover:bg-zinc-800 transition-all cursor-pointer"
+                  >
+                    <Wifi className="w-4 h-4 text-cyan-400 shrink-0" />
+                    <span className="flex-1">Network Speed Test</span>
+                  </button>
+
+                  {/* Markdown Notepad (was a Row-2 button) */}
+                  <button
+                    onClick={() => {
+                      setShowMoreTools(false);
+                      setIsNotepadOpen(true);
+                    }}
+                    title="Markdown Notepad & Offline Document Vault"
+                    className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-left text-xs font-bold text-zinc-300 hover:bg-zinc-800 transition-all cursor-pointer"
+                  >
+                    <FileText className="w-4 h-4 text-emerald-400 shrink-0" />
+                    <span className="flex-1">Markdown Notes</span>
+                  </button>
+
+                  {/* QR Code & Barcode Studio (was a Row-2 button) */}
+                  <button
+                    onClick={() => {
+                      setShowMoreTools(false);
+                      setIsQRCodeStudioOpen(true);
+                    }}
+                    title="QR Code & Barcode Studio - Wi-Fi, Contacts, Crypto & URLs"
+                    className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-left text-xs font-bold text-zinc-300 hover:bg-zinc-800 transition-all cursor-pointer"
+                  >
+                    <QrCode className="w-4 h-4 text-cyan-400 shrink-0" />
+                    <span className="flex-1">QR &amp; Barcode Studio</span>
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
         </div>
       </div>
 
@@ -2345,64 +2418,101 @@ export default function ChatView() {
               Offline - cached models only
             </div>
           )}
-        {/* Mobile Quick Hardware & Intent Bar (hidden only while the soft keyboard is open) */}
+        {/* Quick Actions (hidden only while the soft keyboard is open): the
+            four former scroller chips now live behind one button + the same
+            dropdown pattern as the mode menu - one visible control instead of
+            a horizontal scrolling row. Every original onClick is preserved
+            verbatim inside the menu. */}
         {!(keyboardHeight > 0 && isComposerFocused) && (
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-1.5 pt-0.5 mb-1 no-scrollbar">
+        <div className="relative flex items-center justify-end pb-1.5 pt-0.5 mb-1">
           <button
-            onClick={() => {
-              const lastAssistantMsg = messages.filter((m) => m.role === 'assistant').at(-1);
-              const textToShare = lastAssistantMsg?.content || 'Hermes Autonomous AI on Android: 100% on-device neural inference with zero cloud dependency.';
-              if (typeof navigator !== 'undefined' && navigator.share) {
-                navigator.share({ title: 'Hermes AI Share', text: textToShare }).catch(() => {});
-              } else if (typeof navigator !== 'undefined' && navigator.clipboard) {
-                navigator.clipboard.writeText(textToShare);
-              }
-            }}
-            title="Share last response to WhatsApp / Telegram / Android apps"
-            className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-zinc-900 hover:bg-zinc-850 border border-zinc-800 hover:border-cyan-500/40 text-zinc-300 hover:text-white text-[10px] font-bold shrink-0 transition-all cursor-pointer shadow-sm"
+            onClick={() => setShowQuickActions((prev) => !prev)}
+            aria-label="Quick actions"
+            title="Share to Apps, Haptic Buzz, Set Reminder, Device Audit"
+            className={`flex items-center gap-1 px-2.5 py-1 rounded-xl border text-[10px] font-bold shrink-0 transition-all cursor-pointer shadow-sm ${
+              showQuickActions
+                ? 'bg-zinc-800 border-zinc-600 text-white'
+                : 'bg-zinc-900 border-zinc-800 hover:border-cyan-500/40 text-zinc-300 hover:text-white'
+            }`}
           >
-            <Share2 className="w-3 h-3 text-cyan-400" />
-            <span>Share to Apps</span>
+            <Zap className="w-3 h-3 text-cyan-400" />
+            <span>Quick Actions</span>
+            <ChevronDown className={`w-3 h-3 text-zinc-400 transition-transform ${showQuickActions ? 'rotate-180' : ''}`} />
           </button>
 
-          <button
-            onClick={() => {
-              if (typeof navigator !== 'undefined' && navigator.vibrate) {
-                navigator.vibrate([100, 50, 100]);
-              }
-            }}
-            title="Test phone tactile vibration motor"
-            className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-zinc-900 hover:bg-zinc-850 border border-zinc-800 hover:border-amber-500/40 text-zinc-300 hover:text-white text-[10px] font-bold shrink-0 transition-all cursor-pointer shadow-sm"
-          >
-            <Vibrate className="w-3 h-3 text-amber-400" />
-            <span>Haptic Buzz</span>
-          </button>
+          {showQuickActions && (
+            <>
+              <div
+                className="fixed inset-0 z-40 bg-black/40 backdrop-blur-[1px]"
+                onClick={() => setShowQuickActions(false)}
+              />
+              <div className="absolute right-0 bottom-full mb-1.5 w-64 max-w-[92vw] bg-zinc-900 border border-zinc-700/90 rounded-2xl shadow-2xl p-2 z-50 space-y-1 animate-in fade-in zoom-in-95 duration-150">
+                <div className="px-2 py-1 text-[10px] uppercase font-bold text-zinc-400 tracking-wider border-b border-zinc-800">
+                  Quick Actions
+                </div>
 
-          <button
-            onClick={() => {
-              const prompt = 'Remind me in 30 minutes to review on-device AI logs and battery status';
-              setInputVal(prompt);
-              sendMessage(prompt);
-            }}
-            title="Create phone task reminder"
-            className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-zinc-900 hover:bg-zinc-850 border border-zinc-800 hover:border-emerald-500/40 text-zinc-300 hover:text-white text-[10px] font-bold shrink-0 transition-all cursor-pointer shadow-sm"
-          >
-            <Bell className="w-3 h-3 text-emerald-400" />
-            <span>Set Reminder</span>
-          </button>
+                <button
+                  onClick={() => {
+                    setShowQuickActions(false);
+                    const lastAssistantMsg = messages.filter((m) => m.role === 'assistant').at(-1);
+                    const textToShare = lastAssistantMsg?.content || 'Hermes Autonomous AI on Android: 100% on-device neural inference with zero cloud dependency.';
+                    if (typeof navigator !== 'undefined' && navigator.share) {
+                      navigator.share({ title: 'Hermes AI Share', text: textToShare }).catch(() => {});
+                    } else if (typeof navigator !== 'undefined' && navigator.clipboard) {
+                      navigator.clipboard.writeText(textToShare);
+                    }
+                  }}
+                  title="Share last response to WhatsApp / Telegram / Android apps"
+                  className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-left text-xs font-bold text-zinc-300 hover:bg-zinc-800 transition-all cursor-pointer"
+                >
+                  <Share2 className="w-4 h-4 text-cyan-400 shrink-0" />
+                  <span className="flex-1">Share Last Reply</span>
+                </button>
 
-          <button
-            onClick={() => {
-              const prompt = 'Audit phone battery, thermal load, and WebGPU tensor speeds';
-              setInputVal(prompt);
-              sendMessage(prompt);
-            }}
-            title="Audit phone system diagnostics"
-            className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-zinc-900 hover:bg-zinc-850 border border-zinc-800 hover:border-indigo-500/40 text-zinc-300 hover:text-white text-[10px] font-bold shrink-0 transition-all cursor-pointer shadow-sm"
-          >
-            <Activity className="w-3 h-3 text-indigo-400" />
-            <span>Device Audit</span>
-          </button>
+                <button
+                  onClick={() => {
+                    setShowQuickActions(false);
+                    if (typeof navigator !== 'undefined' && navigator.vibrate) {
+                      navigator.vibrate([100, 50, 100]);
+                    }
+                  }}
+                  title="Test phone tactile vibration motor"
+                  className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-left text-xs font-bold text-zinc-300 hover:bg-zinc-800 transition-all cursor-pointer"
+                >
+                  <Vibrate className="w-4 h-4 text-amber-400 shrink-0" />
+                  <span className="flex-1">Haptic Buzz</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    const prompt = 'Remind me in 30 minutes to review on-device AI logs and battery status';
+                    setInputVal(prompt);
+                    sendMessage(prompt);
+                    setShowQuickActions(false);
+                  }}
+                  title="Create phone task reminder"
+                  className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-left text-xs font-bold text-zinc-300 hover:bg-zinc-800 transition-all cursor-pointer"
+                >
+                  <Bell className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span className="flex-1">Set Reminder</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    const prompt = 'Audit phone battery, thermal load, and WebGPU tensor speeds';
+                    setInputVal(prompt);
+                    sendMessage(prompt);
+                    setShowQuickActions(false);
+                  }}
+                  title="Audit phone system diagnostics"
+                  className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-left text-xs font-bold text-zinc-300 hover:bg-zinc-800 transition-all cursor-pointer"
+                >
+                  <Activity className="w-4 h-4 text-indigo-400 shrink-0" />
+                  <span className="flex-1">Device Audit</span>
+                </button>
+              </div>
+            </>
+          )}
         </div>
         )}
 
