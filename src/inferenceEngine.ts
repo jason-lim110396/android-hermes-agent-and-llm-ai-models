@@ -185,6 +185,9 @@ async function streamChatCompletion(
     // Keep the non-SSE text so a quota error can be reclassified as a 429 and
     // advance the free fallback chain with a visible notice.
     let nonSseText = '';
+    // Set when an SSE error object carries a quota/limit message, even if text
+    // already streamed. Drives the chain advance at the end of the stream.
+    let sawLimitError = false;
     while (true) {
       if (signal.aborted) {
         try { await reader.cancel(); } catch (_) {}
@@ -236,6 +239,10 @@ async function streamChatCompletion(
             if (msg) {
               nonSseText += (nonSseText ? '\n' : '') + msg;
               if (nonSseText.length > 4000) nonSseText = nonSseText.slice(-4000);
+              // A limit error can arrive AFTER one or more tokens streamed
+              // (free routers meter by token). Remember it so we still advance
+              // the chain instead of returning the truncated text as success.
+              if (isLimitFailureText(msg)) sawLimitError = true;
             }
           }
           const delta = parsed.choices?.[0]?.delta?.content || '';
@@ -252,7 +259,13 @@ async function streamChatCompletion(
     // of reporting an empty answer and falling through to on-device inference.
     const leftover = buffer.trim();
     const errorBody = leftover ? `${nonSseText}\n${leftover}` : nonSseText;
-    if (!fullText && errorBody && isLimitFailureText(errorBody)) {
+    if (
+      sawLimitError ||
+      (!fullText && errorBody && isLimitFailureText(errorBody))
+    ) {
+      // Discard any partial text: the endpoint hit a limit mid-generation, so
+      // the answer is not complete. Throwing advances the free chain (and the
+      // caller clears the partial chunk before the next candidate).
       throw new RemoteEndpointError(
         `${candidate.label}: in-body usage-limit error`,
         429,
