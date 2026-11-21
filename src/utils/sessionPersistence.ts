@@ -151,7 +151,7 @@ function mapNoAttachments(sessions: Record<string, ChatSession>): Record<string,
 
 /** Synchronous write of the most recent snapshot. Never throws. */
 function flushPersistNow(): void {
-  if (typeof window === 'undefined' || !pendingSnapshot) return;
+  if (typeof window === 'undefined') return;
   if (persistTimer) {
     clearTimeout(persistTimer);
     persistTimer = null;
@@ -160,6 +160,7 @@ function flushPersistNow(): void {
     clearTimeout(maxWaitTimer);
     maxWaitTimer = null;
   }
+  if (!pendingSnapshot) return;
   const snapshot = pendingSnapshot;
   pendingSnapshot = null;
   try {

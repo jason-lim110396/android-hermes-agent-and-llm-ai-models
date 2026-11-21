@@ -1919,7 +1919,9 @@ function updateMsg(
 // tree changes, schedule a debounced quota-safe snapshot to localStorage so
 // conversations survive Android killing the app in the background.
 useAppStore.subscribe((state, prev) => {
-  if (state.chatSessions === prev.chatSessions && state.agentSessions === prev.agentSessions) return;
+  if (state.chatSessions === prev.chatSessions && state.agentSessions === prev.agentSessions &&
+      state.activeChatSessionId === prev.activeChatSessionId &&
+      state.activeAgentSessionId === prev.activeAgentSessionId) return;
   schedulePersistSessions({
     chatSessions: state.chatSessions,
     agentSessions: state.agentSessions,
