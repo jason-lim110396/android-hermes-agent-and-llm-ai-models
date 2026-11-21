@@ -1,6 +1,13 @@
 import type { MLCEngine, InitProgressReport } from '@mlc-ai/web-llm';
 import { AVAILABLE_MODELS, ModelSpec } from './models';
-import { describeLimitFailure, isLimitFailureText, isUsageLimitFailure } from './utils/modelFallback';
+import {
+  describeLimitFailure,
+  isLimitFailureText,
+  isUsageLimitFailure,
+  recordEndpointCooldown,
+  isEndpointInCooldown,
+  clearEndpointCooldown,
+} from './utils/modelFallback';
 import { speakGuarded } from './utils/speechGuard';
 import { redactSensitiveMessages } from './utils/sensitiveContent';
 import { getThermalYieldDelay } from './utils/thermalGuard';
@@ -285,6 +292,193 @@ async function streamChatCompletion(
     clearTimer();
     signal.removeEventListener('abort', forwardAbort);
   }
+}
+
+interface RemoteChainExecutionResult {
+  success: boolean;
+  text?: string;
+  lastFailure?: Error | null;
+}
+
+async function executeRemoteFallbackChain(
+  candidates: FallbackEndpoint[],
+  payload: {
+    messages: { role: string; content: string }[];
+    systemPrompt: string;
+    temperature: number;
+    maxTokens: number;
+  },
+  config: InferenceBackendConfig | undefined,
+  signal: AbortSignal,
+  onStreamChunk: (chunk: string) => void,
+  modelSpec?: ModelSpec,
+  initialSwitchReason?: string
+): Promise<RemoteChainExecutionResult> {
+  const sanitizedRemotePrompt = redactSensitiveMessages(payload.messages, payload.systemPrompt);
+  if (sanitizedRemotePrompt.redactionCount > 0) {
+    try { config?.onPrivacyRedaction?.(sanitizedRemotePrompt.redactionCount); } catch (_) {}
+  }
+
+  // De-duplicate endpoints
+  const uniqueCandidates: FallbackEndpoint[] = [];
+  const seenEndpoints = new Set<string>();
+  for (const c of candidates) {
+    if (!c || !c.endpoint || !c.endpoint.trim()) continue;
+    const key = `${c.endpoint.trim()}::${c.model || ''}`;
+    if (!seenEndpoints.has(key)) {
+      seenEndpoints.add(key);
+      uniqueCandidates.push(c);
+    }
+  }
+
+  if (uniqueCandidates.length === 0) {
+    return { success: false, lastFailure: new Error('No valid endpoints configured') };
+  }
+
+  // Check cooldown status. If some candidates are in cooldown, prioritize healthy candidates.
+  // If all are in cooldown, use all candidates so we don't permanently stall.
+  const activeCandidates = uniqueCandidates.filter((c) => {
+    const cd = isEndpointInCooldown(c.endpoint, c.model);
+    return !cd.inCooldown;
+  });
+
+  const orderedCandidates = activeCandidates.length > 0 ? activeCandidates : uniqueCandidates;
+
+  let lastFailure: RemoteEndpointError | Error | null = null;
+  for (let i = 0; i < orderedCandidates.length; i++) {
+    const candidate = orderedCandidates[i];
+    if (signal.aborted) throw new Error('Task stopped by user');
+
+    // Notify switch if this is not the first attempt or if an initial switch reason was provided
+    if (i > 0 && lastFailure) {
+      const switchReason =
+        lastFailure instanceof RemoteEndpointError
+          ? describeLimitFailure(lastFailure.status, lastFailure.detail)
+          : (lastFailure.message || 'unavailable');
+      try {
+        config?.onFallback?.({
+          from: orderedCandidates[i - 1].label,
+          to: candidate.label,
+          reason: switchReason,
+        });
+      } catch (_) {}
+    } else if (i === 0 && initialSwitchReason) {
+      try {
+        config?.onFallback?.({
+          from: modelSpec?.name || 'on-device engine',
+          to: candidate.label,
+          reason: initialSwitchReason,
+        });
+      } catch (_) {}
+    }
+
+    try {
+      const text = await streamChatCompletion(
+        candidate,
+        {
+          systemPrompt: sanitizedRemotePrompt.systemPrompt,
+          messages: sanitizedRemotePrompt.messages,
+          temperature: payload.temperature,
+          maxTokens: payload.maxTokens,
+        },
+        signal,
+        onStreamChunk
+      );
+      if (text) {
+        clearEndpointCooldown(candidate.endpoint, candidate.model);
+        const reason =
+          i > 0
+            ? lastFailure instanceof RemoteEndpointError
+              ? describeLimitFailure(lastFailure.status, lastFailure.detail)
+              : (lastFailure?.message || 'unavailable')
+            : initialSwitchReason;
+
+        try {
+          config?.onAnsweredModel?.({
+            label: candidate.label,
+            model: candidate.model,
+            isFallback: i > 0 || !!initialSwitchReason,
+            reason,
+          });
+        } catch (_) {}
+
+        if ((i > 0 || initialSwitchReason) && reason) {
+          try {
+            config?.onFallback?.({
+              from: initialSwitchReason ? (modelSpec?.name || 'on-device') : orderedCandidates[0].label,
+              to: candidate.label,
+              reason,
+            });
+          } catch (_) {}
+        }
+        return { success: true, text };
+      }
+
+      lastFailure = new Error(`${candidate.label} returned an empty answer`);
+      console.warn(`Inference endpoint "${candidate.label}" returned an empty answer, trying next in chain.`);
+    } catch (err: unknown) {
+      if (signal.aborted) throw err;
+      lastFailure = err as Error;
+      try { onStreamChunk(''); } catch (_) {}
+
+      // Key rejected (401)
+      if (lastFailure instanceof RemoteEndpointError && lastFailure.status === 401) {
+        console.warn(`Inference endpoint "${candidate.label}" rejected its API key (401), trying next:`, err);
+        continue;
+      }
+
+      const isTerminalHttpError =
+        lastFailure instanceof RemoteEndpointError &&
+        !isUsageLimitFailure(lastFailure.status, lastFailure.detail);
+      if (isTerminalHttpError) {
+        console.warn(`Inference endpoint "${candidate.label}" failed with a non-quota HTTP error:`, err);
+        if (i === 0 && !initialSwitchReason) {
+          break;
+        }
+        continue;
+      }
+
+      const errMessage = (lastFailure?.message || '').toLowerCase();
+      const isTimeout = lastFailure instanceof RemoteTimeoutError;
+      const isFetchFailure =
+        !(lastFailure instanceof RemoteEndpointError) &&
+        (lastFailure instanceof TypeError ||
+          errMessage.includes('fetch failed') ||
+          errMessage.includes('network request failed') ||
+          errMessage.includes('failed to fetch'));
+      const offline =
+        typeof navigator !== 'undefined' && typeof navigator.onLine === 'boolean'
+          ? !navigator.onLine
+          : false;
+
+      if (offline) {
+        console.warn(`Inference endpoint "${candidate.label}" unreachable while offline; aborting remote chain.`);
+        lastFailure = new Error('device is offline', { cause: err });
+        break;
+      }
+
+      const reason =
+        lastFailure instanceof RemoteEndpointError
+          ? describeLimitFailure(lastFailure.status, lastFailure.detail)
+          : (lastFailure?.message || 'unavailable');
+
+      // Record rate limit / timeout / quota cooldown so next messages don't waste time on this dead endpoint
+      recordEndpointCooldown(candidate.endpoint, candidate.model, reason, isTimeout ? 45_000 : 60_000);
+
+      if (isFetchFailure || isTimeout) {
+        console.warn(
+          isTimeout
+            ? `Inference endpoint "${candidate.label}" stopped responding; trying next candidate.`
+            : `Inference endpoint "${candidate.label}" failed at network layer; trying next candidate.`
+        );
+        continue;
+      }
+
+      console.warn(`Inference endpoint "${candidate.label}" failed (${reason}), trying next:`, err);
+    }
+  }
+
+  return { success: false, lastFailure };
 }
 
 // Global Singleton WebLLM Engine
