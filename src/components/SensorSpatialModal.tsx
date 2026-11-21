@@ -24,10 +24,21 @@ import {
   Flame,
   ArrowUp,
   Cpu,
+  Crosshair,
+  RotateCcw,
 } from 'lucide-react';
 import { useBackButtonClose } from '@/utils/backButton';
 import { isGeolocationPermissionDenied } from '@/utils/nativeAppSettings';
 import PermissionDeniedNotice from './PermissionDeniedNotice';
+import {
+  SpatialOrientation,
+  SpatialCalibrationOffset,
+  applyCalibrationOffset,
+  calculateGForce,
+  saveCalibrationOffset,
+  loadCalibrationOffset,
+  clearCalibrationOffset,
+} from '@/utils/sensorGuard';
 
 interface SensorSpatialModalProps {
   isOpen: boolean;
@@ -45,11 +56,12 @@ export default function SensorSpatialModal({
   useBackButtonClose(isOpen, onClose);
 
   // Sensor Telemetry State
-  const [orientation, setOrientation] = useState<{ alpha: number; beta: number; gamma: number }>({
+  const [rawOrientation, setRawOrientation] = useState<SpatialOrientation>({
     alpha: 42.5,
     beta: 12.8,
     gamma: -4.2,
   });
+  const [calibrationOffset, setCalibrationOffset] = useState<SpatialCalibrationOffset | null>(null);
   const [motionAcc, setMotionAcc] = useState<{ x: number; y: number; z: number }>({
     x: 0.12,
     y: 0.08,
@@ -96,42 +108,36 @@ export default function SensorSpatialModal({
     speed: 0.0,
     locality: 'Downtown Metropolis · Precision GPS Fix',
   });
-  // Honest GPS state: 'live' after a real fix, 'denied' after the user
-  // refused the permission (Android then auto-denies silently forever),
-  // 'unavailable' when the fix fails for another reason. Before the
-  // callback it stays 'acquiring'.
   const [gpsStatus, setGpsStatus] = useState<'acquiring' | 'live' | 'denied' | 'unavailable'>('acquiring');
   const [ambientLux, setAmbientLux] = useState<number>(340);
   const [luxCategory, setLuxCategory] = useState<string>('Indoor / Office Studio (300-500 lux)');
   const [isCopied, setIsCopied] = useState<boolean>(false);
   const [isCalibrating, setIsCalibrating] = useState<boolean>(false);
   const [lastRefreshed, setLastRefreshed] = useState<string>('Just now');
-  // Latest orientation heading, for the one-shot GPS callback below. A ref
-  // keeps that callback fresh without putting live sensor state in the
-  // effect's dependency array.
   const orientationAlphaRef = useRef<number>(42.5);
+
+  // Load saved calibration on open
+  useEffect(() => {
+    if (isOpen) {
+      setCalibrationOffset(loadCalibrationOffset());
+    }
+  }, [isOpen]);
 
   // Real Hardware Listeners
   useEffect(() => {
     if (!isOpen) return;
 
-    // Everything this effect registers is removed in the cleanup below, so
-    // none of it may outlive the modal.
     let cancelled = false;
     let batt: any = null;
     let updateBatt: (() => void) | null = null;
     let conn: any = null;
     let updateConn: (() => void) | null = null;
     let ambientSensor: any = null;
-    // Each open starts a fresh GPS attempt: the status shown must belong to
-    // this open's fix, not the previous one.
     setGpsStatus('acquiring');
 
     // 1. Battery API
     if (typeof navigator !== 'undefined' && 'getBattery' in navigator) {
       (navigator as any).getBattery().then((b: any) => {
-        // The promise can resolve after the modal closed; then nothing is
-        // registered and nothing leaks.
         if (cancelled) return;
         batt = b;
         updateBatt = () => {
@@ -172,7 +178,7 @@ export default function SensorSpatialModal({
       if (e.alpha !== null && e.beta !== null && e.gamma !== null) {
         const alpha = +e.alpha.toFixed(1);
         orientationAlphaRef.current = alpha;
-        setOrientation({
+        setRawOrientation({
           alpha,
           beta: +e.beta.toFixed(1),
           gamma: +e.gamma.toFixed(1),
@@ -213,10 +219,6 @@ export default function SensorSpatialModal({
           });
         },
         (err) => {
-          // The native permission dialog fires at this moment of use. A
-          // denial means Android auto-denies every later request silently;
-          // the old catch-all here just left the fabricated demo
-          // coordinates on screen as if they were a real fix.
           if (cancelled) return;
           setGpsStatus(isGeolocationPermissionDenied(err) ? 'denied' : 'unavailable');
         },
@@ -262,28 +264,45 @@ export default function SensorSpatialModal({
     };
   }, [isOpen]);
 
-  const handleCalibrate = () => {
+  // Derived calibrated orientation and G-force metrics
+  const orientation = applyCalibrationOffset(rawOrientation, calibrationOffset);
+  const gForce = calculateGForce(motionAcc);
+
+  const handleTareZero = () => {
     setIsCalibrating(true);
-    triggerHaptic([40, 30, 40]);
+    triggerHaptic([35, 45]);
     setTimeout(() => {
-      setOrientation((prev) => ({
-        alpha: +((prev.alpha + 5) % 360).toFixed(1),
-        beta: +(Math.random() * 8 + 4).toFixed(1),
-        gamma: +(Math.random() * 6 - 3).toFixed(1),
-      }));
-      setAmbientLux(Math.round(280 + Math.random() * 120));
+      const newOffset: SpatialCalibrationOffset = {
+        alpha: rawOrientation.alpha,
+        beta: rawOrientation.beta,
+        gamma: rawOrientation.gamma,
+      };
+      setCalibrationOffset(newOffset);
+      saveCalibrationOffset(newOffset);
       setLastRefreshed(new Date().toLocaleTimeString());
       setIsCalibrating(false);
-    }, 600);
+    }, 350);
+  };
+
+  const handleResetCalibration = () => {
+    triggerHaptic(25);
+    setCalibrationOffset(null);
+    clearCalibrationOffset();
+    setLastRefreshed(new Date().toLocaleTimeString());
   };
 
   const getTelemetryReport = useCallback(() => {
+    const calibStatus = calibrationOffset
+      ? `Calibrated (Tare offset: α=${calibrationOffset.alpha}°, β=${calibrationOffset.beta}°, γ=${calibrationOffset.gamma}°)`
+      : 'Standard Absolute Horizon';
+
     return `📱 **On-Device Hardware & Spatial Sensor Telemetry** (Recorded: ${lastRefreshed})
-- **Compass & Orientation**:
+- **Compass & Orientation** (${calibStatus}):
   • Heading (Azimuth): ${orientation.alpha}°
   • Pitch (X-axis tilt): ${orientation.beta}°
   • Roll (Y-axis tilt): ${orientation.gamma}°
   • Gravitational Acceleration: (${motionAcc.x}, ${motionAcc.y}, ${motionAcc.z}) m/s²
+  • Dynamic G-Force Magnitude: ${gForce.magnitudeG} G (${gForce.label}, ${gForce.magnitudeMs2} m/s²)
 - **Battery & Power Drain**:
   • Battery Level: ${batteryState.level}% ${batteryState.charging ? '⚡ (Charging)' : '🔋 (Discharging)'}
   • Estimated Autonomy: ~${Math.round(batteryState.dischargingTime / 3600 || 5.2)} hrs
@@ -297,7 +316,7 @@ export default function SensorSpatialModal({
 - **Ambient Environmental Illumination**:
   • Lux Sensor: ${ambientLux} lx (${luxCategory})
 *(Audited via Hermes Autonomous Edge Sensor Engine)*`;
-  }, [lastRefreshed, orientation, motionAcc, batteryState, networkInfo, geoLoc, ambientLux, luxCategory]);
+  }, [lastRefreshed, orientation, motionAcc, gForce, calibrationOffset, batteryState, networkInfo, geoLoc, ambientLux, luxCategory]);
 
   const handleCopyReport = () => {
     const text = getTelemetryReport();
@@ -370,19 +389,41 @@ export default function SensorSpatialModal({
         <div className="p-4 overflow-y-auto space-y-4 text-xs font-sans scrollbar-none">
           {/* Compass & Gyroscope Card */}
           <div className="p-4 rounded-2xl bg-zinc-900/70 border border-zinc-800/80 flex flex-col gap-3">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between flex-wrap gap-2">
               <div className="flex items-center gap-2 text-teal-400 font-bold text-[11px]">
                 <Compass className="w-4 h-4" />
                 <span>3D Gyroscope & Compass Orientation</span>
+                {calibrationOffset ? (
+                  <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-normal bg-teal-500/10 text-teal-300 border border-teal-500/20">
+                    Tare Zero Active
+                  </span>
+                ) : (
+                  <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-normal bg-zinc-800 text-zinc-400 border border-zinc-700/50">
+                    Absolute Horizon
+                  </span>
+                )}
               </div>
-              <button
-                onClick={handleCalibrate}
-                disabled={isCalibrating}
-                className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-[10px] font-semibold transition-all cursor-pointer"
-              >
-                <RefreshCw className={`w-3 h-3 ${isCalibrating ? 'animate-spin text-teal-400' : ''}`} />
-                <span>{isCalibrating ? 'Calibrating...' : 'Recalibrate'}</span>
-              </button>
+              <div className="flex items-center gap-1.5">
+                {calibrationOffset && (
+                  <button
+                    onClick={handleResetCalibration}
+                    title="Reset to absolute horizon"
+                    className="flex items-center gap-1 px-2 py-1 rounded-xl bg-zinc-800/80 hover:bg-zinc-700 text-zinc-400 hover:text-zinc-200 text-[10px] font-medium transition-all cursor-pointer"
+                  >
+                    <RotateCcw className="w-3 h-3" />
+                    <span>Reset</span>
+                  </button>
+                )}
+                <button
+                  onClick={handleTareZero}
+                  disabled={isCalibrating}
+                  title="Zero out current angles as new baseline"
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-teal-500/20 hover:bg-teal-500/30 text-teal-300 border border-teal-500/40 text-[10px] font-semibold transition-all cursor-pointer"
+                >
+                  <Crosshair className={`w-3 h-3 ${isCalibrating ? 'animate-spin text-teal-300' : ''}`} />
+                  <span>{isCalibrating ? 'Zeroing...' : 'Tare Zero'}</span>
+                </button>
+              </div>
             </div>
 
             <div className="flex items-center gap-4">
@@ -422,11 +463,30 @@ export default function SensorSpatialModal({
                     {orientation.gamma}°
                   </div>
                 </div>
-                <div className="col-span-3 p-1.5 rounded-xl bg-zinc-950/50 border border-zinc-800/60 flex items-center justify-between px-3 text-[10px] text-zinc-400 font-mono">
-                  <span>Gravity Accel:</span>
-                  <span className="text-zinc-200">
-                    X: {motionAcc.x} | Y: {motionAcc.y} | Z: {motionAcc.z} m/s²
-                  </span>
+                <div className="col-span-3 p-2 rounded-xl bg-zinc-950/60 border border-zinc-800/80 flex flex-col gap-1.5 text-[10px] font-mono">
+                  <div className="flex items-center justify-between text-zinc-400">
+                    <span className="flex items-center gap-1.5">
+                      <Gauge className="w-3.5 h-3.5 text-zinc-500" />
+                      Dynamic G-Force:
+                    </span>
+                    <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold border ${
+                      gForce.status === 'normal'
+                        ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                        : gForce.status === 'dynamic'
+                        ? 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+                        : gForce.status === 'microgravity'
+                        ? 'bg-purple-500/20 text-purple-300 border-purple-500/30'
+                        : 'bg-rose-500/20 text-rose-300 border-rose-500/30'
+                    }`}>
+                      {gForce.magnitudeG} G · {gForce.label}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-[9px] text-zinc-500 border-t border-zinc-800/50 pt-1">
+                    <span>Gravity Vector:</span>
+                    <span className="text-zinc-300">
+                      X: {motionAcc.x} | Y: {motionAcc.y} | Z: {motionAcc.z} m/s² ({gForce.magnitudeMs2} m/s² total)
+                    </span>
+                  </div>
                 </div>
               </div>
             </div>
