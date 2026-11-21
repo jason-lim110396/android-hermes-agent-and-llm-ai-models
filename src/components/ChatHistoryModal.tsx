@@ -243,6 +243,18 @@ export default function ChatHistoryModal({ isOpen, onClose }: ChatHistoryModalPr
               </button>
             ))}
           </div>
+
+          {searchQuery.trim() && (
+            <div className="flex items-center justify-between text-[10px] text-zinc-400 pt-1">
+              <span>Found <strong className="text-cyan-300">{filteredSessions.length}</strong> matching thread{filteredSessions.length === 1 ? '' : 's'}</span>
+              <button
+                onClick={() => setSearchQuery('')}
+                className="text-cyan-400 hover:text-cyan-200 transition-colors"
+              >
+                Reset search
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Sessions List */}
@@ -306,13 +318,34 @@ export default function ChatHistoryModal({ isOpen, onClose }: ChatHistoryModalPr
                         </div>
                       )}
 
-                      {/* Last Message Snippet */}
-                      {lastMsg && (
-                        <p className="text-[11px] text-zinc-400 line-clamp-1 mt-1 font-mono">
-                          {lastMsg.role === 'user' ? 'You: ' : 'Hermes: '}
-                          {lastMsg.content.slice(0, 80)}
-                        </p>
-                      )}
+                      {/* Search Match Excerpt vs Last Message Snippet */}
+                      {(() => {
+                        const q = searchQuery.trim().toLowerCase();
+                        if (q) {
+                          const matchingMsg = s.messages.find((m) => m.content.toLowerCase().includes(q));
+                          if (matchingMsg) {
+                            const idx = matchingMsg.content.toLowerCase().indexOf(q);
+                            const start = Math.max(0, idx - 25);
+                            const end = Math.min(matchingMsg.content.length, idx + q.length + 45);
+                            const snippet = (start > 0 ? '...' : '') + matchingMsg.content.slice(start, end) + (end < matchingMsg.content.length ? '...' : '');
+                            return (
+                              <div className="mt-1.5 px-2 py-1 rounded-lg bg-cyan-950/50 border border-cyan-500/30 text-[11px] text-cyan-200">
+                                <span className="font-bold text-cyan-400 mr-1">Match:</span>
+                                <span>{snippet}</span>
+                              </div>
+                            );
+                          }
+                        }
+                        if (lastMsg) {
+                          return (
+                            <p className="text-[11px] text-zinc-400 line-clamp-1 mt-1 font-mono">
+                              {lastMsg.role === 'user' ? 'You: ' : 'Hermes: '}
+                              {lastMsg.content.slice(0, 80)}
+                            </p>
+                          );
+                        }
+                        return null;
+                      })()}
 
                       {/* Meta Footer */}
                       <div className="flex items-center gap-2 mt-2 flex-wrap">
