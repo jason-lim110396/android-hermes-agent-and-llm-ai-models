@@ -16,6 +16,7 @@
 
 import type { ChatMessage, ChatSession } from '@/appStore';
 import { App as CapApp } from '@capacitor/app';
+import { triggerMemoryCleanupHint } from './memoryGuard';
 
 const STORAGE_KEY = 'hermes_sessions_v1';
 const PERSIST_DEBOUNCE_MS = 1000;
@@ -192,17 +193,23 @@ export function clearPendingPersist(): void {
 // The WebView suspends JS timers when backgrounded, so a debounced write that
 // has not fired yet would be lost exactly when Android is about to kill the
 // app. Flush synchronously on visibility changes, page hide, beforeunload,
-// and the native Capacitor appStateChange event.
+// and the native Capacitor appStateChange event, while proactively signaling
+// cooperative memory cleanup so backgrounded WebViews shed DOM and buffer load.
 if (typeof window !== 'undefined') {
+  const onBackgroundOrUnload = () => {
+    flushPersistNow();
+    triggerMemoryCleanupHint();
+  };
+
   window.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'hidden') flushPersistNow();
+    if (document.visibilityState === 'hidden') onBackgroundOrUnload();
   });
-  window.addEventListener('pagehide', flushPersistNow);
-  window.addEventListener('beforeunload', flushPersistNow);
+  window.addEventListener('pagehide', onBackgroundOrUnload);
+  window.addEventListener('beforeunload', onBackgroundOrUnload);
 
   try {
     CapApp.addListener('appStateChange', (state) => {
-      if (!state.isActive) flushPersistNow();
+      if (!state.isActive) onBackgroundOrUnload();
     });
   } catch (_) {
     // Non-Capacitor web environments ignore native bridge.
@@ -241,6 +248,9 @@ function sanitizeSessions(raw: unknown): Record<string, ChatSession> | null {
         typeof m.timestamp === 'number' && Number.isFinite(m.timestamp) && m.timestamp > 0
           ? m.timestamp
           : Date.now(),
+      modelUsed: typeof m.modelUsed === 'string' ? m.modelUsed : undefined,
+      isFallback: typeof m.isFallback === 'boolean' ? m.isFallback : undefined,
+      fallbackReason: typeof m.fallbackReason === 'string' ? m.fallbackReason : undefined,
     }));
     out[id] = { ...sess, createdAt, messages };
   }

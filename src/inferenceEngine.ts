@@ -11,6 +11,7 @@ import {
 import { speakGuarded } from './utils/speechGuard';
 import { redactSensitiveMessages } from './utils/sensitiveContent';
 import { getThermalYieldDelay } from './utils/thermalGuard';
+import { triggerMemoryCleanupHint } from './utils/memoryGuard';
 import {
   isCpuModelCached,
   downloadCpuModelWeights,
@@ -863,6 +864,10 @@ export async function callRealLLMInference({
       } catch (cpuErr: any) {
         if (signal.aborted) throw cpuErr;
         const errorMsg = cpuErr?.message || String(cpuErr);
+        const isMemErr = errorMsg.toLowerCase().includes('memory') || errorMsg.toLowerCase().includes('allocation');
+        if (isMemErr) {
+          triggerMemoryCleanupHint();
+        }
         const isOnline = typeof navigator === 'undefined' || navigator.onLine !== false;
         if (isOnline && config?.fallbacks && config.fallbacks.length > 0) {
           try {
@@ -959,6 +964,11 @@ export async function callRealLLMInference({
 
         const errorMsg = webllmError?.message || String(webllmError);
         const isBufferRaceError = errorMsg.includes('mapAsync') || errorMsg.includes('GPUBuffer') || errorMsg.includes('unmapped') || errorMsg.includes('device was lost') || errorMsg.includes('Device lost');
+        const isMemErr = isBufferRaceError || errorMsg.toLowerCase().includes('out of memory') || errorMsg.toLowerCase().includes('allocation failed');
+
+        if (isMemErr) {
+          triggerMemoryCleanupHint();
+        }
 
         if (isBufferRaceError) {
           // The GPU→CPU buffer readback used for token sampling left the engine's GPU state

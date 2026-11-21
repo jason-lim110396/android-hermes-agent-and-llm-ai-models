@@ -19,6 +19,7 @@ import {
   FileJson,
   CheckSquare,
   Square,
+  ArrowRightLeft,
 } from 'lucide-react';
 import { useAppStore, ChatSession } from '@/appStore';
 import { useBackButtonClose } from '@/utils/backButton';
@@ -100,7 +101,7 @@ export default function ChatHistoryModal({ isOpen, onClose }: ChatHistoryModalPr
       '',
     ];
     for (const m of s.messages) {
-      const fallbackNotice = m.isFallback ? ' (Fallback)' : '';
+      const fallbackNotice = m.isFallback ? ` (Fallback${m.fallbackReason ? `: ${m.fallbackReason}` : ''})` : '';
       const who = m.role === 'user' ? 'You' : `${m.modelUsed || 'Hermes AI'}${fallbackNotice}`;
       const time = new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       lines.push(`---`, '', `**${who}** _(${time})_`, '', m.content, '');
@@ -459,6 +460,16 @@ export default function ChatHistoryModal({ isOpen, onClose }: ChatHistoryModalPr
                         <span className="text-[10px] px-1.5 py-0.2 rounded bg-zinc-800 text-zinc-400 font-mono">
                           {s.messages.length} msg{s.messages.length !== 1 ? 's' : ''}
                         </span>
+
+                        {s.messages.some((m) => m.isFallback) && (
+                          <span
+                            className="text-[10px] px-1.5 py-0.2 rounded bg-amber-950/60 border border-amber-500/30 text-amber-300 font-mono flex items-center gap-1"
+                            title="Contains messages answered by fallback models"
+                          >
+                            <ArrowRightLeft className="w-2.5 h-2.5 text-amber-400" />
+                            <span>Fallback</span>
+                          </span>
+                        )}
 
                         {/* Category badge */}
                         <button
