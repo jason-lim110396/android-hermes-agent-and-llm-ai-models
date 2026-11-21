@@ -84,6 +84,34 @@ export default function DeviceDiagnostics() {
   const [storageReport, setStorageReport] = useState<StorageQuotaReport | null>(null);
   const [isRequestingPersistence, setIsRequestingPersistence] = useState<boolean>(false);
 
+  interface WebGpuLimitsData {
+    maxBufferSizeMB: number | null;
+    maxStorageBufferBindingMB: number | null;
+    maxComputeWorkgroupSizeX: number | null;
+    hasFp16: boolean;
+    architecture: string | null;
+  }
+
+  const [webGpuLimits, setWebGpuLimits] = useState<WebGpuLimitsData | null>(null);
+
+  useEffect(() => {
+    if (typeof navigator !== 'undefined' && 'gpu' in navigator) {
+      (navigator as any).gpu.requestAdapter().then((adapter: any) => {
+        if (!adapter) return;
+        const limits = adapter.limits;
+        const features = adapter.features;
+        const info = adapter.info;
+        setWebGpuLimits({
+          maxBufferSizeMB: limits?.maxBufferSize ? Math.round(limits.maxBufferSize / (1024 * 1024)) : null,
+          maxStorageBufferBindingMB: limits?.maxStorageBufferBindingSize ? Math.round(limits.maxStorageBufferBindingSize / (1024 * 1024)) : null,
+          maxComputeWorkgroupSizeX: limits?.maxComputeWorkgroupSizeX ?? null,
+          hasFp16: features ? features.has('shader-f16') : false,
+          architecture: info?.architecture || info?.description || null,
+        });
+      }).catch(() => {});
+    }
+  }, []);
+
   // Autonomous System Self-Test & Diagnostic Certification Suite State
   interface SelfTestItem {
     id: string;
@@ -915,6 +943,32 @@ export default function DeviceDiagnostics() {
           <div><span className="text-zinc-500">Execution Threading:</span> Web Workers / SIMD Enabled</div>
           <div><span className="text-zinc-500">Thermal Safety Throttle:</span> Normal (No Thermal Throttling)</div>
         </div>
+
+        {webGpuLimits && (
+          <div className="mt-3 pt-3 border-t border-zinc-800/80">
+            <h4 className="text-[10px] font-bold text-cyan-400 uppercase tracking-wider mb-2">WebGPU Hardware Limits & Shader Pipeline</h4>
+            <div className="grid grid-cols-2 gap-2 text-[10px] font-mono">
+              <div className="p-2 rounded-lg bg-zinc-950/80 border border-zinc-800/80">
+                <span className="text-zinc-500 block">Max Buffer Size:</span>
+                <span className="text-white font-bold">{webGpuLimits.maxBufferSizeMB ? `${webGpuLimits.maxBufferSizeMB} MB` : 'Standard'}</span>
+              </div>
+              <div className="p-2 rounded-lg bg-zinc-950/80 border border-zinc-800/80">
+                <span className="text-zinc-500 block">Max Storage Binding:</span>
+                <span className="text-white font-bold">{webGpuLimits.maxStorageBufferBindingMB ? `${webGpuLimits.maxStorageBufferBindingMB} MB` : 'Standard'}</span>
+              </div>
+              <div className="p-2 rounded-lg bg-zinc-950/80 border border-zinc-800/80">
+                <span className="text-zinc-500 block">Workgroup Size (X):</span>
+                <span className="text-white font-bold">{webGpuLimits.maxComputeWorkgroupSizeX ?? '256'}</span>
+              </div>
+              <div className="p-2 rounded-lg bg-zinc-950/80 border border-zinc-800/80">
+                <span className="text-zinc-500 block">WGSL FP16 Precision:</span>
+                <span className={webGpuLimits.hasFp16 ? 'text-emerald-400 font-bold' : 'text-zinc-300'}>
+                  {webGpuLimits.hasFp16 ? 'Supported (Float16)' : 'Float32 Baseline'}
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Autonomous System Self-Test & Diagnostic Certification Suite */}
