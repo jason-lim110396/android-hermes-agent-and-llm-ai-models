@@ -231,6 +231,26 @@ export default function TaskWorkflowsStudio() {
       })
       .catch(() => showCopyFailure());
   };
+
+  const handleExportWorkflowMarkdown = () => {
+    if (!finalOutput) return;
+    const blob = new Blob([
+      `# Autonomous Workflow Output: ${currentTemplate.title}\n\n` +
+      `**Category:** ${currentTemplate.category}\n` +
+      `**Generated:** ${new Date().toLocaleString()}\n\n` +
+      `## Result\n\n${finalOutput}\n\n` +
+      `---\n*Hermes Agent Autonomous Mobile Pipeline*\n`
+    ], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `workflow-${activeWorkflowId}-${Date.now()}.md`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    triggerHaptic(20);
+  };
   const [isToolTesterOpen, setIsToolTesterOpen] = useState(false);
 
   // Every workflow run mints a fresh Blob URL for its export file. Revoke the
@@ -1459,6 +1479,14 @@ export default function TaskWorkflowsStudio() {
                 >
                   {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
                   <span>{copied ? 'Copied' : 'Copy'}</span>
+                </button>
+                <button
+                  onClick={handleExportWorkflowMarkdown}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-600/30 hover:bg-indigo-600/40 border border-indigo-500/40 text-indigo-200 hover:text-white font-bold text-xs transition-all cursor-pointer"
+                  title="Export results to a Markdown (.md) document"
+                >
+                  <Download className="w-3.5 h-3.5 text-indigo-400" />
+                  <span>Export .md</span>
                 </button>
                 {copyFailed && (
                   <span className="text-[10px] text-rose-300 font-semibold leading-snug">
