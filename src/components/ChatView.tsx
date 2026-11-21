@@ -2453,6 +2453,7 @@ export default function ChatView() {
 
                 <button
                   onClick={() => {
+                    setShowQuickActions(false);
                     const lastAssistantMsg = messages.filter((m) => m.role === 'assistant').at(-1);
                     const textToShare = lastAssistantMsg?.content || 'Hermes Autonomous AI on Android: 100% on-device neural inference with zero cloud dependency.';
                     if (typeof navigator !== 'undefined' && navigator.share) {
@@ -2470,6 +2471,7 @@ export default function ChatView() {
 
                 <button
                   onClick={() => {
+                    setShowQuickActions(false);
                     if (typeof navigator !== 'undefined' && navigator.vibrate) {
                       navigator.vibrate([100, 50, 100]);
                     }
