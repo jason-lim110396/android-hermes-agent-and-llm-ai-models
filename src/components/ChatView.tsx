@@ -566,13 +566,13 @@ export default function ChatView() {
   React.useEffect(() => {
     const el = messagesContainerRef.current;
     if (!el) return;
-    setIsAwayFromBottom(el.scrollHeight - el.scrollTop - el.clientHeight > 250);
+    setIsAwayFromBottom(el.scrollHeight - el.scrollTop - el.clientHeight > 80);
   }, [messages.length, currentSession?.id]);
 
   // Auto-scroll to the newest message, but only when the user is near the bottom:
-  // never yank the timeline down mid-read while streaming (the jump-to-latest
-  // button covers returning to the latest). Mount and session switches reset the
-  // away-from-bottom flag so they still auto-scroll to the latest message.
+  // never yank the timeline down mid-read while streaming.
+  // Use instant scroll (el.scrollTop = el.scrollHeight) during streaming to eliminate
+  // animation frame backlogs that lag mobile WebViews, and smooth scroll for normal arrivals.
   const prevSessionIdRef = useRef<string | null>(null);
   React.useEffect(() => {
     if (prevSessionIdRef.current !== currentSession?.id) {
@@ -580,7 +580,14 @@ export default function ChatView() {
       setIsAwayFromBottom(false);
     }
     if (isAwayFromBottom) return;
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const el = messagesContainerRef.current;
+    if (el) {
+      if (isGenerating) {
+        el.scrollTop = el.scrollHeight;
+      } else {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      }
+    }
   }, [messages, isGenerating, isAwayFromBottom, currentSession?.id]);
 
   // WhatsApp-Style Voice Note State
@@ -1681,7 +1688,7 @@ export default function ChatView() {
         ref={messagesContainerRef}
         onScroll={(e) => {
           const el = e.currentTarget;
-          setIsAwayFromBottom(el.scrollHeight - el.scrollTop - el.clientHeight > 250);
+          setIsAwayFromBottom(el.scrollHeight - el.scrollTop - el.clientHeight > 80);
         }}
         className="flex-1 overflow-y-auto p-3 space-y-3"
       >
@@ -2241,14 +2248,34 @@ export default function ChatView() {
       {isAwayFromBottom && (
         <button
           onClick={() => {
-            messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+            setIsAwayFromBottom(false);
+            const el = messagesContainerRef.current;
+            if (el) {
+              el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+            }
             triggerHaptic(10);
           }}
-          title="Jump to latest message"
-          className="absolute right-4 z-30 w-12 h-12 rounded-full bg-zinc-900 border border-cyan-500/40 hover:border-cyan-400 text-cyan-400 shadow-xl shadow-cyan-500/10 flex items-center justify-center transition-all cursor-pointer active:scale-95 animate-in fade-in slide-in-from-bottom duration-200"
+          aria-label={isGenerating ? "Jump to streaming response" : "Jump to latest message"}
+          title={isGenerating ? "Streaming active — click to view latest" : "Jump to latest message"}
+          className={`absolute right-4 z-30 rounded-full border shadow-xl flex items-center transition-all cursor-pointer active:scale-95 animate-in fade-in slide-in-from-bottom duration-200 ${
+            isGenerating
+              ? 'px-3.5 py-2 bg-cyan-950/90 border-cyan-500/60 text-cyan-300 shadow-cyan-500/20 gap-1.5 text-xs font-bold'
+              : 'w-11 h-11 justify-center bg-zinc-900 border-zinc-700 hover:border-cyan-500/40 text-cyan-400 shadow-cyan-500/10'
+          }`}
           style={{ bottom: `${(isFabOpen ? 420 : 196) + keyboardHeight}px` }}
         >
-          <ChevronDown className="w-6 h-6" />
+          {isGenerating ? (
+            <>
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-cyan-500"></span>
+              </span>
+              <span>Streaming</span>
+              <ChevronDown className="w-4 h-4 ml-0.5 animate-bounce" />
+            </>
+          ) : (
+            <ChevronDown className="w-5 h-5" />
+          )}
         </button>
       )}
 
