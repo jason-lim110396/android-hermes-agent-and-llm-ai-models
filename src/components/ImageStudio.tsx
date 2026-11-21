@@ -188,13 +188,18 @@ export default function ImageStudio() {
     img.src = scrubImage;
     img.onload = () => {
       const canvas = document.createElement('canvas');
-      canvas.width = img.width;
-      canvas.height = img.height;
+      // Cap working size to avoid holding two full-resolution bitmaps/base64
+      // strings simultaneously on low-RAM Android WebViews (OOM).
+      const SCRUB_MAX_EDGE = 2048;
+      const longest = Math.max(img.width, img.height);
+      const scale = longest > SCRUB_MAX_EDGE ? SCRUB_MAX_EDGE / longest : 1;
+      canvas.width = Math.max(1, Math.round(img.width * scale));
+      canvas.height = Math.max(1, Math.round(img.height * scale));
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
 
       // Lossless redraw discards all APP1 EXIF / GPS binary blocks
-      ctx.drawImage(img, 0, 0);
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
       const cleanDataUrl = canvas.toDataURL('image/jpeg', 0.95);
 
       setScrubImage(cleanDataUrl);
