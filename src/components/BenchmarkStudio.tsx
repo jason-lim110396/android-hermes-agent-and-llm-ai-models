@@ -132,6 +132,9 @@ export default function BenchmarkStudio() {
     verdict: string;
   } | null>(null);
   const [isExportedThermal, setIsExportedThermal] = useState(false);
+  // Outcome of the benchmark certificate Share/Copy button, rendered next to
+  // it - a rejected clipboard write must not be silent (or falsely "copied").
+  const [certShareFeedback, setCertShareFeedback] = useState<string | null>(null);
 
   const handleRunBurnInStressTest = async () => {
     setIsBurnInRunning(true);
@@ -364,7 +367,7 @@ export default function BenchmarkStudio() {
     if (navigator.vibrate) navigator.vibrate([40, 60, 40]);
   };
 
-  const handleShareCertificate = () => {
+  const handleShareCertificate = async () => {
     if (!result) return;
     const certText = `🚀 Hermes Android AI Benchmark\n` +
       `Score: ${result.score} pts | ${result.gflops} GFLOPS\n` +
@@ -374,11 +377,31 @@ export default function BenchmarkStudio() {
       `Tested with 100% On-Device WebGPU Compute`;
 
     if (typeof navigator !== 'undefined' && navigator.share) {
-      navigator.share({ title: 'Hermes AI Mobile Benchmark', text: certText }).catch(() => {});
-    } else {
-      navigator.clipboard.writeText(certText);
-      alert('Benchmark score copied to clipboard!');
+      try {
+        await navigator.share({ title: 'Hermes AI Mobile Benchmark', text: certText });
+        return;
+      } catch (err) {
+        // Dismissal is not an error; anything else falls through to the
+        // honest clipboard attempt below.
+        if ((err as { name?: string })?.name === 'AbortError') return;
+      }
     }
+    if (typeof navigator !== 'undefined' && navigator.clipboard) {
+      // Only the resolved write may claim the copy.
+      navigator.clipboard
+        .writeText(certText)
+        .then(() => {
+          setCertShareFeedback('Benchmark certificate copied to clipboard!');
+          setTimeout(() => setCertShareFeedback(null), 3000);
+        })
+        .catch(() => {
+          setCertShareFeedback('Copy failed - clipboard blocked. Nothing was copied or shared.');
+          setTimeout(() => setCertShareFeedback(null), 3000);
+        });
+      return;
+    }
+    setCertShareFeedback('Neither the share sheet nor the clipboard is available - nothing was shared.');
+    setTimeout(() => setCertShareFeedback(null), 3000);
   };
 
   return (
@@ -526,6 +549,11 @@ export default function BenchmarkStudio() {
                 <span>Share</span>
               </button>
             </div>
+            {certShareFeedback && (
+              <div className="mt-2 px-2.5 py-1.5 rounded-lg bg-cyan-500/10 border border-cyan-500/30 text-cyan-300 text-[10px] font-semibold leading-snug">
+                {certShareFeedback}
+              </div>
+            )}
           </div>
         )}
 

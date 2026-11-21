@@ -679,8 +679,38 @@ export const useAppStore = create<AppStore>((set, get) => {
 
   deleteModel: async (modelId: string) => {
     await deleteModelFromCache(modelId);
+    // deleteModelFromCache swallows its own errors, so confirm the weights
+    // are really gone before dropping the entry. The old code removed the
+    // entry unconditionally: a failed delete left the model showing "Not
+    // Downloaded" while the weights still occupied storage (fake success).
+    const spec = AVAILABLE_MODELS.find((m) => m.id === modelId);
+    let stillCached = false;
+    try {
+      stillCached = await isModelCached(modelId);
+    } catch (_) {
+      stillCached = true;
+    }
     set((state) => {
       const next = { ...state.downloads };
+      if (stillCached) {
+        // Keep the entry as ready and name the failure; the Model Hub shows
+        // this error where the model is listed.
+        next[modelId] = {
+          ...(next[modelId] || {
+            modelId,
+            isDownloading: false,
+            progressPct: 100,
+            downloadedMB: spec?.sizeMB || 0,
+            totalMB: spec?.sizeMB || 0,
+            speedMBs: 0,
+            isReady: true,
+          }),
+          isReady: true,
+          isDownloading: false,
+          errorMessage: `Could not remove ${spec?.name || modelId} weights from storage. Free space may be low or the cache is locked - nothing was deleted.`,
+        };
+        return { downloads: next };
+      }
       delete next[modelId];
       return { downloads: next };
     });

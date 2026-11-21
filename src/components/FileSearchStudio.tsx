@@ -314,9 +314,14 @@ export default function FileSearchStudio() {
     .sort((a, b) => (b.similarityScore || 0) - (a.similarityScore || 0)), [query, selectedType]);
 
   const handleCopyPath = (file: IndexedFile) => {
-    navigator.clipboard.writeText(file.path);
-    setCopiedId(file.id);
-    setTimeout(() => setCopiedId(null), 2000);
+    // Only the resolved write may claim "Copied".
+    navigator.clipboard
+      .writeText(file.path)
+      .then(() => {
+        setCopiedId(file.id);
+        setTimeout(() => setCopiedId(null), 2000);
+      })
+      .catch(() => setCopiedId(null));
   };
 
   const handleSendToHermes = (file: IndexedFile) => {
@@ -1040,10 +1045,15 @@ export default function FileSearchStudio() {
                     <button
                       onClick={() => {
                         const sampleVector = Array.from({ length: 16 }).map(() => (Math.random() * 2 - 1).toFixed(4));
-                        navigator.clipboard.writeText(JSON.stringify(sampleVector));
-                        setIsCopiedVector(true);
-                        if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(20);
-                        setTimeout(() => setIsCopiedVector(false), 2000);
+                        // Only the resolved write may claim "Copied".
+                        navigator.clipboard
+                          .writeText(JSON.stringify(sampleVector))
+                          .then(() => {
+                            setIsCopiedVector(true);
+                            if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(20);
+                            setTimeout(() => setIsCopiedVector(false), 2000);
+                          })
+                          .catch(() => setIsCopiedVector(false));
                       }}
                       className="py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer border border-zinc-700 transition-all"
                     >

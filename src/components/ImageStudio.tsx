@@ -134,8 +134,11 @@ export default function ImageStudio() {
       };
 
       setHistory((prev) => [newItem, ...prev]);
-    } catch (_) {
-      setProgressStatus('Generation encountered an issue.');
+    } catch (err: unknown) {
+      // Name the failure instead of a generic "issue": the generation
+      // pipeline's own error (Pollinations fetch, canvas render) is the
+      // actionable reason.
+      setProgressStatus(`Generation failed: ${(err as Error)?.message || 'diffusion engine error'}. No image was created.`);
     } finally {
       setTimeout(() => {
         setProgressPct(0);

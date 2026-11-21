@@ -797,9 +797,14 @@ export default function VisionStudio() {
                   </span>
                   <button
                     onClick={() => {
-                      navigator.clipboard.writeText(analysisResult);
-                      setCopied(true);
-                      setTimeout(() => setCopied(false), 2000);
+                      // Only the resolved write may claim "Copied".
+                      navigator.clipboard
+                        .writeText(analysisResult)
+                        .then(() => {
+                          setCopied(true);
+                          setTimeout(() => setCopied(false), 2000);
+                        })
+                        .catch(() => setCopied(false));
                     }}
                     className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-bold transition-all cursor-pointer"
                   >
@@ -1121,10 +1126,18 @@ export default function VisionStudio() {
 
                 <button
                   onClick={() => {
-                    navigator.clipboard.writeText(barcodePayload);
-                    setBarcodeActionFeedback('Copied barcode payload to clipboard!');
-                    if (navigator.vibrate) navigator.vibrate(20);
-                    setTimeout(() => setBarcodeActionFeedback(null), 2500);
+                    // Only the resolved write may claim the copy.
+                    navigator.clipboard
+                      .writeText(barcodePayload)
+                      .then(() => {
+                        setBarcodeActionFeedback('Copied barcode payload to clipboard!');
+                        if (navigator.vibrate) navigator.vibrate(20);
+                        setTimeout(() => setBarcodeActionFeedback(null), 2500);
+                      })
+                      .catch(() => {
+                        setBarcodeActionFeedback('Copy failed - clipboard blocked. Nothing was copied.');
+                        setTimeout(() => setBarcodeActionFeedback(null), 2500);
+                      });
                   }}
                   className="p-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700/80 text-zinc-200 border border-zinc-700/60 flex items-center gap-2 cursor-pointer text-xs font-bold"
                 >
@@ -1559,10 +1572,18 @@ export default function VisionStudio() {
 
                 <button
                   onClick={() => {
-                    navigator.clipboard.writeText(ocrTranslatedResult);
-                    setOcrTranslateFeedback('Translation copied to clipboard!');
-                    setTimeout(() => setOcrTranslateFeedback(null), 2500);
-                    if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(30);
+                    // Only the resolved write may claim the copy.
+                    navigator.clipboard
+                      .writeText(ocrTranslatedResult)
+                      .then(() => {
+                        setOcrTranslateFeedback('Translation copied to clipboard!');
+                        setTimeout(() => setOcrTranslateFeedback(null), 2500);
+                        if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(30);
+                      })
+                      .catch(() => {
+                        setOcrTranslateFeedback('Copy failed - clipboard blocked. Nothing was copied.');
+                        setTimeout(() => setOcrTranslateFeedback(null), 2500);
+                      });
                   }}
                   className="py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer border border-zinc-700 transition-all"
                 >
