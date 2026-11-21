@@ -203,8 +203,8 @@ export default function ContextCompressorModal({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-fadeIn">
-      <div className="relative w-full max-w-lg max-h-[92vh] flex flex-col rounded-3xl bg-neutral-900 border border-neutral-800 shadow-2xl overflow-hidden text-neutral-100">
+    <div onClick={onClose} className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-fadeIn">
+      <div onClick={(e) => e.stopPropagation()} className="relative w-full max-w-lg max-h-[92vh] flex flex-col rounded-3xl bg-neutral-900 border border-neutral-800 shadow-2xl overflow-hidden text-neutral-100">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-neutral-800 bg-neutral-950/60">
           <div className="flex items-center gap-3">
@@ -223,7 +223,8 @@ export default function ContextCompressorModal({
           </div>
           <button
             onClick={onClose}
-            className="p-2 rounded-full hover:bg-neutral-800 text-neutral-400 hover:text-white transition-colors"
+            aria-label="Close modal"
+            className="min-w-[44px] min-h-[44px] flex items-center justify-center p-2.5 rounded-full hover:bg-neutral-800 text-neutral-400 hover:text-white transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
@@ -397,7 +398,8 @@ export default function ContextCompressorModal({
                   <span className="truncate">{fact}</span>
                   <button
                     onClick={() => handleRemoveFact(idx)}
-                    className="p-1 rounded-lg text-neutral-400 hover:text-rose-400 transition-colors"
+                    aria-label="Remove scratchpad fact"
+                    className="min-w-[44px] min-h-[44px] flex items-center justify-center -m-1.5 p-2 rounded-lg text-neutral-400 hover:text-rose-400 transition-colors cursor-pointer"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>

@@ -367,8 +367,14 @@ export default function CodeSandboxModal({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-2 sm:p-4">
-      <div className="flex flex-col w-full h-[95vh] max-w-4xl bg-zinc-950 border border-zinc-800 rounded-3xl overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+    <div
+      onClick={onClose}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-2 sm:p-4"
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="flex flex-col w-full h-[95vh] max-w-4xl bg-zinc-950 border border-zinc-800 rounded-3xl overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-200"
+      >
         {/* Top Control Bar */}
         <div className="flex items-center justify-between px-3 py-2.5 bg-zinc-900 border-b border-zinc-800 shrink-0">
           <div className="flex items-center gap-2">
@@ -405,8 +411,9 @@ export default function CodeSandboxModal({
             {code !== previewCode && (
               <button
                 onClick={handleRefresh}
+                aria-label="Run edited code"
                 title="Run edited code"
-                className="flex items-center gap-1 px-2 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-[10px] font-bold transition-all cursor-pointer"
+                className="flex items-center gap-1 px-2.5 py-1.5 min-h-[44px] rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-[10px] font-bold transition-all cursor-pointer"
               >
                 <Play className="w-3.5 h-3.5" />
                 <span>Run</span>
@@ -414,29 +421,33 @@ export default function CodeSandboxModal({
             )}
             <button
               onClick={handleRefresh}
+              aria-label="Re-run code in sandbox"
               title="Re-run code"
-              className="p-1.5 rounded-lg bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 transition-all cursor-pointer"
+              className="min-w-[44px] min-h-[44px] flex items-center justify-center p-2.5 rounded-lg bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 transition-all cursor-pointer"
             >
               <RotateCcw className="w-3.5 h-3.5" />
             </button>
             <button
               onClick={handleCopyCode}
+              aria-label="Copy code to clipboard"
               title="Copy code"
-              className="p-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition-all cursor-pointer"
+              className="min-w-[44px] min-h-[44px] flex items-center justify-center p-2.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition-all cursor-pointer"
             >
               {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
             </button>
             <button
               onClick={handleDownload}
+              aria-label="Download HTML code"
               title="Download HTML"
-              className="p-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition-all cursor-pointer"
+              className="min-w-[44px] min-h-[44px] flex items-center justify-center p-2.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition-all cursor-pointer"
             >
               <Download className="w-3.5 h-3.5" />
             </button>
             <button
               onClick={onClose}
+              aria-label="Close code sandbox"
               title="Close Sandbox"
-              className="p-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white transition-all cursor-pointer ml-1"
+              className="min-w-[44px] min-h-[44px] flex items-center justify-center p-2.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white transition-all cursor-pointer ml-1"
             >
               <X className="w-4 h-4" />
             </button>

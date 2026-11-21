@@ -191,8 +191,14 @@ export default function TableSpreadsheetModal({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-2 sm:p-4">
-      <div className="flex flex-col w-full h-[95vh] max-w-4xl bg-zinc-950 border border-zinc-800 rounded-3xl overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+    <div
+      onClick={onClose}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-2 sm:p-4"
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="flex flex-col w-full h-[95vh] max-w-4xl bg-zinc-950 border border-zinc-800 rounded-3xl overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-200"
+      >
         {/* Top Header */}
         <div className="flex items-center justify-between px-3.5 py-3 bg-zinc-900 border-b border-zinc-800 shrink-0">
           <div className="flex items-center gap-2">
@@ -213,8 +219,9 @@ export default function TableSpreadsheetModal({
           <div className="flex items-center gap-1">
             <button
               onClick={handleTranspose}
+              aria-label="Transpose rows and columns"
               title="Transpose rows & columns"
-              className="p-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition-all cursor-pointer flex items-center gap-1 text-[11px]"
+              className="min-h-[44px] px-2.5 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition-all cursor-pointer flex items-center gap-1 text-[11px]"
             >
               <RotateCw className="w-3.5 h-3.5 text-cyan-400" />
               <span className="hidden sm:inline">Transpose</span>
@@ -222,8 +229,9 @@ export default function TableSpreadsheetModal({
 
             <button
               onClick={() => handleCopy('csv')}
+              aria-label="Copy CSV to clipboard"
               title="Copy CSV to clipboard"
-              className="p-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition-all cursor-pointer flex items-center gap-1 text-[11px]"
+              className="min-h-[44px] px-2.5 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition-all cursor-pointer flex items-center gap-1 text-[11px]"
             >
               {copiedType === 'csv' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
               <span className="hidden sm:inline">{copiedType === 'csv' ? 'Copied' : 'Copy CSV'}</span>
@@ -231,8 +239,9 @@ export default function TableSpreadsheetModal({
 
             <button
               onClick={handleDownloadCSV}
+              aria-label="Export CSV file"
               title="Download CSV file"
-              className="p-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold transition-all cursor-pointer flex items-center gap-1 text-[11px] shadow-md shadow-emerald-600/30"
+              className="min-h-[44px] px-2.5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold transition-all cursor-pointer flex items-center gap-1 text-[11px] shadow-md shadow-emerald-600/30"
             >
               <Download className="w-3.5 h-3.5" />
               <span>Export CSV</span>
@@ -240,8 +249,9 @@ export default function TableSpreadsheetModal({
 
             <button
               onClick={onClose}
+              aria-label="Close spreadsheet modal"
               title="Close modal"
-              className="p-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white transition-all cursor-pointer ml-1"
+              className="min-w-[44px] min-h-[44px] flex items-center justify-center p-2.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white transition-all cursor-pointer ml-1"
             >
               <X className="w-4 h-4" />
             </button>
@@ -318,8 +328,9 @@ export default function TableSpreadsheetModal({
                     <td className="px-2 py-1 text-center">
                       <button
                         onClick={() => handleDeleteRow(realIdx)}
+                        aria-label={`Delete row ${realIdx + 1}`}
                         title="Delete row"
-                        className="p-1 text-zinc-500 hover:text-rose-400 cursor-pointer"
+                        className="min-w-[44px] min-h-[44px] flex items-center justify-center -m-2 p-2 text-zinc-500 hover:text-rose-400 cursor-pointer"
                       >
                         <Trash2 className="w-3 h-3" />
                       </button>

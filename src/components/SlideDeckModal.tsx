@@ -195,8 +195,12 @@ export default function SlideDeckModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-black/85 backdrop-blur-md animate-in fade-in duration-150">
+    <div
+      onClick={onClose}
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-black/85 backdrop-blur-md animate-in fade-in duration-150"
+    >
       <div
+        onClick={(e) => e.stopPropagation()}
         className={`w-full max-w-2xl rounded-3xl border shadow-2xl flex flex-col h-[85vh] max-h-[700px] overflow-hidden transition-all ${
           theme === 'amoled'
             ? 'bg-black border-zinc-900 text-white'
@@ -230,7 +234,8 @@ export default function SlideDeckModal({
             {/* Theme Toggle */}
             <button
               onClick={() => setTheme((t) => (t === 'dark' ? 'amoled' : t === 'amoled' ? 'light' : 'dark'))}
-              className="p-1.5 rounded-xl hover:bg-zinc-800/80 text-zinc-400 hover:text-white transition-all cursor-pointer"
+              aria-label="Toggle slide theme"
+              className="min-w-[44px] min-h-[44px] flex items-center justify-center p-2.5 rounded-xl hover:bg-zinc-800/80 text-zinc-400 hover:text-white transition-all cursor-pointer"
               title="Toggle Slide Theme"
             >
               {theme === 'light' ? <Moon className="w-4 h-4 text-zinc-700" /> : <Sun className="w-4 h-4 text-amber-400" />}
@@ -239,7 +244,8 @@ export default function SlideDeckModal({
             {/* Export HTML */}
             <button
               onClick={handleExportHtmlDeck}
-              className="p-1.5 rounded-xl hover:bg-zinc-800/80 text-cyan-400 hover:text-cyan-300 transition-all cursor-pointer"
+              aria-label="Export standalone HTML deck"
+              className="min-w-[44px] min-h-[44px] flex items-center justify-center p-2.5 rounded-xl hover:bg-zinc-800/80 text-cyan-400 hover:text-cyan-300 transition-all cursor-pointer"
               title="Export Standalone HTML Deck"
             >
               <Download className="w-4 h-4" />
@@ -248,7 +254,8 @@ export default function SlideDeckModal({
             {/* Close */}
             <button
               onClick={onClose}
-              className="p-1.5 rounded-xl hover:bg-zinc-800/80 text-zinc-400 hover:text-white transition-all cursor-pointer"
+              aria-label="Close slide deck"
+              className="min-w-[44px] min-h-[44px] flex items-center justify-center p-2.5 rounded-xl hover:bg-zinc-800/80 text-zinc-400 hover:text-white transition-all cursor-pointer"
             >
               <X className="w-5 h-5" />
             </button>
@@ -329,7 +336,8 @@ export default function SlideDeckModal({
             <button
               onClick={handlePrev}
               disabled={currentSlideIndex === 0}
-              className="p-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 disabled:opacity-30 text-white cursor-pointer transition-all"
+              aria-label="Previous slide"
+              className="min-w-[44px] min-h-[44px] flex items-center justify-center p-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 disabled:opacity-30 text-white cursor-pointer transition-all"
               title="Previous Slide"
             >
               <ChevronLeft className="w-4 h-4" />
@@ -340,7 +348,8 @@ export default function SlideDeckModal({
                 setIsPlayingAuto((p) => !p);
                 triggerHaptic(20);
               }}
-              className={`p-2 rounded-xl font-bold text-xs flex items-center gap-1 transition-all cursor-pointer ${
+              aria-label={isPlayingAuto ? 'Pause slideshow' : 'Autoplay slideshow'}
+              className={`min-w-[44px] min-h-[44px] p-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-1 transition-all cursor-pointer ${
                 isPlayingAuto ? 'bg-amber-500 text-black shadow-md' : 'bg-cyan-600 hover:bg-cyan-500 text-white'
               }`}
               title={isPlayingAuto ? 'Pause Slideshow' : 'Autoplay Slideshow'}
@@ -351,7 +360,8 @@ export default function SlideDeckModal({
             <button
               onClick={handleNext}
               disabled={currentSlideIndex === slides.length - 1}
-              className="p-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 disabled:opacity-30 text-white cursor-pointer transition-all"
+              aria-label="Next slide"
+              className="min-w-[44px] min-h-[44px] flex items-center justify-center p-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 disabled:opacity-30 text-white cursor-pointer transition-all"
               title="Next Slide"
             >
               <ChevronRight className="w-4 h-4" />
@@ -361,7 +371,7 @@ export default function SlideDeckModal({
           {/* Copy Markdown */}
           <button
             onClick={handleCopyMarkdown}
-            className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-zinc-800/80 hover:bg-zinc-800 text-[11px] font-bold text-zinc-300 cursor-pointer"
+            className="flex items-center gap-1 px-3 py-2 min-h-[44px] rounded-xl bg-zinc-800/80 hover:bg-zinc-800 text-[11px] font-bold text-zinc-300 cursor-pointer"
           >
             {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5 text-zinc-400" />}
             <span>{copied ? 'Copied' : 'Copy'}</span>

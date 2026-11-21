@@ -156,8 +156,14 @@ export default function ChatHistoryModal({ isOpen, onClose }: ChatHistoryModalPr
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-black/70 backdrop-blur-md animate-in fade-in duration-150">
-      <div className="w-full max-w-lg bg-zinc-900 border border-zinc-800 rounded-3xl shadow-2xl flex flex-col max-h-[85vh] overflow-hidden">
+    <div
+      onClick={onClose}
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-black/70 backdrop-blur-md animate-in fade-in duration-150"
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="w-full max-w-lg bg-zinc-900 border border-zinc-800 rounded-3xl shadow-2xl flex flex-col max-h-[85vh] overflow-hidden"
+      >
         {/* Modal Header */}
         <div className="p-4 border-b border-zinc-800 flex items-center justify-between bg-zinc-950/60">
           <div className="flex items-center gap-2.5">
@@ -190,7 +196,8 @@ export default function ChatHistoryModal({ isOpen, onClose }: ChatHistoryModalPr
             </button>
             <button
               onClick={onClose}
-              className="p-1.5 rounded-xl hover:bg-zinc-800 text-zinc-400 hover:text-white transition-all cursor-pointer"
+              aria-label="Close chat history"
+              className="min-w-[44px] min-h-[44px] flex items-center justify-center p-2.5 rounded-xl hover:bg-zinc-800 text-zinc-400 hover:text-white transition-all cursor-pointer"
             >
               <X className="w-5 h-5" />
             </button>
@@ -212,7 +219,8 @@ export default function ChatHistoryModal({ isOpen, onClose }: ChatHistoryModalPr
             {searchQuery && (
               <button
                 onClick={() => setSearchQuery('')}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-white text-xs"
+                aria-label="Clear search query"
+                className="min-w-[44px] min-h-[44px] flex items-center justify-center absolute right-0 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-white text-xs px-2"
               >
                 Clear
               </button>
@@ -346,6 +354,7 @@ export default function ChatHistoryModal({ isOpen, onClose }: ChatHistoryModalPr
                     <div className="flex flex-wrap items-center justify-end gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
                       <button
                         onClick={() => togglePinSession(s.id)}
+                        aria-label={s.pinned ? 'Unpin session' : 'Pin session to top'}
                         title={s.pinned ? 'Unpin session' : 'Pin to top'}
                         className={`h-12 w-12 p-3 rounded-lg border transition-all cursor-pointer flex items-center justify-center ${
                           s.pinned
@@ -358,6 +367,7 @@ export default function ChatHistoryModal({ isOpen, onClose }: ChatHistoryModalPr
 
                       <button
                         onClick={(e) => handleExportSessionMarkdown(e, s)}
+                        aria-label="Export conversation markdown"
                         title="Export this conversation as a markdown transcript"
                         className="h-12 w-12 p-3 rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-500 hover:text-cyan-400 hover:border-cyan-500/30 transition-all cursor-pointer flex items-center justify-center"
                       >
@@ -374,6 +384,7 @@ export default function ChatHistoryModal({ isOpen, onClose }: ChatHistoryModalPr
                               setConfirmingDeleteId(s.id);
                             }
                           }}
+                          aria-label={confirmingDeleteId === s.id ? 'Confirm deletion of session' : 'Delete session'}
                           title={confirmingDeleteId === s.id ? 'Tap again to confirm session deletion' : 'Delete session'}
                           className={`h-12 min-w-12 p-3 rounded-lg border transition-all cursor-pointer flex items-center justify-center text-xs font-bold whitespace-nowrap ${
                             confirmingDeleteId === s.id
