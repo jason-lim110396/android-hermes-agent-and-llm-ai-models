@@ -1,5 +1,6 @@
 'use client';
 
+import { triggerHaptic } from '@/utils/haptics';
 import React, { useState, useMemo, useEffect } from 'react';
 import {
   Search,
@@ -156,7 +157,7 @@ export default function FileSearchStudio() {
   const handleRunDefragAndVacuum = async () => {
     setIsCompacting(true);
     setMaintenanceFeedback('Acquiring exclusive LevelDB lock and scanning orphaned chunks...');
-    if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate([20, 20]);
+    triggerHaptic([20, 20]);
 
     await new Promise((r) => setTimeout(r, 700));
 
@@ -166,7 +167,7 @@ export default function FileSearchStudio() {
     setIsCompacting(false);
     setLastCompactionTimestamp(new Date().toLocaleTimeString());
     setMaintenanceFeedback('Vector DB defragmentation & vacuum complete! Reclaimed 4.9 MB (26.6% reduction).');
-    if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate([40, 30, 40]);
+    triggerHaptic([40, 30, 40]);
   };
 
   const handleExportEncryptedBackup = () => {
@@ -191,7 +192,7 @@ export default function FileSearchStudio() {
     URL.revokeObjectURL(url);
     setIsBackingUp(false);
     setMaintenanceFeedback('Encrypted backup exported successfully.');
-    if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(35);
+    triggerHaptic(35);
   };
 
   // Vector Similarity Explorer State
@@ -352,7 +353,7 @@ export default function FileSearchStudio() {
     const prompt = `Based on the following retrieved offline knowledge chunks, please answer: "${kbQuery || 'Summarize the core technical findings'}":\n\n${contextBody}`;
     sendMessage(prompt);
     setCurrentTab('chat');
-    if (navigator.vibrate) navigator.vibrate(30);
+    triggerHaptic(30);
   };
 
   const handleCreateDocument = () => {
@@ -368,7 +369,7 @@ export default function FileSearchStudio() {
     setNewDocTitle('');
     setNewDocContent('');
     setIsAddingDoc(false);
-    if (navigator.vibrate) navigator.vibrate([40, 30, 40]);
+    triggerHaptic([40, 30, 40]);
   };
 
   const handleExportKnowledgeJson = () => {
@@ -877,7 +878,7 @@ export default function FileSearchStudio() {
                     onClick={() => {
                       setExplorerTextA(preset.textA);
                       setExplorerTextB(preset.textB);
-                      if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(15);
+                      triggerHaptic(15);
                     }}
                     className="px-2 py-1 rounded-lg bg-zinc-950/70 border border-zinc-800 hover:border-zinc-700 text-zinc-300 text-[10px] font-medium cursor-pointer transition-all"
                   >
@@ -1054,7 +1055,7 @@ export default function FileSearchStudio() {
                           .writeText(JSON.stringify(sampleVector))
                           .then(() => {
                             setIsCopiedVector(true);
-                            if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(20);
+                            triggerHaptic(20);
                             setTimeout(() => setIsCopiedVector(false), 2000);
                           })
                           .catch(() => setIsCopiedVector(false));
@@ -1187,7 +1188,7 @@ export default function FileSearchStudio() {
                 onClick={() => {
                   setMaintenanceFeedback('HNSW index trees scanned: 100% cosine consistency verified.');
                   setTimeout(() => setMaintenanceFeedback(null), 3000);
-                  if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(20);
+                  triggerHaptic(20);
                 }}
                 className="text-cyan-400 hover:text-cyan-300 flex items-center gap-1 cursor-pointer font-bold"
               >

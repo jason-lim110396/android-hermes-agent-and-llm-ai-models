@@ -1,5 +1,6 @@
 'use client';
 
+import { triggerHaptic } from '@/utils/haptics';
 import React, { useState, useEffect } from 'react';
 import {
   X,
@@ -132,12 +133,12 @@ export default function MathFormulaModal({
   const handleSelectPreset = (idx: number) => {
     setSelectedPresetIndex(idx);
     setLatexInput(PRESET_EQUATIONS[idx].latex);
-    if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(20);
+    triggerHaptic(20);
   };
 
   const handleInsertSymbol = (sym: string) => {
     setLatexInput((prev) => prev + sym);
-    if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(10);
+    triggerHaptic(10);
   };
 
   const handleCopyLatex = () => {
@@ -147,7 +148,7 @@ export default function MathFormulaModal({
       .writeText(latexInput)
       .then(() => {
         setIsCopied(true);
-        if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(25);
+        triggerHaptic(25);
         setTimeout(() => setIsCopied(false), 2000);
       })
       .catch(() => setIsCopied(false));

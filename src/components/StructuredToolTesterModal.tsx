@@ -1,5 +1,6 @@
 'use client';
 
+import { triggerHaptic } from '@/utils/haptics';
 import React, { useState, useRef } from 'react';
 import {
   Wrench,
@@ -164,7 +165,7 @@ export default function StructuredToolTesterModal({ isOpen, onClose }: Structure
     a.download = `${currentTool.name}_schema.${ext}`;
     a.click();
     URL.revokeObjectURL(url);
-    if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(40);
+    triggerHaptic(40);
   };
 
   const handleRunTool = async () => {
@@ -188,7 +189,7 @@ export default function StructuredToolTesterModal({ isOpen, onClose }: Structure
       const elapsed = Math.round(performance.now() - startTime);
       setExecResult(res);
       setExecDuration(elapsed);
-      if (navigator.vibrate) navigator.vibrate(30);
+      triggerHaptic(30);
     } catch (err: any) {
       if (selectedToolIndexRef.current !== runToolIndex) return;
       setExecResult(`Error executing tool: ${err?.message || err}`);

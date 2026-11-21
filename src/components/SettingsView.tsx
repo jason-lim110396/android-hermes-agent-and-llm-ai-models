@@ -1,5 +1,6 @@
 'use client';
 
+import { triggerHaptic } from '@/utils/haptics';
 import React, { useEffect, useRef, useState } from 'react';
 import {
   Sliders,
@@ -118,7 +119,7 @@ export default function SettingsView() {
       window.localStorage.setItem('hermes_app_theme', themeId);
       document.documentElement.setAttribute('data-theme', themeId);
     }
-    if (navigator.vibrate) navigator.vibrate(25);
+    triggerHaptic(25);
   };
 
   const handleExportBackup = () => {
@@ -391,7 +392,7 @@ export default function SettingsView() {
       setNotifPermission(res);
       if (res === 'granted') {
         setTestNotifSuccess('System notification permission granted!');
-        if (navigator.vibrate) navigator.vibrate([40, 30, 40]);
+        triggerHaptic([40, 30, 40]);
       } else if (res === 'denied') {
         // A denial must be said out loud: the dialog will not reappear until
         // the user re-enables notifications in the app's system settings.
@@ -406,8 +407,8 @@ export default function SettingsView() {
   };
 
   const handleTestInstantNotification = () => {
-    if (hapticAlerts && navigator.vibrate) {
-      navigator.vibrate([100, 50, 100]);
+    if (hapticAlerts) {
+      triggerHaptic([100, 50, 100]);
     }
     if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
       new Notification('🔔 Hermes Notification Chime', {
@@ -430,7 +431,7 @@ export default function SettingsView() {
     const scheduled = scheduleDeviceAlarm(alarmTitle.trim(), alarmMinutes);
     setAlarmTitle('');
     setTestNotifSuccess(`Alarm set for ${scheduled.formattedTime} (+${alarmMinutes}m) - keeps running after you leave Settings.`);
-    if (navigator.vibrate) navigator.vibrate(30);
+    triggerHaptic(30);
     setTimeout(() => setTestNotifSuccess(null), 3000);
   };
 
@@ -1052,7 +1053,7 @@ export default function SettingsView() {
                 if (typeof window !== 'undefined') {
                   window.localStorage.setItem('hermes_prompt_firewall_enabled', String(nextState));
                 }
-                if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(20);
+                triggerHaptic(20);
               }}
               className={`px-2.5 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
                 firewallEnabled
@@ -1077,7 +1078,7 @@ export default function SettingsView() {
                   key={p.id}
                   onClick={() => {
                     setFirewallPolicy(p.id as any);
-                    if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(15);
+                    triggerHaptic(15);
                   }}
                   className={`p-2 rounded-xl border text-left cursor-pointer transition-all ${
                     firewallPolicy === p.id
@@ -1130,7 +1131,7 @@ export default function SettingsView() {
                   key={sample.label}
                   onClick={() => {
                     setTestPromptText(sample.prompt);
-                    if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(15);
+                    triggerHaptic(15);
                   }}
                   className="px-2 py-1 rounded-lg bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-zinc-300 text-[10px] font-medium cursor-pointer transition-all"
                 >

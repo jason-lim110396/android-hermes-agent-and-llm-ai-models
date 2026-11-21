@@ -1,5 +1,6 @@
 'use client';
 
+import { triggerHaptic } from '@/utils/haptics';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   X,
@@ -142,7 +143,7 @@ export default function NetworkSpeedModal({
       { label: 'Upload Speed', status: 'idle', value: '—' },
       { label: 'Jitter & Stability', status: 'idle', value: '—' },
     ]);
-    if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(30);
+    triggerHaptic(30);
 
     // Mark every phase from `fromIdx` as failed. Used when a probe could not
     // reach the network at all: no fabricated result, no history entry.
@@ -237,7 +238,7 @@ export default function NetworkSpeedModal({
       const updated = [r, ...history].slice(0, 5);
       setHistory(updated);
       localStorage.setItem('hermes_speed_history', JSON.stringify(updated));
-      if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate([30, 20, 60]);
+      triggerHaptic([30, 20, 60]);
     } catch (err) {
       setPhases((prev) => prev.map((p) => p.status === 'running' ? { ...p, status: 'error', value: 'Error' } : p));
     } finally {
@@ -267,7 +268,7 @@ export default function NetworkSpeedModal({
   const handleAudit = () => {
     if (!result || !onAuditWithAgent) return;
     onAuditWithAgent(`Please audit this mobile network speed test result and advise on connection quality for running on-device LLM inference:\n\nDownload: ${result.downloadMbps} Mbps\nUpload: ${result.uploadMbps} Mbps\nPing: ${result.pingMs} ms, Jitter: ${result.jitterMs} ms\nSignal: ${result.signalStrength}, Type: ${result.networkType}\n\nIs this bandwidth sufficient for model downloads and real-time web search? Any recommendations?`);
-    if (navigator.vibrate) navigator.vibrate([30, 20, 50]);
+    triggerHaptic([30, 20, 50]);
     onClose();
   };
 

@@ -1,5 +1,6 @@
 'use client';
 
+import { triggerHaptic } from '@/utils/haptics';
 import React, { useState } from 'react';
 import { useBackButtonClose } from '@/utils/backButton';
 import {
@@ -120,7 +121,7 @@ export default function ModelHub() {
         return;
       }
       setEvictSuccessMsg(`Purged ${downloadedModels.length} model(s), freeing ${(totalFreedMB / 1024).toFixed(1)} GB phone storage!`);
-      if (navigator.vibrate) navigator.vibrate([60, 40, 60]);
+      triggerHaptic([60, 40, 60]);
       setTimeout(() => setEvictSuccessMsg(null), 4000);
     } catch (err: unknown) {
       // Name the failure; the old catch claimed success whatever actually
@@ -168,7 +169,7 @@ export default function ModelHub() {
     if (typeof window !== 'undefined') {
       window.localStorage.setItem('hermes_wifi_only', String(next));
     }
-    if (navigator.vibrate) navigator.vibrate(20);
+    triggerHaptic(20);
   };
 
   // Filter and sort models by category (text, vision, image, voice, embedding)

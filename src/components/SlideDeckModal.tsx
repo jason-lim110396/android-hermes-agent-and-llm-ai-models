@@ -1,5 +1,6 @@
 'use client';
 
+import { triggerHaptic } from '@/utils/haptics';
 import React, { useState, useEffect } from 'react';
 import {
   X,
@@ -95,14 +96,14 @@ export default function SlideDeckModal({
   const handleNext = () => {
     if (currentSlideIndex < slides.length - 1) {
       setCurrentSlideIndex((prev) => prev + 1);
-      if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(20);
+      triggerHaptic(20);
     }
   };
 
   const handlePrev = () => {
     if (currentSlideIndex > 0) {
       setCurrentSlideIndex((prev) => prev - 1);
-      if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(20);
+      triggerHaptic(20);
     }
   };
 
@@ -178,7 +179,7 @@ export default function SlideDeckModal({
     a.download = `${deckTitle.replace(/\s+/g, '_')}_Deck.html`;
     a.click();
     URL.revokeObjectURL(url);
-    if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(40);
+    triggerHaptic(40);
   };
 
   const handleCopyMarkdown = () => {
@@ -188,7 +189,7 @@ export default function SlideDeckModal({
       .then(() => {
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
-        if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(25);
+        triggerHaptic(25);
       })
       .catch(() => setCopied(false));
   };
@@ -311,7 +312,7 @@ export default function SlideDeckModal({
                 key={idx}
                 onClick={() => {
                   setCurrentSlideIndex(idx);
-                  if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(15);
+                  triggerHaptic(15);
                 }}
                 className={`w-2.5 h-2.5 rounded-full transition-all cursor-pointer ${
                   currentSlideIndex === idx
@@ -337,7 +338,7 @@ export default function SlideDeckModal({
             <button
               onClick={() => {
                 setIsPlayingAuto((p) => !p);
-                if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(20);
+                triggerHaptic(20);
               }}
               className={`p-2 rounded-xl font-bold text-xs flex items-center gap-1 transition-all cursor-pointer ${
                 isPlayingAuto ? 'bg-amber-500 text-black shadow-md' : 'bg-cyan-600 hover:bg-cyan-500 text-white'

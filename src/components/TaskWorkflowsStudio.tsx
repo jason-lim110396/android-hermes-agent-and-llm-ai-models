@@ -1,5 +1,6 @@
 'use client';
 
+import { triggerHaptic } from '@/utils/haptics';
 import React, { useEffect, useState } from 'react';
 import {
   Play,
@@ -214,7 +215,7 @@ export default function TaskWorkflowsStudio() {
   const [copyFailed, setCopyFailed] = useState(false);
   const showCopyFailure = () => {
     setCopyFailed(true);
-    if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate([30, 30]);
+    triggerHaptic([30, 30]);
     setTimeout(() => setCopyFailed(false), 3000);
   };
   const copyOutputToClipboard = () => {
@@ -332,9 +333,7 @@ export default function TaskWorkflowsStudio() {
       setCurrentStepIndex(4);
       await new Promise((r) => setTimeout(r, 500));
 
-      if (typeof navigator !== 'undefined' && navigator.vibrate) {
-        navigator.vibrate([150, 100, 150]);
-      }
+      triggerHaptic([150, 100, 150]);
       step4.status = 'completed';
       step4.result = `Tactile haptic pulse dispatched. Sample CSV armed for 1-tap Android Share.`;
 
@@ -511,9 +510,7 @@ export default function TaskWorkflowsStudio() {
       setLogs([step1, step2, step3, step4]);
       setCurrentStepIndex(4);
       await new Promise((r) => setTimeout(r, 400));
-      if (typeof navigator !== 'undefined' && navigator.vibrate) {
-        navigator.vibrate([100, 50, 150]);
-      }
+      triggerHaptic([100, 50, 150]);
       step4.status = 'completed';
       step4.result = 'Ready for immediate dispatch to CPA accountant or cloud tax portal.';
 
@@ -616,9 +613,7 @@ export default function TaskWorkflowsStudio() {
         size: '1.1 KB',
       });
 
-      if (typeof navigator !== 'undefined' && navigator.vibrate) {
-        navigator.vibrate([60, 40, 60]);
-      }
+      triggerHaptic([60, 40, 60]);
       step4.status = 'completed';
       step4.result = 'Hermes_Battery_Power_Report.json generated from measured values only.';
 
@@ -777,9 +772,7 @@ export default function TaskWorkflowsStudio() {
           size: `${Math.max(1, Math.round(reviewMarkdown.length / 1024))} KB`,
         });
 
-        if (typeof navigator !== 'undefined' && navigator.vibrate) {
-          navigator.vibrate([60, 40, 60]);
-        }
+        triggerHaptic([60, 40, 60]);
         step4.status = 'completed';
         step4.result = 'Hermes_Patch_Metrics_Report.md generated from your diff.';
 
@@ -890,9 +883,7 @@ export default function TaskWorkflowsStudio() {
         size: '1.2 KB',
       });
 
-      if (typeof navigator !== 'undefined' && navigator.vibrate) {
-        navigator.vibrate([60, 40, 60]);
-      }
+      triggerHaptic([60, 40, 60]);
       step4.status = 'completed';
       step4.result = 'Hermes_Memory_Report.json generated from measured values only.';
 
@@ -1005,9 +996,7 @@ export default function TaskWorkflowsStudio() {
         size: '1.2 KB',
       });
 
-      if (typeof navigator !== 'undefined' && navigator.vibrate) {
-        navigator.vibrate([60, 40, 60]);
-      }
+      triggerHaptic([60, 40, 60]);
       step4.status = 'completed';
       step4.result = 'Hermes_Local_Storage_Privacy_Report.json generated (measured values + design facts).';
 
@@ -1102,9 +1091,7 @@ export default function TaskWorkflowsStudio() {
         size: '1.4 KB',
       });
 
-      if (typeof navigator !== 'undefined' && navigator.vibrate) {
-        navigator.vibrate([60, 40, 60]);
-      }
+      triggerHaptic([60, 40, 60]);
       step4.status = 'completed';
       step4.result = 'Hermes_Redaction_Example_Report.json generated (labeled example data).';
 
@@ -1201,9 +1188,7 @@ export default function TaskWorkflowsStudio() {
         size: '1.5 KB',
       });
 
-      if (typeof navigator !== 'undefined' && navigator.vibrate) {
-        navigator.vibrate([60, 40, 60]);
-      }
+      triggerHaptic([60, 40, 60]);
       step4.status = 'completed';
       step4.result = 'Hermes_SBOM_Example_Report.json generated (labeled sample data).';
 
@@ -1245,7 +1230,7 @@ export default function TaskWorkflowsStudio() {
       setLogs([step1, step2, step3]);
       setCurrentStepIndex(3);
       await new Promise((r) => setTimeout(r, 400));
-      if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate([100, 50, 100]);
+      triggerHaptic([100, 50, 100]);
       step3.status = 'completed';
       step3.result = 'Haptic vibration dispatched.';
 

@@ -1,5 +1,6 @@
 'use client';
 
+import { triggerHaptic } from '@/utils/haptics';
 import React, { useState, useEffect } from 'react';
 import {
   X,
@@ -97,7 +98,7 @@ export default function TableSpreadsheetModal({
   const handleAddRow = () => {
     const emptyRow = new Array(headers.length).fill('');
     setRows((prev) => [...prev, emptyRow]);
-    if (navigator.vibrate) navigator.vibrate(20);
+    triggerHaptic(20);
   };
 
   const handleDeleteRow = (idx: number) => {
@@ -119,7 +120,7 @@ export default function TableSpreadsheetModal({
 
     setHeaders(transposed[0]);
     setRows(transposed.slice(1));
-    if (navigator.vibrate) navigator.vibrate([30, 20]);
+    triggerHaptic([30, 20]);
   };
 
   const toCSVString = () => {

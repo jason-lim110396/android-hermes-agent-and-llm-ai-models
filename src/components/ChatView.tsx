@@ -1,3 +1,4 @@
+import { triggerHaptic } from '@/utils/haptics';
 import React, { useRef, useState } from 'react';
 import {
   Send,
@@ -260,7 +261,7 @@ export default function ChatView() {
       setSandboxInitialCode(text.trim());
     }
     setIsCodeSandboxOpen(true);
-    if (navigator.vibrate) navigator.vibrate(20);
+    triggerHaptic(20);
   };
 
   // Markdown Table & Spreadsheet Modal State
@@ -270,7 +271,7 @@ export default function ChatView() {
   const handleOpenTableModal = (content: string) => {
     setTableModalMarkdown(content);
     setIsTableModalOpen(true);
-    if (navigator.vibrate) navigator.vibrate(20);
+    triggerHaptic(20);
   };
 
   // LaTeX Math Formula & Step-by-Step Solver Modal State
@@ -285,7 +286,7 @@ export default function ChatView() {
       setMathModalLatex(content.trim());
     }
     setIsMathModalOpen(true);
-    if (navigator.vibrate) navigator.vibrate(20);
+    triggerHaptic(20);
   };
 
   // Offline Presentation Slide Deck State
@@ -297,7 +298,7 @@ export default function ChatView() {
     setSlideDeckContent(content);
     setSlideDeckTitle('Hermes AI Presentation');
     setIsSlideDeckOpen(true);
-    if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(20);
+    triggerHaptic(20);
   };
 
   // Smart Prompt Snippets & System Directives State
@@ -418,12 +419,12 @@ export default function ChatView() {
   const handleInsertSnippet = (directive: string) => {
     setInputVal((prev) => (prev ? `${prev}\n\n${directive}` : directive));
     setShowSnippetsDrawer(false);
-    if (navigator.vibrate) navigator.vibrate(20);
+    triggerHaptic(20);
   };
 
   const handleExecuteSnippetNow = (directive: string) => {
     setShowSnippetsDrawer(false);
-    if (navigator.vibrate) navigator.vibrate(30);
+    triggerHaptic(30);
     sendMessage(directive);
   };
 
@@ -1898,7 +1899,7 @@ export default function ChatView() {
                     onDoubleClick={() => {
                       if (!isUser) {
                         toggleStarMessage(msg.id);
-                        if (navigator.vibrate) navigator.vibrate([30, 30]);
+                        triggerHaptic([30, 30]);
                       }
                     }}
                     title={!isUser ? 'Double-tap to save/bookmark this message' : undefined}
@@ -2077,7 +2078,7 @@ export default function ChatView() {
                 onClick={() => {
                   setIsFabOpen(false);
                   setIsCameraOpen(true);
-                  if (navigator.vibrate) navigator.vibrate(20);
+                  triggerHaptic(20);
                 }}
                 className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-cyan-600 hover:bg-cyan-500 text-white shadow-xl text-xs font-bold transition-all cursor-pointer"
               >
@@ -2089,7 +2090,7 @@ export default function ChatView() {
                 onClick={() => {
                   setIsFabOpen(false);
                   setCurrentTab('voice-studio');
-                  if (navigator.vibrate) navigator.vibrate(20);
+                  triggerHaptic(20);
                 }}
                 className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-600 hover:bg-amber-500 text-white shadow-xl text-xs font-bold transition-all cursor-pointer"
               >
@@ -2101,7 +2102,7 @@ export default function ChatView() {
                 onClick={() => {
                   setIsFabOpen(false);
                   setCurrentTab('workflows');
-                  if (navigator.vibrate) navigator.vibrate(20);
+                  triggerHaptic(20);
                 }}
                 className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-rose-600 hover:bg-rose-500 text-white shadow-xl text-xs font-bold transition-all cursor-pointer"
               >
@@ -2113,7 +2114,7 @@ export default function ChatView() {
                 onClick={() => {
                   setIsFabOpen(false);
                   setCurrentTab('benchmark');
-                  if (navigator.vibrate) navigator.vibrate(20);
+                  triggerHaptic(20);
                 }}
                 className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-violet-600 hover:bg-violet-500 text-white shadow-xl text-xs font-bold transition-all cursor-pointer"
               >
@@ -2126,7 +2127,7 @@ export default function ChatView() {
                   setIsFabOpen(false);
                   setSandboxInitialCode('');
                   setIsCodeSandboxOpen(true);
-                  if (navigator.vibrate) navigator.vibrate(20);
+                  triggerHaptic(20);
                 }}
                 className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white shadow-xl text-xs font-bold transition-all cursor-pointer"
               >
@@ -2139,7 +2140,7 @@ export default function ChatView() {
                   setIsFabOpen(false);
                   setTableModalMarkdown('');
                   setIsTableModalOpen(true);
-                  if (navigator.vibrate) navigator.vibrate(20);
+                  triggerHaptic(20);
                 }}
                 className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-teal-600 hover:bg-teal-500 text-white shadow-xl text-xs font-bold transition-all cursor-pointer"
               >
@@ -2152,7 +2153,7 @@ export default function ChatView() {
                   setIsFabOpen(false);
                   setMathModalLatex('');
                   setIsMathModalOpen(true);
-                  if (navigator.vibrate) navigator.vibrate(20);
+                  triggerHaptic(20);
                 }}
                 className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-violet-600 hover:bg-violet-500 text-white shadow-xl text-xs font-bold transition-all cursor-pointer"
               >
@@ -2165,7 +2166,7 @@ export default function ChatView() {
           <button
             onClick={() => {
               setIsFabOpen(!isFabOpen);
-              if (navigator.vibrate) navigator.vibrate(25);
+              triggerHaptic(25);
             }}
             className={`w-11 h-11 rounded-full flex items-center justify-center shadow-2xl transition-all cursor-pointer ${
               isFabOpen
@@ -2185,7 +2186,7 @@ export default function ChatView() {
         <button
           onClick={() => {
             messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-            if (navigator.vibrate) navigator.vibrate(10);
+            triggerHaptic(10);
           }}
           title="Jump to latest message"
           className="absolute right-4 z-30 w-12 h-12 rounded-full bg-zinc-900 border border-cyan-500/40 hover:border-cyan-400 text-cyan-400 shadow-xl shadow-cyan-500/10 flex items-center justify-center transition-all cursor-pointer active:scale-95 animate-in fade-in slide-in-from-bottom duration-200"
@@ -2297,9 +2298,7 @@ export default function ChatView() {
                 <button
                   onClick={() => {
                     setShowQuickActions(false);
-                    if (typeof navigator !== 'undefined' && navigator.vibrate) {
-                      navigator.vibrate([100, 50, 100]);
-                    }
+                    triggerHaptic([100, 50, 100]);
                   }}
                   title="Test phone tactile vibration motor"
                   className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-left text-xs font-bold text-zinc-300 hover:bg-zinc-800 transition-all cursor-pointer"

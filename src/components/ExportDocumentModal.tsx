@@ -1,5 +1,6 @@
 'use client';
 
+import { triggerHaptic } from '@/utils/haptics';
 import React, { useState } from 'react';
 import {
   Download,
@@ -211,7 +212,7 @@ export default function ExportDocumentModal({
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-    if (navigator.vibrate) navigator.vibrate(30);
+    triggerHaptic(30);
   };
 
   const handleShare = async () => {
@@ -223,7 +224,7 @@ export default function ExportDocumentModal({
         });
         setShared(true);
         setTimeout(() => setShared(false), 2000);
-        if (navigator.vibrate) navigator.vibrate([20, 20]);
+        triggerHaptic([20, 20]);
         return;
       } catch (err) {
         // The user dismissing the sheet is not an error; other failures
@@ -244,7 +245,7 @@ export default function ExportDocumentModal({
       .then(() => {
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
-        if (navigator.vibrate) navigator.vibrate(20);
+        triggerHaptic(20);
       })
       .catch(() => setCopied(false));
   };

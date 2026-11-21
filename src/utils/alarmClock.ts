@@ -13,6 +13,8 @@
 // inside a React state updater, so React 18 StrictMode double-invocation
 // cannot duplicate them.
 
+import { triggerHaptic } from './haptics';
+
 export interface ScheduledAlarm {
   id: string;
   title: string;
@@ -84,10 +86,8 @@ function loadPersisted(): void {
 }
 
 function fireAlarm(alarm: ScheduledAlarm): void {
-  if (hapticAlertsEnabled() && typeof navigator !== 'undefined' && navigator.vibrate) {
-    try {
-      navigator.vibrate([150, 100, 150, 100, 250]);
-    } catch (_) {}
+  if (hapticAlertsEnabled()) {
+    triggerHaptic([150, 100, 150, 100, 250]);
   }
   if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
     try {
