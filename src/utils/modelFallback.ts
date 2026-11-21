@@ -138,6 +138,21 @@ const LIMIT_HINTS = [
   'unknown model',
   'unsupported model',
   'degraded',
+  'resource_exhausted',
+  'billing',
+  'tpm',
+  'rpm',
+  'tokens per minute',
+  'requests per minute',
+  'daily quota',
+  'monthly limit',
+  'free tier',
+  'tier limit',
+  'bad gateway',
+  'gateway timeout',
+  'origin down',
+  'upstream',
+  'cloudflare',
 ];
 
 /**
@@ -145,16 +160,16 @@ const LIMIT_HINTS = [
  * so a different endpoint is likely to succeed.
  */
 export function isUsageLimitFailure(status: number, detail: string): boolean {
-  // 429 (rate limit) and 402 (payment required) are unambiguous.
-  if (status === 429 || status === 402) return true;
+  // 429 (rate limit), 402 (payment required), and 408 (request timeout) are unambiguous.
+  if (status === 429 || status === 402 || status === 408) return true;
   // 502/503/504 are transient gateway/server failures - by definition a
   // different provider can often serve the same prompt. Free routers return
   // these constantly ("Model overloaded", "Server capacity reached",
   // "Service Unavailable") with text that does not match any quota keyword.
-  // Treating them as terminal skipped the rest of the free chain and dropped
-  // the turn straight into a multi-hundred-MB on-device weight download.
   if (status === 502 || status === 503 || status === 504) return true;
-  // 401 is a bad key; 500 is a server fault. Neither means "try a different
+  // 520-526 are Cloudflare edge proxy / origin timeouts common on public free routers.
+  if (status >= 520 && status <= 526) return true;
+  // 401 is a bad key; 500 is an unrecoverable server fault. Neither means "try a different
   // provider" - sending the same prompt elsewhere would hide the real error.
   if (status === 401 || status < 400 || status >= 600) return false;
   // 403 / other 4xx only count when the provider actually says quota or limit.
@@ -182,7 +197,11 @@ export function describeLimitFailure(status: number, detail: string): string {
   if (hint) return `limit: ${hint}`;
   if (status === 429) return 'rate limit';
   if (status === 402) return 'payment required';
+  if (status === 408) return 'request timeout (408)';
   if (status === 403) return 'quota / tier blocked';
-  if (status === 503) return 'provider unavailable';
+  if (status === 502) return 'bad gateway (502)';
+  if (status === 503) return 'provider unavailable (503)';
+  if (status === 504) return 'gateway timeout (504)';
+  if (status >= 520 && status <= 526) return `edge proxy error (${status})`;
   return `HTTP ${status}`;
 }
