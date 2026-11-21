@@ -1769,9 +1769,30 @@ export default function ChatView() {
     URL.revokeObjectURL(url);
   };
 
-  const renderFormattedContent = (content: string) => {
+  const renderHighlightedText = (text: string, query?: string) => {
+    if (!query || !query.trim()) return text;
+    const escaped = query.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const regex = new RegExp(`(${escaped})`, 'gi');
+    const parts = text.split(regex);
+    if (parts.length <= 1) return text;
+    return parts.map((part, i) =>
+      regex.test(part) ? (
+        <mark key={i} className="bg-amber-400/40 text-amber-200 px-0.5 rounded font-bold">
+          {part}
+        </mark>
+      ) : (
+        part
+      )
+    );
+  };
+
+  const renderFormattedContent = (content: string, highlightQuery?: string) => {
     if (!content.includes('```')) {
-      return <div className="whitespace-pre-wrap leading-relaxed">{content}</div>;
+      return (
+        <div className="whitespace-pre-wrap leading-relaxed">
+          {renderHighlightedText(content, highlightQuery)}
+        </div>
+      );
     }
     const parts = content.split(/(```[\s\S]*?(?:```|$))/g);
     return (
@@ -1794,10 +1815,44 @@ export default function ChatView() {
             );
           }
           if (!part) return null;
-          return <div key={idx} className="whitespace-pre-wrap leading-relaxed">{part}</div>;
+          return (
+            <div key={idx} className="whitespace-pre-wrap leading-relaxed">
+              {renderHighlightedText(part, highlightQuery)}
+            </div>
+          );
         })}
       </div>
     );
+  };
+
+  // Scroll Position Memory across Tab Switches & Mounts
+  const hasRestoredScrollRef = useRef(false);
+
+  React.useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const saved = sessionStorage.getItem('hermes_chat_scroll_pos');
+      if (saved && messagesContainerRef.current) {
+        const parsed = parseInt(saved, 10);
+        if (!Number.isNaN(parsed) && parsed > 0) {
+          requestAnimationFrame(() => {
+            if (messagesContainerRef.current && !hasRestoredScrollRef.current) {
+              messagesContainerRef.current.scrollTop = parsed;
+              hasRestoredScrollRef.current = true;
+            }
+          });
+        }
+      }
+    } catch (_) {}
+  }, []);
+
+  const handleContainerScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const el = e.currentTarget;
+    setIsAwayFromBottom(el.scrollHeight - el.scrollTop - el.clientHeight > 80);
+    setIsScrolledDown(el.scrollTop > 350);
+    try {
+      sessionStorage.setItem('hermes_chat_scroll_pos', String(el.scrollTop));
+    } catch (_) {}
   };
 
   return (
@@ -2376,11 +2431,7 @@ export default function ChatView() {
       {/* MAIN VIEW: MESSAGES TIMELINE */}
       <div
         ref={messagesContainerRef}
-        onScroll={(e) => {
-          const el = e.currentTarget;
-          setIsAwayFromBottom(el.scrollHeight - el.scrollTop - el.clientHeight > 80);
-          setIsScrolledDown(el.scrollTop > 350);
-        }}
+        onScroll={handleContainerScroll}
         className="flex-1 overflow-y-auto p-3 space-y-3"
       >
             {messages.length === 0 && (
@@ -2775,9 +2826,11 @@ export default function ChatView() {
                               thinkContent = content.slice(thinkStart + 7).trim();
                             }
 
+                            const activeHighlight = showSearch && searchQuery.trim() ? searchQuery.trim() : undefined;
+
                             return (
                               <>
-                                {beforeThink && renderFormattedContent(beforeThink)}
+                                {beforeThink && renderFormattedContent(beforeThink, activeHighlight)}
                                 {thinkContent && (
                                   <details className="rounded-xl bg-zinc-950/70 border border-zinc-800 p-2 text-zinc-400 text-[11px] font-mono select-text" open={msg.isStreaming && !afterThink}>
                                     <summary className="cursor-pointer text-amber-400 font-bold flex items-center gap-1.5 py-0.5 select-none hover:text-amber-300">
@@ -2789,11 +2842,12 @@ export default function ChatView() {
                                     </div>
                                   </details>
                                 )}
-                                {afterThink && renderFormattedContent(afterThink)}
+                                {afterThink && renderFormattedContent(afterThink, activeHighlight)}
                               </>
                             );
                           }
-                          return renderFormattedContent(content);
+                          const activeHighlight = showSearch && searchQuery.trim() ? searchQuery.trim() : undefined;
+                          return renderFormattedContent(content, activeHighlight);
                         })()}
                       </div>
                     </div>
