@@ -95,7 +95,16 @@ export function generateQRCode(text: string): QRCodeResult {
     }
   }
   if (!found) {
-    targetVer = VERSION_TABLE[VERSION_TABLE.length - 1]; // cap at V6
+    // The bundled encoder tops out at Version 6 (Level M, 108 data bytes).
+    // The old fall-through "capped at V6" anyway: the bitstream then held
+    // more codewords than the symbol can carry, the character-count field
+    // was silently clamped, the terminator went negative, and the zigzag
+    // ran out of bits - producing a plausible-looking QR that scans to
+    // garbage or fails error correction, with no error surfaced anywhere.
+    const maxPayload = VERSION_TABLE[VERSION_TABLE.length - 1].dataCapacity - 3;
+    throw new Error(
+      `Payload too long: ${textBytes.length} bytes, but versions 1-6 (Level M) hold at most ${maxPayload} bytes. Shorten the content.`
+    );
   }
 
   const ver = targetVer.version;
@@ -261,8 +270,11 @@ export function generateQRCode(text: string): QRCodeResult {
     else if (i === 8) setModule(7, 8, bit);
     else setModule(14 - i, 8, bit);
 
-    // Split format placement
-    if (i < 8) setModule(size - 1 - i, 8, bit);
+    // Split format placement. Bits 0-6 run down column 8 and bits 7-14 run
+    // across row 8; bit 7 belongs at (8, size-8). The old split at i === 8
+    // wrote bit 7 to (size-8, 8) - exactly the spec-mandated dark module -
+    // and erased it with a 0 on every code this app ever generated.
+    if (i < 7) setModule(size - 1 - i, 8, bit);
     else setModule(8, size - 15 + i, bit);
   }
 
