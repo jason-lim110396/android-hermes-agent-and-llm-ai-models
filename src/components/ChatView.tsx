@@ -271,6 +271,8 @@ export default function ChatView() {
   // "Quick Actions" dropdown for the former scroller chips above the composer.
   const [showQuickActions, setShowQuickActions] = useState(false);
   const [showModelPicker, setShowModelPicker] = useState(false);
+  const [modelSearchQuery, setModelSearchQuery] = useState('');
+  const [modelCategoryFilter, setModelCategoryFilter] = useState<'all' | 'ready' | 'vision' | 'agent' | 'text'>('all');
   const [showSessionPicker, setShowSessionPicker] = useState(false);
   const [modelPromptDownload, setModelPromptDownload] = useState<ModelSpec | null>(null);
   const [expandedSteps, setExpandedSteps] = useState<Record<string, boolean>>({});
@@ -656,6 +658,25 @@ export default function ChatView() {
     const fitsRam = !hardwareProfile || hardwareProfile.estimatedRamGB >= m.minRamGB;
     const fitsGpu = m.engine === 'cpu-wasm' || !hardwareProfile || hardwareProfile.hasWebGpu;
     return fitsRam && fitsGpu;
+  });
+
+  // Filtered models for Quick Model Switcher Sheet
+  const filteredModels = AVAILABLE_MODELS.filter((m) => {
+    const q = modelSearchQuery.trim().toLowerCase();
+    const matchesSearch =
+      !q ||
+      m.name.toLowerCase().includes(q) ||
+      m.tagline.toLowerCase().includes(q) ||
+      m.parameters.toLowerCase().includes(q) ||
+      m.category.toLowerCase().includes(q);
+
+    if (!matchesSearch) return false;
+
+    if (modelCategoryFilter === 'ready') return downloads[m.id]?.isReady;
+    if (modelCategoryFilter === 'vision') return m.category === 'vision' || m.capabilities.includes('vision');
+    if (modelCategoryFilter === 'agent') return m.capabilities.includes('agent');
+    if (modelCategoryFilter === 'text') return m.category === 'text';
+    return true;
   });
 
   // Auto-dismiss the floating fallback notification after 9 seconds so it doesn't linger indefinitely
@@ -1398,108 +1419,192 @@ export default function ChatView() {
               <>
                 {/* Backdrop to easily dismiss when tapping outside on mobile */}
                 <div
-                  className="fixed inset-0 z-40 bg-black/40 backdrop-blur-[1px]"
+                  className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm"
                   onClick={() => setShowModelPicker(false)}
                 />
 
-                {/* Dropdown Menu */}
-                <div className="absolute left-0 top-full mt-1.5 w-84 max-w-[92vw] bg-zinc-900 border border-zinc-700/80 rounded-2xl shadow-2xl p-2.5 z-50 space-y-2 max-h-[28rem] overflow-y-auto">
-                  {/* Model Selector Header */}
-                  <div className="flex items-center justify-between pb-1.5 border-b border-zinc-800 text-xs font-bold text-zinc-300">
-                    <span className="text-cyan-400">Select Local Model</span>
-                    <span className="text-[10px] text-zinc-500 font-mono">
-                      {readyModels.length} Ready
-                    </span>
-                  </div>
-
-                  {/* Ready Models Section */}
-                  <div className="px-1 py-0.5 text-[10px] uppercase font-bold text-emerald-400 flex items-center justify-between">
-                    <span>Ready Local Models ({readyModels.length})</span>
-                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                  </div>
-
-                  {readyModels.length > 0 ? (
-                    readyModels.map((m) => {
-                      const isCur = m.id === selectedModelId;
-                      return (
-                        <button
-                          key={m.id}
-                          type="button"
-                          onClick={() => {
-                            setSelectedModelId(m.id);
-                            if (m.category === 'image') {
-                              setOperatingMode('image-gen');
-                            } else if (m.category === 'vision') {
-                              setOperatingMode('vision');
-                            } else if (m.category === 'voice') {
-                              setOperatingMode('voice');
-                            } else if (m.category === 'embedding') {
-                              setOperatingMode('embedding');
-                            } else if (m.capabilities.includes('agent')) {
-                              setOperatingMode('agent');
-                            } else {
-                              setOperatingMode('chat');
-                            }
-                            setShowModelPicker(false);
-                          }}
-                          className={`w-full text-left px-3 py-2 rounded-xl text-xs flex items-center justify-between transition-all cursor-pointer select-none ${
-                            isCur
-                              ? 'bg-cyan-500/20 text-cyan-300 font-bold border border-cyan-500/50 shadow-sm'
-                              : 'bg-zinc-800/60 hover:bg-zinc-800 active:bg-zinc-750 text-zinc-200 border border-zinc-800'
-                          }`}
-                        >
-                          <div className="truncate pr-2">
-                            <div className="truncate font-semibold text-white">
-                              {m.name}
-                            </div>
-                            <div className="text-[10px] text-zinc-400 mt-0.5">{m.parameters} • {m.quantization} • {m.tagline}</div>
-                          </div>
-                          <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full shrink-0 ${
-                            isCur ? 'bg-cyan-500 text-black' : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                          }`}>
-                            {isCur ? 'Selected' : 'Active'}
-                          </span>
-                        </button>
-                      );
-                    })
-                  ) : (
-                    <div className="px-3 py-2 text-zinc-400 text-[11px] italic bg-zinc-950/80 border border-zinc-800 rounded-xl">
-                      No ready models yet. Tap below to install.
-                    </div>
-                  )}
-
-                  {/* Available Models (To Download) */}
-                  {unreadyModels.length > 0 && (
-                    <>
-                      <div className="pt-2 border-t border-zinc-800 px-1 py-0.5 text-[10px] uppercase font-bold text-zinc-400 flex items-center justify-between">
-                        <span>Available To Download ({unreadyModels.length})</span>
-                        <Download className="w-3.5 h-3.5 text-cyan-400" />
+                {/* Bottom Sheet on Mobile / Dropdown on Tablet+ */}
+                <div className="fixed inset-x-0 bottom-0 sm:absolute sm:inset-x-auto sm:left-0 sm:top-full sm:bottom-auto mt-1.5 w-full sm:w-[420px] max-w-[100vw] sm:max-w-[92vw] bg-zinc-900 border border-zinc-700/80 rounded-t-3xl sm:rounded-2xl shadow-2xl p-3 z-50 space-y-2.5 max-h-[85vh] sm:max-h-[34rem] overflow-y-auto">
+                  {/* Sheet Drag Indicator & Header */}
+                  <div className="sm:hidden w-10 h-1 bg-zinc-700 rounded-full mx-auto mb-1.5" />
+                  <div className="flex items-center justify-between pb-2 border-b border-zinc-800">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold text-cyan-400">Quick Model Switcher</span>
+                        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-mono font-bold">
+                          {readyModels.length} Ready
+                        </span>
                       </div>
+                      <div className="text-[10px] text-zinc-400 mt-0.5 flex items-center gap-1.5 font-mono">
+                        <Cpu className="w-3 h-3 text-zinc-500" />
+                        <span>{hardwareProfile?.cpuCores || 8}C • {hardwareProfile?.estimatedRamGB || 8}GB RAM • {hardwareProfile?.hasWebGpu ? 'WebGPU' : 'WASM'}</span>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowModelPicker(false)}
+                      className="p-1 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors cursor-pointer"
+                      aria-label="Close Model Switcher"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
 
-                      {unreadyModels.map((m) => (
-                        <button
-                          key={m.id}
-                          type="button"
-                          onClick={() => {
-                            setShowModelPicker(false);
-                            setModelPromptDownload(m);
-                          }}
-                          className="w-full text-left px-3 py-2 rounded-xl text-xs flex items-center justify-between bg-zinc-950/40 hover:bg-zinc-800/80 active:bg-zinc-800 border border-zinc-800/60 text-zinc-400 transition-all cursor-pointer select-none"
-                        >
-                          <div className="truncate pr-2">
-                            <div className="truncate text-zinc-200 font-medium">
-                              {m.name}
+                  {/* Search Input */}
+                  <div className="relative">
+                    <Search className="w-3.5 h-3.5 text-zinc-500 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      value={modelSearchQuery}
+                      onChange={(e) => setModelSearchQuery(e.target.value)}
+                      placeholder="Search model, size, vision, agent..."
+                      className="w-full bg-zinc-950/80 border border-zinc-800 focus:border-cyan-500 rounded-xl pl-8 pr-7 py-1.5 text-xs text-white placeholder-zinc-500 focus:outline-none"
+                    />
+                    {modelSearchQuery && (
+                      <button
+                        type="button"
+                        onClick={() => setModelSearchQuery('')}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-white"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Category Filter Pills */}
+                  <div className="flex items-center gap-1 overflow-x-auto pb-1 text-[10px] font-bold">
+                    {(['all', 'ready', 'vision', 'agent', 'text'] as const).map((cat) => (
+                      <button
+                        key={cat}
+                        type="button"
+                        onClick={() => {
+                          triggerHaptic(10);
+                          setModelCategoryFilter(cat);
+                        }}
+                        className={`px-2.5 py-1 rounded-lg transition-colors capitalize shrink-0 cursor-pointer ${
+                          modelCategoryFilter === cat
+                            ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/50'
+                            : 'bg-zinc-950/60 text-zinc-400 border border-zinc-800 hover:border-zinc-700'
+                        }`}
+                      >
+                        {cat === 'all' ? 'All Models' : cat}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Model Cards List */}
+                  <div className="space-y-1.5 max-h-[50vh] sm:max-h-[18rem] overflow-y-auto pr-0.5">
+                    {filteredModels.length > 0 ? (
+                      filteredModels.map((m) => {
+                        const isCur = m.id === selectedModelId;
+                        const isReady = downloads[m.id]?.isReady;
+                        const deviceRam = hardwareProfile?.estimatedRamGB || 8;
+                        const ramMargin = deviceRam - m.minRamGB;
+                        const ramTight = ramMargin < 0;
+                        const ramOptimal = ramMargin >= 3;
+
+                        return (
+                          <div
+                            key={m.id}
+                            className={`p-2.5 rounded-xl border transition-all text-xs select-none ${
+                              isCur
+                                ? 'bg-cyan-500/15 border-cyan-500/60 shadow-sm'
+                                : 'bg-zinc-950/60 hover:bg-zinc-800/60 border-zinc-800'
+                            }`}
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="truncate flex-1">
+                                <div className="flex items-center gap-1.5 truncate">
+                                  <span className="text-sm shrink-0">{m.purposeIcon || '🤖'}</span>
+                                  <span className="font-bold text-white truncate">{m.name}</span>
+                                </div>
+                                <div className="text-[10px] text-zinc-400 mt-0.5 truncate">{m.tagline}</div>
+                              </div>
+
+                              {/* Status / Switch Button */}
+                              {isCur ? (
+                                <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-cyan-500 text-black shrink-0">
+                                  Active
+                                </span>
+                              ) : isReady ? (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    triggerHaptic(20);
+                                    setSelectedModelId(m.id);
+                                    if (m.category === 'image') {
+                                      setOperatingMode('image-gen');
+                                    } else if (m.category === 'vision') {
+                                      setOperatingMode('vision');
+                                    } else if (m.category === 'voice') {
+                                      setOperatingMode('voice');
+                                    } else if (m.category === 'embedding') {
+                                      setOperatingMode('embedding');
+                                    } else if (m.capabilities.includes('agent')) {
+                                      setOperatingMode('agent');
+                                    } else {
+                                      setOperatingMode('chat');
+                                    }
+                                    setShowModelPicker(false);
+                                  }}
+                                  className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 shrink-0 cursor-pointer transition-colors"
+                                >
+                                  Load
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setShowModelPicker(false);
+                                    setModelPromptDownload(m);
+                                  }}
+                                  className="px-2 py-1 rounded-lg text-[10px] font-bold bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 shrink-0 flex items-center gap-1 cursor-pointer transition-colors"
+                                >
+                                  <Download className="w-3 h-3" />
+                                  <span>Get</span>
+                                </button>
+                              )}
                             </div>
-                            <div className="text-[10px] text-zinc-500 mt-0.5">{(m.sizeMB / 1024).toFixed(1)} GB • {m.tagline}</div>
+
+                            {/* Technical & Hardware Specs Badges */}
+                            <div className="flex flex-wrap items-center gap-1.5 mt-2 pt-1.5 border-t border-zinc-800/80 text-[9px] font-mono">
+                              <span className="px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-300">
+                                {m.parameters} • {m.quantization}
+                              </span>
+                              <span className={`px-1.5 py-0.5 rounded ${
+                                m.engine === 'webgpu' ? 'bg-purple-900/40 text-purple-300 border border-purple-700/40' : 'bg-amber-900/30 text-amber-300 border border-amber-700/40'
+                              }`}>
+                                {m.engine === 'webgpu' ? 'WebGPU' : 'CPU-WASM'}
+                              </span>
+
+                              {/* Memory Footprint Indicator */}
+                              {ramTight ? (
+                                <span className="px-1.5 py-0.5 rounded bg-rose-950/60 text-rose-300 border border-rose-800/60 flex items-center gap-0.5">
+                                  <span>⚠️ Needs {m.minRamGB}GB RAM</span>
+                                </span>
+                              ) : ramOptimal ? (
+                                <span className="px-1.5 py-0.5 rounded bg-emerald-950/60 text-emerald-300 border border-emerald-800/60">
+                                  ⚡ +{ramMargin.toFixed(0)}GB Headroom
+                                </span>
+                              ) : (
+                                <span className="px-1.5 py-0.5 rounded bg-sky-950/60 text-sky-300 border border-sky-800/60">
+                                  ✓ Fits {m.minRamGB}GB RAM
+                                </span>
+                              )}
+
+                              <span className="text-zinc-500 ml-auto">
+                                {(m.sizeMB / 1024).toFixed(1)} GB
+                              </span>
+                            </div>
                           </div>
-                          <span className="text-[10px] text-cyan-400 font-bold px-2 py-1 rounded-lg bg-cyan-500/10 border border-cyan-500/30 shrink-0 flex items-center gap-1 hover:bg-cyan-500/20">
-                            <Download className="w-3 h-3" />
-                            <span>Get</span>
-                          </span>
-                        </button>
-                      ))}
-                    </>
-                  )}
+                        );
+                      })
+                    ) : (
+                      <div className="p-4 text-center text-zinc-500 text-xs bg-zinc-950/50 rounded-xl border border-zinc-800">
+                        No models match your search or filter.
+                      </div>
+                    )}
+                  </div>
 
                   {/* Link to ModelHub where all categories/use-cases live */}
                   <div className="pt-2 border-t border-zinc-800">
