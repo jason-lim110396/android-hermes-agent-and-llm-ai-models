@@ -16,7 +16,7 @@ import {
   ChevronDown,
   Sparkles,
 } from 'lucide-react';
-import { cancelSpeech, speakGuarded } from '@/utils/speechGuard';
+import { cancelSpeech, speakGuarded, onSpeakingChange } from '@/utils/speechGuard';
 import { useBackButtonClose } from '@/utils/backButton';
 
 interface Phrase {
@@ -121,6 +121,7 @@ export default function OfflinePhraseBookModal({ isOpen, onClose }: OfflinePhras
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [speakingId, setSpeakingId] = useState<string | null>(null);
+  const [ttsError, setTtsError] = useState(false);
   const [pinnedIds, setPinnedIds] = useState<Set<string>>(new Set());
   const synthRef = useRef<SpeechSynthesisUtterance | null>(null);
   // Only the newest utterance may touch speakingId. Tapping another phrase
@@ -142,7 +143,14 @@ export default function OfflinePhraseBookModal({ isOpen, onClose }: OfflinePhras
     utter.onerror = () => { if (isCurrent()) setSpeakingId(null); };
     synthRef.current = utter;
     if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(20);
-    speakGuarded(utter);
+    setTtsError(false);
+    // If the engine refuses the utterance outright, clear the row immediately
+    // instead of leaving a phantom "Stop" state that never resolves.
+    if (!speakGuarded(utter)) {
+      speakRequestIdRef.current++;
+      setSpeakingId(null);
+      setTtsError(true);
+    }
   };
 
   const handleStop = () => {
@@ -160,6 +168,18 @@ export default function OfflinePhraseBookModal({ isOpen, onClose }: OfflinePhras
     cancelSpeech();
     setSpeakingId(null);
   }, [isOpen]);
+
+  // The guarded speech state is the single source of truth: its watchdogs fire
+  // when an Android WebView drops onend/onerror, which this modal's local mirror
+  // would otherwise never see. Follow it so a "Stop" row cannot get stuck.
+  useEffect(() => {
+    return onSpeakingChange((active) => {
+      if (!active) {
+        speakRequestIdRef.current++;
+        setSpeakingId(null);
+      }
+    });
+  }, []);
 
   const handleCopy = async (phrase: Phrase) => {
     const text = `${phrase.english}\n${phrase.translations[selectedLang.code]} (${phrase.phonetics[selectedLang.code]})`;
@@ -211,6 +231,13 @@ export default function OfflinePhraseBookModal({ isOpen, onClose }: OfflinePhras
             <X className="w-5 h-5" />
           </button>
         </div>
+
+        {ttsError && (
+          <div role="alert" className="mx-4 mt-2 flex items-center justify-between gap-2 px-3 py-2 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-200 text-[11px]">
+            <span>Speech is unavailable on this device (no TTS engine or language pack).</span>
+            <button onClick={() => setTtsError(false)} className="shrink-0 font-bold underline cursor-pointer">Dismiss</button>
+          </div>
+        )}
 
         {/* Language Picker */}
         <div className="px-4 py-3 border-b border-zinc-800/60 bg-zinc-900/40 flex flex-col gap-2.5 shrink-0">
