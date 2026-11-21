@@ -159,6 +159,8 @@ interface AppStore {
   // Performance & Power Efficiency Mode
   performanceMode: 'balanced' | 'eco' | 'performance';
   setPerformanceMode: (mode: 'balanced' | 'eco' | 'performance') => void;
+  isAppVisible: boolean;
+  setIsAppVisible: (visible: boolean) => void;
 
   // Network availability for offline-safe model downloads
   isOnline: boolean;
@@ -1386,6 +1388,8 @@ export const useAppStore = create<AppStore>((set, get) => {
 
   performanceMode: 'balanced',
   setPerformanceMode: (mode) => set({ performanceMode: mode }),
+  isAppVisible: typeof document !== 'undefined' ? document.visibilityState === 'visible' : true,
+  setIsAppVisible: (val) => set({ isAppVisible: val }),
 
   isOnline: typeof navigator !== 'undefined' ? navigator.onLine : true,
   networkQuality: typeof navigator !== 'undefined' && navigator.onLine ? 'fast' : 'offline',
@@ -1981,6 +1985,9 @@ if (typeof window !== 'undefined') {
   };
   window.addEventListener('online', syncNetworkQuality);
   window.addEventListener('offline', syncNetworkQuality);
+  document.addEventListener('visibilitychange', () => {
+    useAppStore.setState({ isAppVisible: document.visibilityState === 'visible' });
+  });
   const conn = (navigator as any).connection;
   if (conn && typeof conn.addEventListener === 'function') conn.addEventListener('change', syncNetworkQuality);
 }
