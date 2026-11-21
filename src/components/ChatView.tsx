@@ -226,6 +226,11 @@ export default function ChatView() {
   const [showSearch, setShowSearch] = useState(false);
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
+  // Honest feedback when a picked file cannot be read (e.g. the file was moved
+  // by another app, a virtual document URI, or a low-memory read failure).
+  // Without this the picker clears and the file is silently skipped, so the
+  // user thinks it is attached and sends a prompt with no document.
+  const [uploadError, setUploadError] = useState<string | null>(null);
 
   // Starred Bookmarks State
   const [starredMessageIds, setStarredMessageIds] = useState<string[]>(() => {
@@ -1085,6 +1090,7 @@ export default function ChatView() {
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
+    setUploadError(null);
     Array.from(files).forEach((file) => {
       const isTextFile =
         file.type.startsWith('text/') ||
@@ -1103,7 +1109,12 @@ export default function ChatView() {
             sizeBytes: file.size,
             textContent: content,
           };
+          setUploadError(null);
           addAttachment(att);
+        };
+        textReader.onerror = () => {
+          console.warn('Failed to read text file:', file.name, textReader.error);
+          setUploadError(`Could not attach "${file.name}" — the file could not be read. Please try again.`);
         };
         textReader.readAsText(file);
       } else {
@@ -1117,7 +1128,12 @@ export default function ChatView() {
             mimeType: file.type || 'application/octet-stream',
             sizeBytes: file.size,
           };
+          setUploadError(null);
           addAttachment(att);
+        };
+        reader.onerror = () => {
+          console.warn('Failed to read file:', file.name, reader.error);
+          setUploadError(`Could not attach "${file.name}" — the file could not be read. Please try again.`);
         };
         reader.readAsDataURL(file);
       }
@@ -2378,6 +2394,16 @@ export default function ChatView() {
         >
           <ChevronDown className="w-6 h-6" />
         </button>
+      )}
+
+      {/* File-read failure: say out loud that a picked file was not attached. */}
+      {uploadError && (
+        <div role="alert" className="px-3 py-1.5 text-[11px] text-rose-300 bg-rose-950/40 border-t border-rose-900/50 flex items-center justify-between gap-2">
+          <span>{uploadError}</span>
+          <button onClick={() => setUploadError(null)} className="text-rose-400 hover:text-rose-200 p-0.5" aria-label="Dismiss">
+            <X className="w-3 h-3" />
+          </button>
+        </div>
       )}
 
       {/* Pending Attachments Tray */}
