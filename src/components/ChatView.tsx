@@ -91,6 +91,7 @@ import QRCodeStudioModal from './QRCodeStudioModal';
 import { isLowMemory, isCriticalMemoryPressure } from '@/utils/memoryGuard';
 import { subscribeThermalTelemetry, getThermalTelemetry, type ThermalTelemetry } from '@/utils/thermalGuard';
 import { copyToClipboardSafe, formatMessageForCopy } from '@/utils/clipboardGuard';
+import { calculateThroughputStats, formatThroughput } from '@/utils/tpsSampler';
 
 // Isolated real-time hardware ticker: owns its 1.5s interval and the liveTps
 // store subscription, so the full ChatView tree no longer re-renders on every
@@ -111,6 +112,23 @@ const HardwareTickerBar = React.memo(function HardwareTickerBar({
   const liveTps = useAppStore((s) => s.liveTps);
   const [realtimeCpuLoad, setRealtimeCpuLoad] = useState<number>(14);
   const [realtimeRamUsedMB, setRealtimeRamUsedMB] = useState<number>(1240);
+  const [tpsHistory, setTpsHistory] = useState<number[]>([]);
+  const [showTpsDetail, setShowTpsDetail] = useState<boolean>(false);
+
+  React.useEffect(() => {
+    if (isGenerating) {
+      setTpsHistory([]);
+    }
+  }, [isGenerating]);
+
+  React.useEffect(() => {
+    if (isGenerating && liveTps > 0) {
+      setTpsHistory((prev) => {
+        const next = [...prev, liveTps];
+        return next.length > 10 ? next.slice(next.length - 10) : next;
+      });
+    }
+  }, [isGenerating, liveTps]);
 
   React.useEffect(() => {
     // Visibility-gated ticker: skips CPU/RAM polling work while the Android
@@ -127,6 +145,8 @@ const HardwareTickerBar = React.memo(function HardwareTickerBar({
     }, 1500);
     return () => cancelTicker();
   }, [isGenerating]);
+
+  const tpsStats = calculateThroughputStats(tpsHistory.length > 0 ? tpsHistory : liveTps > 0 ? [liveTps] : []);
 
   return (
     <div className="px-3 py-1.5 bg-zinc-900/95 border-b border-zinc-800/80 backdrop-blur-md flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 text-[9px] font-mono z-10 select-none">
@@ -155,7 +175,16 @@ const HardwareTickerBar = React.memo(function HardwareTickerBar({
       </div>
 
       {/* Acceleration Engine & Real Speed */}
-      <div className="flex items-center gap-1.5 text-zinc-300 whitespace-nowrap min-w-0">
+      <div
+        onClick={() => {
+          if (liveTps > 0 || tpsStats.peak > 0) {
+            setShowTpsDetail((prev) => !prev);
+            triggerHaptic(20);
+          }
+        }}
+        className="flex items-center gap-1.5 text-zinc-300 whitespace-nowrap min-w-0 cursor-pointer hover:text-white transition-colors"
+        title="Tap to toggle peak throughput details"
+      >
         <Zap className="w-3 h-3 text-amber-400 shrink-0" />
         <span className="text-zinc-400 hidden sm:inline">{engineLabel}</span>
         <span className="text-amber-300 font-bold">
@@ -163,6 +192,23 @@ const HardwareTickerBar = React.memo(function HardwareTickerBar({
             ? (liveTps > 0 ? `${liveTps.toFixed(1)} t/s` : 'generating...')
             : accelLabel}
         </span>
+        {isGenerating && liveTps > 0 && tpsHistory.length > 1 && (
+          <svg className="w-7 h-2.5 shrink-0 overflow-visible" viewBox="0 0 36 14">
+            <polyline
+              fill="none"
+              stroke="#fbbf24"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              points={tpsStats.sparklinePolyline}
+            />
+          </svg>
+        )}
+        {showTpsDetail && tpsStats.peak > 0 && (
+          <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[8px] font-mono">
+            Peak: {tpsStats.peak.toFixed(1)} | Avg: {tpsStats.avg.toFixed(1)}
+          </span>
+        )}
         {isGenerating && (
           <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping shrink-0" />
         )}
