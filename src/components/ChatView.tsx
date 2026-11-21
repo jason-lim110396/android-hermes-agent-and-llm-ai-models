@@ -278,6 +278,8 @@ export default function ChatView() {
   // Search & Message Actions
   const [searchQuery, setSearchQuery] = useState('');
   const [showSearch, setShowSearch] = useState(false);
+  const [searchMatchIndex, setSearchMatchIndex] = useState(0);
+  const [isScrolledDown, setIsScrolledDown] = useState(false);
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
   const [activeFallbackTooltipId, setActiveFallbackTooltipId] = useState<string | null>(null);
@@ -622,6 +624,26 @@ export default function ChatView() {
   const filteredMessages = isSearching
     ? messages.filter((m) => m.content.toLowerCase().includes(searchQuery.toLowerCase()) || m.role.toLowerCase().includes(searchQuery.toLowerCase()))
     : messages;
+
+  const matchingMessageIds = React.useMemo(() => {
+    if (!isSearching) return [];
+    return filteredMessages.map((m) => m.id);
+  }, [isSearching, filteredMessages]);
+
+  const handleNavigateSearchMatch = (direction: 'next' | 'prev') => {
+    if (matchingMessageIds.length === 0) return;
+    triggerHaptic(15);
+    const nextIdx =
+      direction === 'next'
+        ? (searchMatchIndex + 1) % matchingMessageIds.length
+        : (searchMatchIndex - 1 + matchingMessageIds.length) % matchingMessageIds.length;
+    setSearchMatchIndex(nextIdx);
+    const targetId = matchingMessageIds[nextIdx];
+    const msgEl = document.getElementById(`msg-${targetId}`);
+    if (msgEl) {
+      msgEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  };
 
   const hasEarlierMessages = !isSearching && messages.length > messagesWindowLimit;
   const hiddenCount = hasEarlierMessages ? messages.length - messagesWindowLimit : 0;
@@ -1773,21 +1795,52 @@ export default function ChatView() {
           <input
             type="text"
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={(e) => {
+              setSearchQuery(e.target.value);
+              setSearchMatchIndex(0);
+            }}
             placeholder="Search messages in this session..."
             className="flex-1 bg-zinc-950 border border-zinc-800 rounded-lg px-2.5 py-1 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-cyan-500"
           />
           {searchQuery && (
             <button
-              onClick={() => setSearchQuery('')}
-              className="text-zinc-400 hover:text-white text-xs px-1"
+              onClick={() => {
+                setSearchQuery('');
+                setSearchMatchIndex(0);
+              }}
+              className="text-zinc-400 hover:text-white text-xs px-1 cursor-pointer"
+              aria-label="Clear search"
             >
               <X className="w-3.5 h-3.5" />
             </button>
           )}
-          <span className="text-[10px] text-zinc-400 font-mono">
-            {visibleMessages.length} match{visibleMessages.length === 1 ? '' : 'es'}
-          </span>
+          {isSearching && matchingMessageIds.length > 0 ? (
+            <div className="flex items-center gap-1 shrink-0">
+              <span className="text-[10px] text-zinc-400 font-mono">
+                {searchMatchIndex + 1}/{matchingMessageIds.length}
+              </span>
+              <button
+                onClick={() => handleNavigateSearchMatch('prev')}
+                className="p-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white cursor-pointer"
+                title="Previous match"
+                aria-label="Previous match"
+              >
+                <ChevronUp className="w-3.5 h-3.5" />
+              </button>
+              <button
+                onClick={() => handleNavigateSearchMatch('next')}
+                className="p-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white cursor-pointer"
+                title="Next match"
+                aria-label="Next match"
+              >
+                <ChevronDown className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          ) : (
+            <span className="text-[10px] text-zinc-400 font-mono">
+              {visibleMessages.length} match{visibleMessages.length === 1 ? '' : 'es'}
+            </span>
+          )}
         </div>
       )}
 
@@ -1799,6 +1852,7 @@ export default function ChatView() {
         onScroll={(e) => {
           const el = e.currentTarget;
           setIsAwayFromBottom(el.scrollHeight - el.scrollTop - el.clientHeight > 80);
+          setIsScrolledDown(el.scrollTop > 350);
         }}
         className="flex-1 overflow-y-auto p-3 space-y-3"
       >
@@ -1906,8 +1960,15 @@ export default function ChatView() {
               return (
                 <div
                   key={msg.id}
-              className={`flex gap-2.5 max-w-3xl ${isUser ? 'ml-auto justify-end' : 'mr-auto justify-start'}`}
-            >
+                  id={`msg-${msg.id}`}
+                  className={`flex gap-2.5 max-w-3xl transition-all ${
+                    isUser ? 'ml-auto justify-end' : 'mr-auto justify-start'
+                  } ${
+                    isSearching && matchingMessageIds[searchMatchIndex] === msg.id
+                      ? 'ring-2 ring-cyan-400/80 rounded-2xl p-1 bg-cyan-950/20'
+                      : ''
+                  }`}
+                >
               {!isUser && (
                 <div className="w-7 h-7 rounded-xl bg-gradient-to-br from-indigo-500 to-cyan-500 flex items-center justify-center text-white shrink-0 mt-0.5 shadow-md shadow-cyan-500/20">
                   <Bot className="w-4 h-4" />
@@ -2490,6 +2551,25 @@ export default function ChatView() {
           </button>
         </div>
       </div>
+
+      {/* Jump-to-Top: floating pill shown when scrolled far down */}
+      {isScrolledDown && (
+        <button
+          onClick={() => {
+            const el = messagesContainerRef.current;
+            if (el) {
+              el.scrollTo({ top: 0, behavior: 'smooth' });
+            }
+            triggerHaptic(10);
+          }}
+          aria-label="Jump to top of chat"
+          title="Jump to top"
+          className="absolute right-4 z-30 w-9 h-9 rounded-full border border-zinc-700/80 bg-zinc-900/90 hover:bg-zinc-800 text-zinc-400 hover:text-white shadow-lg flex items-center justify-center transition-all cursor-pointer active:scale-95 animate-in fade-in"
+          style={{ bottom: `${(isFabOpen ? 420 : 196) + keyboardHeight + (isAwayFromBottom ? 50 : 0)}px` }}
+        >
+          <ChevronUp className="w-4 h-4" />
+        </button>
+      )}
 
       {/* Jump-to-Latest: floating pill shown when scrolled away from bottom;
           offset includes keyboardHeight so it rides above the open keyboard */}
