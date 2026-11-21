@@ -66,6 +66,12 @@ interface GeneratedHistoryItem {
   aspectRatio: string;
 }
 
+// Each history item pins a full base64 image in JS heap. The array is not
+// rendered today, but left unbounded it grows with every generation until an
+// Android WebView OOM-kills the app. Keep only the most recent generations so
+// older dataUrls become collectable.
+const MAX_HISTORY_ITEMS = 5;
+
 export default function ImageStudio() {
   const selectedModelId = useAppStore((s) => s.selectedModelId);
   const setSelectedModelId = useAppStore((s) => s.setSelectedModelId);
@@ -133,7 +139,7 @@ export default function ImageStudio() {
         aspectRatio,
       };
 
-      setHistory((prev) => [newItem, ...prev]);
+      setHistory((prev) => [newItem, ...prev].slice(0, MAX_HISTORY_ITEMS));
     } catch (err: unknown) {
       // Name the failure instead of a generic "issue": the generation
       // pipeline's own error (Pollinations fetch, canvas render) is the
