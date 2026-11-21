@@ -58,12 +58,19 @@ export async function isCpuModelCached(modelId: string): Promise<boolean> {
 
     const { Wllama } = await import('@wllama/wllama/esm/index.js');
     const wasmUrl = getWllamaWasmUrl();
-    // Create a lightweight Wllama instance just to check cache status
+    // Create a throwaway Wllama instance just to check cache status. A Wllama
+    // instance spins up a Web Worker + WASM runtime; without exit() it stays
+    // alive (its message port retains it) and leaks ~tens of MB per call.
+    // checkCacheStatus() calls this once per CPU model on mount and on Model Hub
+    // open, so leaving them un-exited OOM-kills low-RAM WebViews. Always exit.
     const tempWllama = new Wllama({ default: wasmUrl });
-    const models = await tempWllama.modelManager.getModels();
-    const found = models.find((m: any) => m.url === spec.ggufUrl);
-    if (!found) return false;
-    return found.validate() === 'valid';
+    try {
+      const models = await tempWllama.modelManager.getModels();
+      const found = models.find((m: any) => m.url === spec.ggufUrl);
+      return found ? found.validate() === 'valid' : false;
+    } finally {
+      try { await tempWllama.exit(); } catch (_) {}
+    }
   } catch (err) {
     console.warn('CPU (WASM) cache check failed:', err);
     return false;
@@ -88,19 +95,25 @@ export async function downloadCpuModelWeights(
   const { Wllama } = await import('@wllama/wllama/esm/index.js');
   const wasmUrl = getWllamaWasmUrl();
   const tempWllama = new Wllama({ default: wasmUrl });
-  await tempWllama.modelManager.downloadModel(
-    { url: spec.ggufUrl },
-    {
-      progressCallback: ({ loaded, total }: { loaded: number; total: number }) => {
-        if (cpuDownloadAborted) {
-          throw new Error('Download stopped by user');
-        }
-        if (onProgress && total > 0) {
-          onProgress({ progress: loaded / total, timeElapsed: 0, text: `Downloading ${spec.name} (CPU weights)...` });
-        }
-      },
-    }
-  );
+  try {
+    await tempWllama.modelManager.downloadModel(
+      { url: spec.ggufUrl },
+      {
+        progressCallback: ({ loaded, total }: { loaded: number; total: number }) => {
+          if (cpuDownloadAborted) {
+            throw new Error('Download stopped by user');
+          }
+          if (onProgress && total > 0) {
+            onProgress({ progress: loaded / total, timeElapsed: 0, text: `Downloading ${spec.name} (CPU weights)...` });
+          }
+        },
+      }
+    );
+  } finally {
+    // The download only needs the modelManager; release the WASM worker/runtime
+    // so a completed or cancelled download does not leak a Wllama instance.
+    try { await tempWllama.exit(); } catch (_) {}
+  }
 }
 
 // Delete a CPU model from the browser cache
@@ -120,9 +133,13 @@ export async function deleteCpuModelFromCache(modelId: string): Promise<void> {
     const { Wllama } = await import('@wllama/wllama/esm/index.js');
     const wasmUrl = getWllamaWasmUrl();
     const tempWllama = new Wllama({ default: wasmUrl });
-    const models = await tempWllama.modelManager.getModels();
-    const found = models.find((m: any) => m.url === spec.ggufUrl);
-    if (found) await found.remove();
+    try {
+      const models = await tempWllama.modelManager.getModels();
+      const found = models.find((m: any) => m.url === spec.ggufUrl);
+      if (found) await found.remove();
+    } finally {
+      try { await tempWllama.exit(); } catch (_) {}
+    }
   } catch (err) {
     console.warn('CPU (WASM) cache deletion failed:', err);
   }
