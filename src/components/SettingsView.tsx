@@ -238,8 +238,8 @@ export default function SettingsView() {
     }
   };
 
-  const handleTestFallbackEndpoint = async (entry: FallbackModelEntry) => {
-    const targetId = entry.id;
+  const handleTestFallbackEndpoint = async (entry: FallbackModelEntry, idx?: number) => {
+    const targetId = entry.id || (idx !== undefined ? String(idx) : `entry-${Date.now()}`);
     setTestingFallbackId(targetId);
     setFallbackTestResults((prev) => {
       const next = { ...prev };
@@ -820,7 +820,7 @@ export default function SettingsView() {
                 <div className="flex items-center gap-1 shrink-0">
                   <button
                     disabled={testingFallbackId === (entry.id || String(idx))}
-                    onClick={() => handleTestFallbackEndpoint(entry)}
+                    onClick={() => handleTestFallbackEndpoint(entry, idx)}
                     className="p-1 rounded text-zinc-500 hover:text-cyan-400 transition-colors disabled:opacity-20 cursor-pointer"
                     aria-label={`Test ${entry.label}`}
                     title="Test connection"
