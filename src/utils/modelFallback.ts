@@ -80,7 +80,7 @@ export function loadFallbackSettings(): FallbackSettings {
       seen.add(e.id);
       return true;
     });
-    return { enabled: parsed.enabled !== false, chain: unique };
+    return { enabled: parsed.enabled == null ? true : !!parsed.enabled, chain: unique };
   } catch (_) {
     return fallback;
   }
@@ -120,6 +120,9 @@ const LIMIT_HINTS = [
   'insufficient',
   'credits',
   'too many requests',
+  'overloaded',
+  'capacity',
+  'unavailable',
 ];
 
 /**
