@@ -146,6 +146,12 @@ interface AppStore {
   speakText: (text: string) => void;
   stopSpeaking: () => void;
   isSpeaking: boolean;
+  voiceRate: number;
+  setVoiceRate: (rate: number) => void;
+  voicePitch: number;
+  setVoicePitch: (pitch: number) => void;
+  voiceURI: string | null;
+  setVoiceURI: (uri: string | null) => void;
 
   // Input & Messaging
   pendingAttachments: Attachment[];
@@ -1088,6 +1094,24 @@ export const useAppStore = create<AppStore>((set, get) => {
   isVoiceOutputEnabled: true,
   setIsVoiceOutputEnabled: (val) => set({ isVoiceOutputEnabled: val }),
   isSpeaking: false,
+  voiceRate: typeof window !== 'undefined' ? parseFloat(localStorage.getItem('hermes_voice_rate') || '1.0') : 1.0,
+  setVoiceRate: (rate: number) => {
+    if (typeof window !== 'undefined') localStorage.setItem('hermes_voice_rate', String(rate));
+    set({ voiceRate: rate });
+  },
+  voicePitch: typeof window !== 'undefined' ? parseFloat(localStorage.getItem('hermes_voice_pitch') || '1.0') : 1.0,
+  setVoicePitch: (pitch: number) => {
+    if (typeof window !== 'undefined') localStorage.setItem('hermes_voice_pitch', String(pitch));
+    set({ voicePitch: pitch });
+  },
+  voiceURI: typeof window !== 'undefined' ? localStorage.getItem('hermes_voice_uri') : null,
+  setVoiceURI: (uri: string | null) => {
+    if (typeof window !== 'undefined') {
+      if (uri) localStorage.setItem('hermes_voice_uri', uri);
+      else localStorage.removeItem('hermes_voice_uri');
+    }
+    set({ voiceURI: uri });
+  },
 
   speakText: (text: string) => {
     if (!hasSpeechSynthesis()) return;
@@ -1103,16 +1127,22 @@ export const useAppStore = create<AppStore>((set, get) => {
       if (!clean) return;
 
       const utterance = new SpeechSynthesisUtterance(clean.slice(0, 500)); // mobile friendly chunk
-      utterance.rate = 1.0;
-      utterance.pitch = 1.0;
+      utterance.rate = get().voiceRate || 1.0;
+      utterance.pitch = get().voicePitch || 1.0;
 
-      // Select highest quality natural/Google voice available on the device
+      // Select highest quality natural/Google voice available on the device, or user preferred voice
       const voices = window.speechSynthesis.getVoices();
       if (voices && voices.length > 0) {
-        const naturalVoice = voices.find(
-          (v) => (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('Neural') || v.name.includes('Premium')) && v.lang.startsWith('en')
-        ) || voices.find((v) => v.lang.startsWith('en')) || voices[0];
-        if (naturalVoice) utterance.voice = naturalVoice;
+        const preferredUri = get().voiceURI;
+        const matched = preferredUri ? voices.find((v) => v.voiceURI === preferredUri) : null;
+        if (matched) {
+          utterance.voice = matched;
+        } else {
+          const naturalVoice = voices.find(
+            (v) => (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('Neural') || v.name.includes('Premium')) && v.lang.startsWith('en')
+          ) || voices.find((v) => v.lang.startsWith('en')) || voices[0];
+          if (naturalVoice) utterance.voice = naturalVoice;
+        }
       }
 
       // Guarded speech keeps isSpeaking honest on Android WebViews that drop
