@@ -864,6 +864,35 @@ export default function ChatView() {
     return fitsRam && fitsGpu;
   });
 
+  const contextWindow = currentModel?.contextWindow || 4096;
+  const approxContextTokens = React.useMemo(() => {
+    let charCount = 0;
+    for (const m of messages) {
+      charCount += m.content ? m.content.length : 0;
+    }
+    return Math.round(charCount / 4);
+  }, [messages]);
+
+  const contextPercent = Math.min(100, Math.round((approxContextTokens / contextWindow) * 100));
+  const isContextNearCapacity = contextPercent >= 75 && messages.length > 6;
+  const [contextTrimToast, setContextTrimToast] = useState<string | null>(null);
+
+  const handleTrimContext = () => {
+    if (!currentSession || messages.length <= 6) return;
+    triggerHaptic([30, 40]);
+    const firstMsg = messages[0];
+    const tailMsgs = messages.slice(-6);
+    const trimmed = [firstMsg, ...tailMsgs.filter((m) => m.id !== firstMsg.id)];
+    const targetSessionId = currentSession.id;
+    useAppStore.getState().replaceSessionMessages(
+      targetSessionId,
+      trimmed,
+      operatingMode === 'agent' ? 'agent' : 'chat'
+    );
+    setContextTrimToast(`Context trimmed: freed ${messages.length - trimmed.length} older messages from KV cache!`);
+    setTimeout(() => setContextTrimToast(null), 3500);
+  };
+
   const [isCheckingConnection, setIsCheckingConnection] = useState(false);
 
   const handleRetryConnection = async () => {
@@ -3260,6 +3289,35 @@ export default function ChatView() {
               className="p-1 -mr-1 text-amber-400 hover:text-amber-100 transition-colors cursor-pointer shrink-0"
             >
               <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+        {contextTrimToast && (
+          <div className="mb-1.5 px-2.5 py-1.5 rounded-lg bg-emerald-950/70 border border-emerald-500/50 text-emerald-200 text-[11px] font-semibold flex items-center justify-between shadow-md animate-in fade-in duration-150">
+            <span className="truncate">{contextTrimToast}</span>
+            <button
+              onClick={() => setContextTrimToast(null)}
+              className="p-1 -mr-1 text-emerald-400 hover:text-emerald-100 cursor-pointer"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+        {isContextNearCapacity && !contextTrimToast && (
+          <div className="mb-1.5 px-2.5 py-1.5 rounded-lg bg-indigo-950/70 border border-indigo-500/50 text-indigo-200 text-[11px] font-medium flex items-center justify-between shadow-sm animate-in fade-in duration-200">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <Cpu className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+              <span className="truncate">
+                Context window {contextPercent}% full ({approxContextTokens} / {contextWindow} tokens)
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={handleTrimContext}
+              className="px-2 py-0.5 rounded bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 hover:text-white border border-indigo-500/40 text-[10px] font-bold transition-all cursor-pointer shrink-0 ml-2"
+              title="Trim earlier chat history to prevent on-device WebGPU memory throttling"
+            >
+              Trim History
             </button>
           </div>
         )}
