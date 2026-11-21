@@ -246,8 +246,13 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
     triggerHaptic(60);
 
     const c = canvasRef.current;
-    c.width = v.videoWidth;
-    c.height = v.videoHeight;
+    // Cap working canvas to mobile-safe bound to prevent allocating 30-50MB
+    // bitmap buffers on 4K/high-res camera sensors on low-memory Android WebViews.
+    const PHOTO_MAX_EDGE = 1600;
+    const longest = Math.max(v.videoWidth, v.videoHeight);
+    const scale = longest > PHOTO_MAX_EDGE ? PHOTO_MAX_EDGE / longest : 1;
+    c.width = Math.max(1, Math.round(v.videoWidth * scale));
+    c.height = Math.max(1, Math.round(v.videoHeight * scale));
     const ctx = c.getContext('2d');
     if (ctx) {
       if (zoomLevel > 1) {
@@ -259,7 +264,7 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
       } else {
         ctx.drawImage(v, 0, 0, c.width, c.height);
       }
-      const dataUrl = c.toDataURL('image/jpeg', 0.90);
+      const dataUrl = c.toDataURL('image/jpeg', 0.85);
       setCapturedUrl(dataUrl);
       stopCamera();
     }

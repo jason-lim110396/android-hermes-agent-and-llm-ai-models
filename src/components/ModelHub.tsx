@@ -35,6 +35,7 @@ import {
 import { AVAILABLE_MODELS, ModelSpec } from '@/models';
 import { useAppStore } from '@/appStore';
 import { startVisibleInterval } from '@/utils/visibleInterval';
+import { isLowMemory } from '@/utils/memoryGuard';
 
 export default function ModelHub() {
   const selectedModelId = useAppStore((s) => s.selectedModelId);
@@ -737,6 +738,12 @@ export default function ModelHub() {
                       <div className="flex items-center gap-1 text-[9px] text-amber-400 font-medium mb-1.5">
                         <AlertTriangle className="w-3 h-3 text-amber-400 shrink-0" />
                         <span>Insufficient free space ({hardwareProfile.storageEstimateGB.available} GB free &lt; {(model.sizeMB / 1024).toFixed(1)} GB required)</span>
+                      </div>
+                    )}
+                    {((hardwareProfile && hardwareProfile.estimatedRamGB < model.minRamGB) || (!hardwareProfile && isLowMemory() && model.minRamGB > 4)) && (
+                      <div className="flex items-center gap-1 text-[9px] text-amber-400 font-medium mb-1.5">
+                        <AlertTriangle className="w-3 h-3 text-amber-400 shrink-0" />
+                        <span>Low device RAM ({hardwareProfile ? `${hardwareProfile.estimatedRamGB} GB` : 'Low Memory'} &lt; {model.minRamGB} GB recommended). May risk WebView memory pressure.</span>
                       </div>
                     )}
                     <div className="flex items-center justify-between">
