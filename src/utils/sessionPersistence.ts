@@ -4,7 +4,8 @@
 // silently destroyed the whole history.
 //
 // Design constraints on mobile:
-// - localStorage is small (~5MB) and synchronous: persist debounced (1s), and
+// - localStorage is small (~5MB) and synchronous: persist debounced (1s), with
+//   a hard max-wait so a rapid stream cannot defer the write indefinitely, and
 //   degrade gracefully under quota pressure instead of ever throwing.
 // - JS timers are suspended the moment the WebView is backgrounded, so a
 //   pending debounced write is flushed synchronously on visibilitychange
@@ -17,6 +18,11 @@ import type { ChatMessage, ChatSession } from '@/appStore';
 
 const STORAGE_KEY = 'hermes_sessions_v1';
 const PERSIST_DEBOUNCE_MS = 1000;
+// Streaming flushes the store every ~90ms, which would otherwise restart the
+// trailing debounce forever and write nothing until generation ends. Cap how
+// long a pending snapshot can be deferred so a long reply still checkpoints to
+// localStorage mid-stream - Android's OOM killer does not wait for pagehide.
+const MAX_PERSIST_WAIT_MS = 4000;
 const MAX_SESSIONS_PER_MODE = 12;
 const TRIM_MESSAGES_STEPS = [400, 120, 40];
 
@@ -30,6 +36,7 @@ interface PersistedSessions {
 export type { PersistedSessions };
 
 let persistTimer: ReturnType<typeof setTimeout> | null = null;
+let maxWaitTimer: ReturnType<typeof setTimeout> | null = null;
 let pendingSnapshot: PersistedSessions | null = null;
 
 function isValidMessage(m: unknown): m is ChatMessage {
@@ -103,6 +110,9 @@ function tryWrite(payload: PersistedSessions): boolean {
   // progressively shorter histories. Each level keeps the most recent content
   // possible; the no-attachment trees are computed once and shared by every
   // trim level, and a successful write only ever pays for the level it used.
+  // Kept local to this call so a later flush can never reuse stale trees from
+  // an earlier degradation attempt.
+  let strippedTrees: PersistedSessions | null = null;
   const levels: Array<() => PersistedSessions> = [
     () => payload,
     () => {
@@ -115,8 +125,8 @@ function tryWrite(payload: PersistedSessions): boolean {
       return noAttach;
     },
     ...TRIM_MESSAGES_STEPS.map((keep) => () => ({
-      chatSessions: mapTrimmed(strippedTrees.chatSessions, keep),
-      agentSessions: mapTrimmed(strippedTrees.agentSessions, keep),
+      chatSessions: mapTrimmed(strippedTrees!.chatSessions, keep),
+      agentSessions: mapTrimmed(strippedTrees!.agentSessions, keep),
       activeChatSessionId: payload.activeChatSessionId,
       activeAgentSessionId: payload.activeAgentSessionId,
     })),
@@ -139,16 +149,16 @@ function mapNoAttachments(sessions: Record<string, ChatSession>): Record<string,
   );
 }
 
-// Memoized inside tryWrite for one degradation attempt: every trim level
-// reuses the same attachment-stripped trees instead of rebuilding them.
-let strippedTrees: PersistedSessions = null as unknown as PersistedSessions;
-
 /** Synchronous write of the most recent snapshot. Never throws. */
 function flushPersistNow(): void {
   if (typeof window === 'undefined' || !pendingSnapshot) return;
   if (persistTimer) {
     clearTimeout(persistTimer);
     persistTimer = null;
+  }
+  if (maxWaitTimer) {
+    clearTimeout(maxWaitTimer);
+    maxWaitTimer = null;
   }
   const snapshot = pendingSnapshot;
   pendingSnapshot = null;
@@ -177,6 +187,14 @@ if (typeof window !== 'undefined') {
 /** Debounced save of the full chat + agent session trees. Never throws. */
 export function schedulePersistSessions(state: PersistedSessions): void {
   if (typeof window === 'undefined') return;
+  // The first pending change starts an absolute deadline. Later changes update
+  // the snapshot and restart only the trailing debounce; they never push the
+  // deadline out, so a rapid stream (store flush every ~90ms) still checkpoints
+  // at least once every MAX_PERSIST_WAIT_MS instead of forever deferring the
+  // write until generation ends.
+  if (!pendingSnapshot) {
+    maxWaitTimer = setTimeout(flushPersistNow, MAX_PERSIST_WAIT_MS);
+  }
   pendingSnapshot = state;
   if (persistTimer) clearTimeout(persistTimer);
   persistTimer = setTimeout(flushPersistNow, PERSIST_DEBOUNCE_MS);
