@@ -29,6 +29,9 @@ import {
   Award,
   Download,
   Play,
+  Database,
+  Lock,
+  Unlock,
 } from 'lucide-react';
 import { useAppStore } from '@/appStore';
 import { AVAILABLE_MODELS } from '@/models';
@@ -40,6 +43,11 @@ import {
   type ThermalGovernorMode,
   type ThermalState,
 } from '@/utils/thermalGuard';
+import {
+  getStorageQuotaReport,
+  requestStoragePersistence,
+  type StorageQuotaReport,
+} from '@/utils/storageGuard';
 
 export default function DeviceDiagnostics() {
   const hardwareProfile = useAppStore((s) => s.hardwareProfile);
@@ -71,6 +79,10 @@ export default function DeviceDiagnostics() {
   const [autoThrottleEnabled, setAutoThrottleEnabled] = useState<boolean>(true);
   const [hapticAlertEnabled, setHapticAlertEnabled] = useState<boolean>(true);
   const [isSimulatingSpike, setIsSimulatingSpike] = useState<boolean>(false);
+
+  // Storage Quota & Eviction Defense State
+  const [storageReport, setStorageReport] = useState<StorageQuotaReport | null>(null);
+  const [isRequestingPersistence, setIsRequestingPersistence] = useState<boolean>(false);
 
   // Autonomous System Self-Test & Diagnostic Certification Suite State
   interface SelfTestItem {
@@ -309,7 +321,21 @@ export default function DeviceDiagnostics() {
         // Battery status API not permitted or available
       });
     }
+
+    getStorageQuotaReport().then(setStorageReport).catch(() => {});
   }, []);
+
+  const handleRequestPersistence = async () => {
+    setIsRequestingPersistence(true);
+    triggerHaptic([30, 40]);
+    try {
+      await requestStoragePersistence();
+      const updated = await getStorageQuotaReport();
+      setStorageReport(updated);
+    } finally {
+      setIsRequestingPersistence(false);
+    }
+  };
 
   const runLatencyTest = async () => {
     setIsPinging(true);
@@ -443,10 +469,124 @@ export default function DeviceDiagnostics() {
             <HardDrive className="w-4 h-4 text-indigo-400" />
           </div>
           <div className="text-lg font-black text-white">
-            {hardwareProfile ? `${hardwareProfile.storageEstimateGB.available} GB` : 'Detecting...'}
+            {storageReport ? `${storageReport.availableGB} GB` : hardwareProfile ? `${hardwareProfile.storageEstimateGB.available} GB` : 'Detecting...'}
           </div>
-          <span className="text-[10px] text-zinc-500">IndexedDB quota free</span>
+          <div className="flex items-center justify-between mt-0.5">
+            <span className="text-[10px] text-zinc-500">
+              {storageReport ? `${storageReport.percentUsed}% used` : 'IndexedDB quota free'}
+            </span>
+            {storageReport?.isPersisted && (
+              <span className="flex items-center gap-1 text-[9px] text-emerald-400 font-mono">
+                <Lock className="w-2.5 h-2.5" /> Persisted
+              </span>
+            )}
+          </div>
         </div>
+      </div>
+
+      {/* Storage Quota & Sovereign Eviction Defense Card */}
+      <div className="rounded-2xl bg-zinc-900/70 border border-zinc-800/80 p-4 mb-4">
+        <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
+          <div className="flex items-center gap-2">
+            <div className="p-1.5 rounded-lg bg-indigo-500/20 text-indigo-400">
+              <Database className="w-4 h-4" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="text-sm font-bold text-white">
+                  Storage Quota & Sovereign Eviction Defense
+                </h2>
+                {storageReport && (
+                  <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold border ${
+                    storageReport.health === 'optimal'
+                      ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                      : storageReport.health === 'adequate'
+                      ? 'bg-cyan-500/20 text-cyan-400 border-cyan-500/30'
+                      : storageReport.health === 'low'
+                      ? 'bg-amber-500/20 text-amber-400 border-amber-500/30'
+                      : 'bg-rose-500/20 text-rose-400 border-rose-500/30'
+                  }`}>
+                    {storageReport.healthLabel}
+                  </span>
+                )}
+              </div>
+              <p className="text-[11px] text-zinc-400">
+                Monitors Android storage quota, IndexedDB model weights, and prevents OS auto-eviction
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={handleRequestPersistence}
+            disabled={isRequestingPersistence || !!storageReport?.isPersisted}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer disabled:opacity-60 ${
+              storageReport?.isPersisted
+                ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'
+                : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/20'
+            }`}
+          >
+            {storageReport?.isPersisted ? (
+              <>
+                <Lock className="w-3.5 h-3.5" />
+                <span>Protected from Eviction</span>
+              </>
+            ) : (
+              <>
+                <Unlock className={`w-3.5 h-3.5 ${isRequestingPersistence ? 'animate-spin' : ''}`} />
+                <span>{isRequestingPersistence ? 'Requesting...' : 'Lock Persistent Storage'}</span>
+              </>
+            )}
+          </button>
+        </div>
+
+        {/* Storage Bar */}
+        {storageReport && (
+          <div className="space-y-2">
+            <div className="flex items-center justify-between text-xs font-mono">
+              <span className="text-zinc-400">
+                Usage: <strong className="text-white">{storageReport.usageGB} GB</strong> / {storageReport.quotaGB} GB
+              </span>
+              <span className="text-indigo-300 font-bold">
+                {storageReport.availableGB} GB Free ({storageReport.percentUsed}% full)
+              </span>
+            </div>
+            <div className="w-full h-2.5 rounded-full bg-zinc-950 p-0.5 border border-zinc-800 overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all duration-500 ${
+                  storageReport.health === 'optimal'
+                    ? 'bg-gradient-to-r from-indigo-500 to-cyan-400'
+                    : storageReport.health === 'adequate'
+                    ? 'bg-gradient-to-r from-cyan-500 to-teal-400'
+                    : storageReport.health === 'low'
+                    ? 'bg-gradient-to-r from-amber-500 to-orange-400'
+                    : 'bg-gradient-to-r from-rose-500 to-red-500'
+                }`}
+                style={{ width: `${Math.max(2, storageReport.percentUsed)}%` }}
+              />
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 text-[10px] font-mono text-zinc-400">
+              <div className="p-2 rounded-xl bg-zinc-950/80 border border-zinc-800">
+                <div className="text-zinc-500">Total Quota</div>
+                <div className="text-xs font-bold text-zinc-200 mt-0.5">{storageReport.quotaGB} GB</div>
+              </div>
+              <div className="p-2 rounded-xl bg-zinc-950/80 border border-zinc-800">
+                <div className="text-zinc-500">Occupied Storage</div>
+                <div className="text-xs font-bold text-zinc-200 mt-0.5">{storageReport.usageGB} GB</div>
+              </div>
+              <div className="p-2 rounded-xl bg-zinc-950/80 border border-zinc-800">
+                <div className="text-zinc-500">IndexedDB Blobs</div>
+                <div className="text-xs font-bold text-zinc-200 mt-0.5">
+                  {storageReport.indexedDbMB !== undefined ? `${storageReport.indexedDbMB} MB` : 'Dynamic'}
+                </div>
+              </div>
+              <div className="p-2 rounded-xl bg-zinc-950/80 border border-zinc-800">
+                <div className="text-zinc-500">Android Eviction Seal</div>
+                <div className={`text-xs font-bold mt-0.5 ${storageReport.isPersisted ? 'text-emerald-400' : 'text-amber-400'}`}>
+                  {storageReport.isPersisted ? 'Permanent' : 'Volatile'}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Live Latency & Battery Real-Time Monitor */}
