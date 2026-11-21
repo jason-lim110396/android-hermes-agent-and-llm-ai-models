@@ -215,6 +215,29 @@ async function streamChatCompletion(
         if (!dataStr || dataStr === '[DONE]') continue;
         try {
           const parsed = JSON.parse(dataStr);
+          // Some OpenAI-compatible free routers keep the text/event-stream
+          // content type even for errors, sending e.g.
+          // data: {"error":{"message":"Rate limit reached"}}.
+          // Parsing only `choices[0].delta.content` discarded these entirely:
+          // fullText stayed empty, the #170 plain-body check never saw the
+          // quota text, and the turn fell through to an on-device download
+          // with a misleading "empty answer" notice. Feed SSE error objects
+          // into the same limit classifier so the free chain advances.
+          const sseErr = parsed?.error;
+          if (sseErr) {
+            const msg =
+              typeof sseErr === 'string'
+                ? sseErr
+                : typeof sseErr.message === 'string'
+                  ? sseErr.message
+                  : typeof sseErr.msg === 'string'
+                    ? sseErr.msg
+                    : '';
+            if (msg) {
+              nonSseText += (nonSseText ? '\n' : '') + msg;
+              if (nonSseText.length > 4000) nonSseText = nonSseText.slice(-4000);
+            }
+          }
           const delta = parsed.choices?.[0]?.delta?.content || '';
           if (delta) {
             fullText += delta;
