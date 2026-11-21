@@ -233,6 +233,7 @@ export default function VoiceStudio() {
   const [trimmedEffectiveDuration, setTrimmedEffectiveDuration] = useState<number>(9.8);
   const [trimmerStatus, setTrimmerStatus] = useState<string | null>(null);
   const [isPlayingTrimmed, setIsPlayingTrimmed] = useState<boolean>(false);
+  const auditionAudioCtxRef = useRef<AudioContext | null>(null);
 
   const handleExecuteSilenceCut = async () => {
     setIsTrimming(true);
@@ -261,6 +262,7 @@ export default function VoiceStudio() {
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
       if (AudioCtx) {
         const ctx = new AudioCtx();
+        auditionAudioCtxRef.current = ctx;
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
         osc.type = 'triangle';
@@ -278,6 +280,10 @@ export default function VoiceStudio() {
         // battery while it sits alive. Close it once the tone has ended.
         osc.onended = () => {
           try { ctx.close(); } catch (_) {}
+          if (auditionAudioCtxRef.current === ctx) {
+            auditionAudioCtxRef.current = null;
+          }
+          setIsPlayingTrimmed(false);
         };
       }
     } catch (_) {}
@@ -381,6 +387,13 @@ export default function VoiceStudio() {
   // otherwise the microphone keeps recording into a dead component after a
   // tab switch (no stop call existed for it).
   useEffect(() => () => {
+    if (useAppStore.getState().isSpeaking) {
+      stopSpeaking();
+    }
+    if (auditionAudioCtxRef.current) {
+      try { auditionAudioCtxRef.current.close(); } catch (_) {}
+      auditionAudioCtxRef.current = null;
+    }
     recognitionRequestIdRef.current++;
     const recognition = recognitionRef.current;
     recognitionRef.current = null;
@@ -399,7 +412,35 @@ export default function VoiceStudio() {
       clearTimeout(calibrationFeedbackTimeoutRef.current);
       calibrationFeedbackTimeoutRef.current = null;
     }
-  }, []);
+  }, [stopSpeaking]);
+
+  // Stop audio playback, TTS, and microphone streams when the app is backgrounded or screen locked.
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+        if (useAppStore.getState().isSpeaking) {
+          stopSpeaking();
+        }
+        if (auditionAudioCtxRef.current) {
+          try { auditionAudioCtxRef.current.close(); } catch (_) {}
+          auditionAudioCtxRef.current = null;
+          setIsPlayingTrimmed(false);
+        }
+        if (recognitionRef.current) {
+          recognitionRequestIdRef.current++;
+          const stopped = recognitionRef.current;
+          recognitionRef.current = null;
+          try { stopped.stop(); } catch (_) {}
+          setIsRecording(false);
+          setInterimText('');
+        }
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [stopSpeaking]);
 
   // Leaving the Dictate sub-tab unmounts the recording panel but not this
   // component: the recognition session kept the microphone live invisibly
