@@ -62,7 +62,10 @@ export const FREE_FALLBACK_PRESETS: FallbackModelEntry[] = [
 ];
 
 export function loadFallbackSettings(): FallbackSettings {
-  const fallback: FallbackSettings = { enabled: true, chain: [] };
+  const fallback: FallbackSettings = {
+    enabled: true,
+    chain: FREE_FALLBACK_PRESETS.slice(0, 2),
+  };
   if (typeof window === 'undefined') return fallback;
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -129,6 +132,12 @@ const LIMIT_HINTS = [
   'overloaded',
   'capacity',
   'unavailable',
+  'model_not_found',
+  'not found',
+  'does not exist',
+  'unknown model',
+  'unsupported model',
+  'degraded',
 ];
 
 /**
