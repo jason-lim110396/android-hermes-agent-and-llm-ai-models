@@ -203,6 +203,7 @@ export default function FileSearchStudio() {
   // File Search State
   const [query, setQuery] = useState('');
   const [selectedType, setSelectedType] = useState<string>('all');
+  const [sortBy, setSortBy] = useState<'relevance' | 'date' | 'size'>('relevance');
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   // Knowledge Base State
@@ -312,7 +313,15 @@ export default function FileSearchStudio() {
         similarityScore: Math.min(99, Math.max(55, score)),
       };
     })
-    .sort((a, b) => (b.similarityScore || 0) - (a.similarityScore || 0)), [query, selectedType]);
+    .sort((a, b) => {
+      if (sortBy === 'date') {
+        return new Date(b.lastModified).getTime() - new Date(a.lastModified).getTime();
+      }
+      if (sortBy === 'size') {
+        return parseFloat(b.sizeFormatted) - parseFloat(a.sizeFormatted);
+      }
+      return (b.similarityScore || 0) - (a.similarityScore || 0);
+    }), [query, selectedType, sortBy]);
 
   const handleCopyPath = (file: IndexedFile) => {
     // Only the resolved write may claim "Copied".
@@ -545,7 +554,25 @@ export default function FileSearchStudio() {
           <div className="space-y-2.5">
             <div className="flex items-center justify-between text-xs font-bold text-zinc-400 px-1">
               <span>Indexed Results ({searchResults.length})</span>
-              <span>Cosine Similarity</span>
+              <div className="flex items-center gap-1 font-mono text-[10px]">
+                {(['relevance', 'date', 'size'] as const).map((mode) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    onClick={() => {
+                      setSortBy(mode);
+                      triggerHaptic(10);
+                    }}
+                    className={`px-2 py-0.5 rounded-lg capitalize transition-all cursor-pointer ${
+                      sortBy === mode
+                        ? 'bg-blue-600/40 text-blue-300 border border-blue-500/50 font-bold'
+                        : 'text-zinc-500 hover:text-zinc-300'
+                    }`}
+                  >
+                    {mode}
+                  </button>
+                ))}
+              </div>
             </div>
 
             {searchResults.map((file) => (
