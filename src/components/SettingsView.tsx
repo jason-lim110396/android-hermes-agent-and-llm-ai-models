@@ -61,7 +61,14 @@ import {
   ChevronDown,
   HardDrive,
   Plus,
+  Type,
 } from 'lucide-react';
+import {
+  getChatFontSize,
+  setChatFontSize,
+  CHAT_FONT_SIZE_OPTIONS,
+  type ChatFontSize,
+} from '@/utils/fontSettings';
 import { useAppStore } from '@/appStore';
 import { FREE_FALLBACK_PRESETS, FallbackModelEntry } from '@/utils/modelFallback';
 
@@ -233,6 +240,13 @@ export default function SettingsView() {
   const [wakeLockEnabled, setWakeLockEnabled] = useState<boolean>(() => getWakeLockUserPreference());
   const [wakeLockActive, setWakeLockActive] = useState<boolean>(() => isWakeLockActive());
   const [hapticIntensity, setHapticIntensityState] = useState<HapticIntensity>(() => getHapticIntensity());
+  const [chatFontSize, setChatFontSizeState] = useState<ChatFontSize>(() => getChatFontSize());
+
+  const handleSelectChatFontSize = (size: ChatFontSize) => {
+    setChatFontSizeState(size);
+    setChatFontSize(size);
+    triggerHaptic(15);
+  };
 
   useEffect(() => {
     return subscribeWakeLockState(setWakeLockActive);
@@ -867,6 +881,65 @@ export default function SettingsView() {
                 </button>
               );
             })}
+          </div>
+        </div>
+
+        {/* CHAT FONT SIZE ACCESSIBILITY SCALING */}
+        <div className="bg-gradient-to-br from-zinc-900 via-zinc-900/90 to-zinc-950 border border-zinc-800 rounded-2xl p-3.5 shadow-xl space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Type className="w-4 h-4 text-cyan-400" />
+              <div>
+                <label className="text-xs font-bold text-white block">Chat Message Font Scaling</label>
+                <p className="text-[10px] text-zinc-400">Scale message bubble typography across compact phones and tablet viewports</p>
+              </div>
+            </div>
+            <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-cyan-500/10 text-cyan-300 border border-cyan-500/30 uppercase font-bold">
+              {chatFontSize}
+            </span>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+            {CHAT_FONT_SIZE_OPTIONS.map((opt) => {
+              const isSelected = chatFontSize === opt.id;
+              return (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => handleSelectChatFontSize(opt.id)}
+                  className={`p-2 rounded-xl border text-left transition-all cursor-pointer ${
+                    isSelected
+                      ? 'bg-cyan-950/50 border-cyan-500 text-white shadow-md shadow-cyan-500/20'
+                      : 'bg-zinc-950/70 border-zinc-800/80 text-zinc-400 hover:border-zinc-700'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold">{opt.label}</span>
+                    <span className="text-[9px] font-mono text-cyan-400 font-bold">{opt.px}px</span>
+                  </div>
+                  <span className="text-[9px] text-zinc-500 block leading-tight mt-0.5">{opt.description}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Live Bubble Preview */}
+          <div className="p-3 bg-zinc-950/60 rounded-xl border border-zinc-800/80 space-y-2">
+            <span className="text-[10px] text-zinc-500 font-medium block">Live Bubble Preview:</span>
+            <div className="flex justify-end">
+              <div className={`p-2.5 rounded-2xl bg-cyan-600 text-white max-w-[85%] rounded-br-xs ${
+                CHAT_FONT_SIZE_OPTIONS.find((o) => o.id === chatFontSize)?.bubbleClass || 'text-xs'
+              }`}>
+                Can you explain on-device WebGPU matrix multiplication?
+              </div>
+            </div>
+            <div className="flex justify-start">
+              <div className={`p-2.5 rounded-2xl bg-zinc-900 border border-zinc-800 text-zinc-200 max-w-[85%] rounded-bl-xs ${
+                CHAT_FONT_SIZE_OPTIONS.find((o) => o.id === chatFontSize)?.bubbleClass || 'text-xs'
+              }`}>
+                Yes! WebGPU uses WGSL compute shaders directly on your mobile Adreno or Mali GPU cores.
+              </div>
+            </div>
           </div>
         </div>
 

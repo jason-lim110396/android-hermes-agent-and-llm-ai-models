@@ -103,6 +103,7 @@ import { isLowMemory, isCriticalMemoryPressure } from '@/utils/memoryGuard';
 import { subscribeThermalTelemetry, getThermalTelemetry, type ThermalTelemetry } from '@/utils/thermalGuard';
 import { copyToClipboardSafe, formatMessageForCopy } from '@/utils/clipboardGuard';
 import { calculateThroughputStats, formatThroughput } from '@/utils/tpsSampler';
+import { getChatFontSize, CHAT_FONT_SIZE_OPTIONS, type ChatFontSize } from '@/utils/fontSettings';
 
 // Isolated real-time hardware ticker: owns its 1.5s interval and the liveTps
 // store subscription, so the full ChatView tree no longer re-renders on every
@@ -439,6 +440,8 @@ export default function ChatView() {
   const [isNetworkSpeedOpen, setIsNetworkSpeedOpen] = useState(false);
   const [isNotepadOpen, setIsNotepadOpen] = useState(false);
   const [isQRCodeStudioOpen, setIsQRCodeStudioOpen] = useState(false);
+  const [chatFontSize] = useState<ChatFontSize>(() => getChatFontSize());
+  const activeFontSizeOption = CHAT_FONT_SIZE_OPTIONS.find((o) => o.id === chatFontSize) || CHAT_FONT_SIZE_OPTIONS[1];
 
   // AI Code Playground & Sandbox State
   const [isCodeSandboxOpen, setIsCodeSandboxOpen] = useState(false);
@@ -2803,13 +2806,13 @@ export default function ChatView() {
                         }
                       }}
                       title={!isUser ? 'Double-tap to save/bookmark this message' : undefined}
-                      className={`p-3 rounded-2xl text-xs leading-relaxed transition-all ${
+                      className={`p-3 rounded-2xl ${activeFontSizeOption.bubbleClass} transition-all ${
                         isUser
                           ? 'bg-cyan-600 text-white rounded-br-xs shadow-md'
                           : 'bg-zinc-900 border border-zinc-800 text-zinc-200 rounded-bl-xs shadow-md select-text'
                       }`}
                     >
-                      <div className="space-y-2 font-sans text-xs">
+                      <div className={`space-y-2 font-sans ${activeFontSizeOption.bubbleClass}`}>
                         {(() => {
                           const content = msg.content || (msg.isStreaming ? 'Thinking...' : '');
                           // If content has <think> ... </think> or unclosed <think>
