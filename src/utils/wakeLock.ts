@@ -3,30 +3,72 @@
 // screen, which suspends WebView JS timers and can corrupt long WebGPU/WASM
 // runs. Holding a screen wake lock keeps the generation alive.
 //
-// The API is missing in some WebViews and the lock is silently released by
-// the OS under some conditions (e.g. tab switch, battery saver), so this is
-// strictly best-effort: every failure is swallowed and the lock is simply
-// re-requested when the document becomes visible again.
+// Features:
+// - Automatic screen lock while heavy tasks run
+// - Low-battery safety cutoff (releases if battery <= 15% and discharging)
+// - User preference toggle persisted to localStorage ('hermes_wake_lock_enabled')
+// - Active state listener subscriptions
 
 type Sentinel = { released: boolean; release: () => Promise<void> };
 
 let activeSentinel: Sentinel | null = null;
 let releaseTimer: ReturnType<typeof setTimeout> | null = null;
-// Intent flag: true while heavy work wants the lock held, even if the grant
-// is still pending or was denied. Gates re-requests on intent, not possession.
 let holdDesired = false;
-// Monotonic id so a stale grant/reject (settling after a newer request or
-// after work ended) can be detected and never clobbers newer state.
 let requestId = 0;
+let isBatterySaverActive = false;
+let userPrefEnabled = true;
+
+const listeners = new Set<(active: boolean) => void>();
+
+function notifyListeners(): void {
+  const active = !!activeSentinel && !activeSentinel.released;
+  listeners.forEach((fn) => {
+    try {
+      fn(active);
+    } catch (_) {}
+  });
+}
+
+export function isWakeLockSupported(): boolean {
+  return typeof navigator !== 'undefined' && 'wakeLock' in navigator;
+}
+
+export function isWakeLockActive(): boolean {
+  return !!activeSentinel && !activeSentinel.released;
+}
+
+export function getWakeLockUserPreference(): boolean {
+  return userPrefEnabled;
+}
+
+export function setWakeLockUserPreference(enabled: boolean): void {
+  userPrefEnabled = enabled;
+  if (typeof window !== 'undefined') {
+    try {
+      window.localStorage.setItem('hermes_wake_lock_enabled', String(enabled));
+    } catch (_) {}
+  }
+  if (!enabled && activeSentinel) {
+    releaseWakeLockImmediate();
+  } else if (enabled && holdDesired) {
+    requestLock();
+  }
+}
+
+export function subscribeWakeLockState(listener: (active: boolean) => void): () => void {
+  listeners.add(listener);
+  listener(isWakeLockActive());
+  return () => {
+    listeners.delete(listener);
+  };
+}
 
 async function requestLock(): Promise<void> {
-  if (typeof navigator === 'undefined' || !('wakeLock' in navigator)) return;
+  if (!isWakeLockSupported() || !userPrefEnabled || isBatterySaverActive) return;
   const thisRequest = ++requestId;
   try {
     const granted: Sentinel = await (navigator as any).wakeLock.request('screen');
-    if (thisRequest !== requestId || !holdDesired) {
-      // Superseded by a newer request, or work ended while the grant was in
-      // flight: release immediately instead of leaking a live sentinel.
+    if (thisRequest !== requestId || !holdDesired || !userPrefEnabled || isBatterySaverActive) {
       if (!granted.released) {
         try {
           await granted.release();
@@ -35,22 +77,53 @@ async function requestLock(): Promise<void> {
       return;
     }
     activeSentinel = granted;
+    notifyListeners();
   } catch (_) {
-    // Denied (battery saver, unsupported WebView, document hidden).
-    if (thisRequest === requestId) activeSentinel = null;
+    if (thisRequest === requestId) {
+      activeSentinel = null;
+      notifyListeners();
+    }
   }
 }
 
 function handleVisibility(): void {
-  // Gate on intent, not possession: if the initial grant was denied, a
-  // foreground return retries it even though no sentinel is held.
-  if (document.visibilityState === 'visible' && holdDesired) {
+  if (document.visibilityState === 'visible' && holdDesired && userPrefEnabled && !isBatterySaverActive) {
     requestLock();
   }
 }
 
+async function releaseWakeLockImmediate(): Promise<void> {
+  const sentinel = activeSentinel;
+  activeSentinel = null;
+  notifyListeners();
+  if (sentinel && !sentinel.released) {
+    try {
+      await sentinel.release();
+    } catch (_) {}
+  }
+}
+
 if (typeof window !== 'undefined') {
+  try {
+    const saved = window.localStorage.getItem('hermes_wake_lock_enabled');
+    if (saved !== null) userPrefEnabled = saved === 'true';
+  } catch (_) {}
+
   window.addEventListener('visibilitychange', handleVisibility);
+
+  if (typeof navigator !== 'undefined' && 'getBattery' in navigator) {
+    (navigator as any).getBattery().then((battery: any) => {
+      const updateBattery = () => {
+        isBatterySaverActive = battery.level <= 0.15 && !battery.charging;
+        if (isBatterySaverActive && activeSentinel) {
+          releaseWakeLockImmediate();
+        }
+      };
+      updateBattery();
+      battery.addEventListener('levelchange', updateBattery);
+      battery.addEventListener('chargingchange', updateBattery);
+    }).catch(() => {});
+  }
 }
 
 /**
@@ -65,7 +138,9 @@ export function holdWakeLock(): void {
     clearTimeout(releaseTimer);
     releaseTimer = null;
   }
-  if (!activeSentinel) requestLock();
+  if (!activeSentinel && userPrefEnabled && !isBatterySaverActive) {
+    requestLock();
+  }
 }
 
 /** Release the wake lock a short grace period after the last call. */
@@ -75,12 +150,6 @@ export function releaseWakeLock(): void {
   releaseTimer = setTimeout(async () => {
     releaseTimer = null;
     holdDesired = false;
-    const sentinel = activeSentinel;
-    activeSentinel = null;
-    if (sentinel && !sentinel.released) {
-      try {
-        await sentinel.release();
-      } catch (_) {}
-    }
+    await releaseWakeLockImmediate();
   }, 2000);
 }

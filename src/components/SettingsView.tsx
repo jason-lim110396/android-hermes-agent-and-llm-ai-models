@@ -1,6 +1,12 @@
 'use client';
 
 import { triggerHaptic } from '@/utils/haptics';
+import {
+  getWakeLockUserPreference,
+  setWakeLockUserPreference,
+  subscribeWakeLockState,
+  isWakeLockActive,
+} from '@/utils/wakeLock';
 import React, { useEffect, useRef, useState } from 'react';
 import {
   Sliders,
@@ -116,6 +122,12 @@ export default function SettingsView() {
     }
     return 'cyber-dark';
   });
+  const [wakeLockEnabled, setWakeLockEnabled] = useState<boolean>(() => getWakeLockUserPreference());
+  const [wakeLockActive, setWakeLockActive] = useState<boolean>(() => isWakeLockActive());
+
+  useEffect(() => {
+    return subscribeWakeLockState(setWakeLockActive);
+  }, []);
 
   const handleSelectTheme = (themeId: string) => {
     setActiveTheme(themeId);
@@ -660,6 +672,43 @@ export default function SettingsView() {
                 </button>
               );
             })}
+          </div>
+        </div>
+
+        {/* SCREEN WAKE LOCK & DISPLAY PROTECTION */}
+        <div className="bg-gradient-to-br from-zinc-900 via-zinc-900/90 to-zinc-950 border border-zinc-800 rounded-2xl p-3.5 shadow-xl space-y-2.5">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Sun className="w-4 h-4 text-amber-400" />
+              <div>
+                <label className="text-xs font-bold text-white block">Keep Screen Awake During Tasks</label>
+                <p className="text-[10px] text-zinc-400">Prevents device sleep & WebView timer suspension during heavy inference and downloads</p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                const next = !wakeLockEnabled;
+                setWakeLockEnabled(next);
+                setWakeLockUserPreference(next);
+                triggerHaptic('light');
+              }}
+              role="switch"
+              aria-checked={wakeLockEnabled}
+              className={`w-11 h-6 flex items-center rounded-full p-1 transition-colors cursor-pointer shrink-0 ${
+                wakeLockEnabled ? 'bg-amber-500' : 'bg-zinc-800'
+              }`}
+            >
+              <div
+                className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform ${
+                  wakeLockEnabled ? 'translate-x-5' : 'translate-x-0'
+                }`}
+              />
+            </button>
+          </div>
+          <div className="flex items-center justify-between text-[10px] text-zinc-500 pt-1.5 border-t border-zinc-800/80 font-mono">
+            <span>Status: {wakeLockActive ? 'Active (Screen Lock Held)' : 'Idle / Inactive'}</span>
+            <span className="text-zinc-400">Safe Cutoff: &le; 15% Battery</span>
           </div>
         </div>
 
