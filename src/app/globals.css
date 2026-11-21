@@ -59,3 +59,20 @@ body {
 [data-theme="amoled-black"] main {
   background-color: #000000 !important;
 }
+
+html.high-contrast-mode {
+  --contrast-border: rgba(255, 255, 255, 0.4);
+}
+
+html.high-contrast-mode .border-zinc-800,
+html.high-contrast-mode .border-zinc-800\/80,
+html.high-contrast-mode .border-zinc-700 {
+  border-color: rgba(255, 255, 255, 0.35) !important;
+}
+
+html.high-contrast-mode button:focus-visible,
+html.high-contrast-mode input:focus-visible,
+html.high-contrast-mode textarea:focus-visible {
+  outline: 2px solid #06b6d4 !important;
+  outline-offset: 2px !important;
+}
