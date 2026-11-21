@@ -24,6 +24,8 @@ import {
 } from 'lucide-react';
 import { Attachment } from '@/appStore';
 import { useBackButtonClose } from '@/utils/backButton';
+import { isPermissionDeniedError } from '@/utils/nativeAppSettings';
+import PermissionDeniedNotice from './PermissionDeniedNotice';
 
 interface CameraModalProps {
   isOpen: boolean;
@@ -43,6 +45,10 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [capturedUrl, setCapturedUrl] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  // Set when getUserMedia failed because the permission is (permanently)
+  // denied: the native dialog pops on first use, but after a denial Android
+  // auto-denies silently - the only way out is the app's settings page.
+  const [permissionDenied, setPermissionDenied] = useState(false);
   const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment');
   const [torchEnabled, setTorchEnabled] = useState(false);
   const [hasTorch, setHasTorch] = useState(false);
@@ -148,6 +154,7 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
     // stuck behind the stale error, and every further Retry stacks another
     // live stream.
     setErrorMsg(null);
+    setPermissionDenied(false);
     stopCamera();
     const token = ++generationRef.current;
     try {
@@ -179,7 +186,15 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
         setHasTorch(false);
       }
     } catch (err: unknown) {
-      setErrorMsg(`Camera permission denied or camera unavailable: ${(err as Error).message}`);
+      if (isPermissionDeniedError(err)) {
+        // The native dialog already fired at this moment of use; a denial
+        // here means Android will no longer re-show it. Name the state and
+        // offer the settings page instead of a generic "unavailable".
+        setPermissionDenied(true);
+        setErrorMsg('Camera permission is denied.');
+        return;
+      }
+      setErrorMsg(`Camera unavailable: ${(err as Error).message}`);
     }
   };
 
@@ -421,14 +436,20 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
         {/* Viewport */}
         <div className="relative flex-1 bg-black flex items-center justify-center min-h-[320px] overflow-hidden">
           {errorMsg ? (
-            <div className="p-4 text-center">
-              <p className="text-xs text-rose-400 font-semibold mb-2">{errorMsg}</p>
-              <button
-                onClick={() => startCamera(facingMode)}
-                className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg text-xs"
-              >
-                Retry
-              </button>
+            <div className="p-4 text-center space-y-2">
+              {permissionDenied ? (
+                <PermissionDeniedNotice permissionName="Camera" onRetry={() => startCamera(facingMode)} />
+              ) : (
+                <>
+                  <p className="text-xs text-rose-400 font-semibold mb-2">{errorMsg}</p>
+                  <button
+                    onClick={() => startCamera(facingMode)}
+                    className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg text-xs cursor-pointer transition-colors"
+                  >
+                    Retry
+                  </button>
+                </>
+              )}
             </div>
           ) : capturedUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
