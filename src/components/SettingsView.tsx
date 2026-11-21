@@ -237,6 +237,28 @@ export default function SettingsView() {
     }
     return 'cyber-dark';
   });
+  const [highContrastMode, setHighContrastMode] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      return window.localStorage.getItem('hermes_high_contrast') === 'true';
+    }
+    return false;
+  });
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      document.documentElement.classList.toggle('high-contrast-mode', highContrastMode);
+    }
+  }, [highContrastMode]);
+
+  const handleToggleHighContrast = () => {
+    const next = !highContrastMode;
+    setHighContrastMode(next);
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem('hermes_high_contrast', String(next));
+      document.documentElement.classList.toggle('high-contrast-mode', next);
+    }
+    triggerHaptic(20);
+  };
   const [wakeLockEnabled, setWakeLockEnabled] = useState<boolean>(() => getWakeLockUserPreference());
   const [wakeLockActive, setWakeLockActive] = useState<boolean>(() => isWakeLockActive());
   const [hapticIntensity, setHapticIntensityState] = useState<HapticIntensity>(() => getHapticIntensity());
@@ -881,6 +903,30 @@ export default function SettingsView() {
                 </button>
               );
             })}
+          </div>
+
+          {/* High-Contrast UI Toggle */}
+          <div className="mt-3 pt-3 border-t border-zinc-800/80 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Eye className="w-4 h-4 text-cyan-400" />
+              <div>
+                <span className="text-xs font-bold text-zinc-200 block">High-Contrast Touch Borders & Focus Rings</span>
+                <span className="text-[10px] text-zinc-400 block">Enhances container boundaries and button outlines for direct sunlight & OLED readability</span>
+              </div>
+            </div>
+            <button
+              onClick={handleToggleHighContrast}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors cursor-pointer ${
+                highContrastMode ? 'bg-cyan-500' : 'bg-zinc-800'
+              }`}
+              title="Toggle High Contrast Mode"
+            >
+              <span
+                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                  highContrastMode ? 'translate-x-6' : 'translate-x-1'
+                }`}
+              />
+            </button>
           </div>
         </div>
 
