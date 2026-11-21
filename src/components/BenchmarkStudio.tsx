@@ -1,7 +1,7 @@
 'use client';
 
 import { triggerHaptic } from '@/utils/haptics';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Gauge,
   Zap,
@@ -25,8 +25,10 @@ import {
   Copy,
   Check,
   FileCode,
+  Square,
 } from 'lucide-react';
 import { useAppStore } from '@/appStore';
+import { updateThermalTelemetry } from '@/utils/thermalGuard';
 
 interface BenchmarkResult {
   gflops: number;
@@ -114,6 +116,8 @@ export default function BenchmarkStudio() {
   const [isBurnInRunning, setIsBurnInRunning] = useState(false);
   const [burnInDuration, setBurnInDuration] = useState<number>(10);
   const [burnInProgress, setBurnInProgress] = useState<number>(0);
+  const [burnInAbortedReason, setBurnInAbortedReason] = useState<string | null>(null);
+  const abortBurnInRef = useRef<boolean>(false);
   const [thermalPoints, setThermalPoints] = useState<
     Array<{ second: number; tempC: number; bandwidthGBs: number; gflops: number }>
   >(() => [
@@ -141,6 +145,8 @@ export default function BenchmarkStudio() {
     setIsBurnInRunning(true);
     setBurnInProgress(0);
     setBurnInSummary(null);
+    setBurnInAbortedReason(null);
+    abortBurnInRef.current = false;
 
     const baselineTemp = 32.5 + Math.random() * 2.0;
     const baseBandwidth = 46.0 + (hardwareProfile?.estimatedRamGB ? hardwareProfile.estimatedRamGB * 0.8 : 5.0) + Math.random() * 3.0;
@@ -149,8 +155,14 @@ export default function BenchmarkStudio() {
     const totalSteps = burnInDuration * 2;
     let curTemp = baselineTemp;
     let throttlingSec: number | null = null;
+    let wasAborted = false;
 
     for (let step = 0; step <= totalSteps; step++) {
+      if (abortBurnInRef.current) {
+        wasAborted = true;
+        break;
+      }
+
       const second = Math.round((step * 0.5) * 10) / 10;
 
       const buffer = new Float32Array(50000);
@@ -159,6 +171,19 @@ export default function BenchmarkStudio() {
       }
 
       curTemp += 0.35 + Math.random() * 0.25;
+
+      // Thermal safety emergency cutoff (>= 46.0°C)
+      if (curTemp >= 46.0) {
+        wasAborted = true;
+        setBurnInAbortedReason(`Thermal safety threshold exceeded (${curTemp.toFixed(1)}°C >= 46.0°C). Stress test auto-aborted to protect battery and SoC.`);
+        updateThermalTelemetry({
+          tempC: Math.round(curTemp * 10) / 10,
+          autoThrottleEnabled: true,
+        });
+        triggerHaptic([50, 100, 50]);
+        break;
+      }
+
       let throttlePenalty = 1.0;
       if (curTemp >= 42.0) {
         throttlePenalty = 0.88;
@@ -183,27 +208,38 @@ export default function BenchmarkStudio() {
       await new Promise((r) => setTimeout(r, 450));
     }
 
-    const peakTemp = Math.round(curTemp * 10) / 10;
-    const avgBandwidth = Math.round((points.reduce((a, b) => a + b.bandwidthGBs, 0) / points.length) * 10) / 10;
-    const sustainedScore = Math.round((points[points.length - 1].bandwidthGBs / points[0].bandwidthGBs) * 100);
+    if (points.length > 0) {
+      const peakTemp = Math.round(curTemp * 10) / 10;
+      const avgBandwidth = Math.round((points.reduce((a, b) => a + b.bandwidthGBs, 0) / points.length) * 10) / 10;
+      const sustainedScore = Math.round((points[points.length - 1].bandwidthGBs / points[0].bandwidthGBs) * 100);
 
-    const verdict = sustainedScore >= 95
-      ? 'Turbo Sustained (0% Thermal Throttling)'
-      : sustainedScore >= 85
-      ? 'Mild Governor Regulation (<15% Throttle)'
-      : 'Aggressive SoC Throttling (>20% Drop)';
+      const verdict = wasAborted
+        ? 'Burn-in Aborted Early (Safety Intercept)'
+        : sustainedScore >= 95
+        ? 'Turbo Sustained (0% Thermal Throttling)'
+        : sustainedScore >= 85
+        ? 'Mild Governor Regulation (<15% Throttle)'
+        : 'Aggressive SoC Throttling (>20% Drop)';
 
-    setBurnInSummary({
-      peakTempC: peakTemp,
-      baselineTempC: Math.round(baselineTemp * 10) / 10,
-      avgBandwidthGBs: avgBandwidth,
-      sustainedScorePct: sustainedScore,
-      throttlingOnsetSec: throttlingSec,
-      verdict,
-    });
+      setBurnInSummary({
+        peakTempC: peakTemp,
+        baselineTempC: Math.round(baselineTemp * 10) / 10,
+        avgBandwidthGBs: avgBandwidth,
+        sustainedScorePct: sustainedScore,
+        throttlingOnsetSec: throttlingSec,
+        verdict,
+      });
+    }
 
     setIsBurnInRunning(false);
     triggerHaptic([40, 60, 40]);
+  };
+
+  const handleAbortBurnIn = () => {
+    abortBurnInRef.current = true;
+    setBurnInAbortedReason('Burn-in stress test stopped manually by user.');
+    setIsBurnInRunning(false);
+    triggerHaptic([30, 40]);
   };
 
   const handleExportThermalReport = () => {
@@ -1130,6 +1166,17 @@ export default function BenchmarkStudio() {
             </div>
           )}
 
+          {/* Abort Banner */}
+          {burnInAbortedReason && (
+            <div className="p-3 rounded-xl bg-rose-950/40 border border-rose-800/80 flex items-start gap-2.5 text-xs text-rose-300">
+              <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+              <div className="flex-1 leading-relaxed">
+                <span className="font-bold text-rose-200 block">Burn-in Interrupted</span>
+                {burnInAbortedReason}
+              </div>
+            </div>
+          )}
+
           {/* Verdict Banner */}
           {burnInSummary && (
             <div className="p-3 rounded-xl bg-zinc-950/90 border border-zinc-700/80 flex items-center justify-between">
@@ -1148,19 +1195,28 @@ export default function BenchmarkStudio() {
 
           {/* Action Buttons */}
           <div className="flex items-center gap-2 pt-1">
-            <button
-              onClick={handleRunBurnInStressTest}
-              disabled={isBurnInRunning}
-              className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-amber-600 via-orange-600 to-rose-600 hover:from-amber-500 hover:to-rose-500 disabled:opacity-40 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-orange-600/20 transition-all cursor-pointer"
-            >
-              <Flame className="w-4 h-4 fill-white" />
-              <span>{isBurnInRunning ? 'Soaking GPU & Memory...' : `Start ${burnInDuration}s Sustained Burn-In`}</span>
-            </button>
+            {isBurnInRunning ? (
+              <button
+                onClick={handleAbortBurnIn}
+                className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-rose-600/30 transition-all cursor-pointer animate-pulse"
+              >
+                <Square className="w-4 h-4 fill-white" />
+                <span>Emergency Abort Stress Test</span>
+              </button>
+            ) : (
+              <button
+                onClick={handleRunBurnInStressTest}
+                className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-amber-600 via-orange-600 to-rose-600 hover:from-amber-500 hover:to-rose-500 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-orange-600/20 transition-all cursor-pointer"
+              >
+                <Flame className="w-4 h-4 fill-white" />
+                <span>{`Start ${burnInDuration}s Sustained Burn-In`}</span>
+              </button>
+            )}
 
             <button
               onClick={handleExportThermalReport}
               disabled={isBurnInRunning}
-              className="px-3 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+              className="px-3 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-40"
             >
               {isExportedThermal ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Download className="w-3.5 h-3.5 text-cyan-400" />}
               <span>{isExportedThermal ? 'Exported!' : 'Export JSON'}</span>
