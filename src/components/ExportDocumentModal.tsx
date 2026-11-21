@@ -218,10 +218,28 @@ export default function ExportDocumentModal({
   const handleShare = async () => {
     if (typeof navigator !== 'undefined' && navigator.share) {
       try {
-        await navigator.share({
-          title,
-          text: content.slice(0, 4000), // Android share text limit safe guard
-        });
+        const fileName = `${title.replace(/[^a-zA-Z0-9_-]/g, '_')}_${Date.now()}.${extension}`;
+        let fileShared = false;
+        if (typeof File !== 'undefined' && navigator.canShare) {
+          try {
+            const file = new File([content], fileName, { type: mimeType });
+            if (navigator.canShare({ files: [file] })) {
+              await navigator.share({
+                title,
+                files: [file],
+              });
+              fileShared = true;
+            }
+          } catch (_) {
+            fileShared = false;
+          }
+        }
+        if (!fileShared) {
+          await navigator.share({
+            title,
+            text: content.slice(0, 4000), // Android share text limit safe guard
+          });
+        }
         setShared(true);
         setTimeout(() => setShared(false), 2000);
         triggerHaptic([20, 20]);
