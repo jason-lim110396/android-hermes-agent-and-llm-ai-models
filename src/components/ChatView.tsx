@@ -69,7 +69,7 @@ import {
   ArrowRightLeft,
   ExternalLink,
 } from 'lucide-react';
-import { useAppStore, Attachment, ChatMessage } from '@/appStore';
+import { useAppStore, Attachment, ChatMessage, isErrorDisplayMessage } from '@/appStore';
 import { AVAILABLE_MODELS, ModelSpec } from '@/models';
 import { startVisibleInterval } from '@/utils/visibleInterval';
 import { isOversizedImage, downsampleImageFile } from '@/utils/imageOptimizer';
@@ -1598,7 +1598,7 @@ export default function ChatView() {
     const msgs = session.messages || [];
     const failedIdx = msgs.findIndex((m) => m.id === failedMsgId);
     if (failedIdx <= 0) return;
-    let userMsgToRetry = null;
+    let userMsgToRetry: ChatMessage | null = null;
     for (let i = failedIdx - 1; i >= 0; i--) {
       if (msgs[i].role === 'user') {
         userMsgToRetry = msgs[i];
@@ -1606,7 +1606,9 @@ export default function ChatView() {
       }
     }
     if (!userMsgToRetry) return;
-    const updatedMessages = msgs.filter((m) => m.id !== failedMsgId);
+    // Strip both the failed/target assistant response and the prior user prompt
+    // so retry/regenerate never duplicates user messages in chat history or LLM context.
+    const updatedMessages = msgs.filter((m) => m.id !== failedMsgId && m.id !== userMsgToRetry!.id);
     if (operatingMode === 'agent') {
       useAppStore.setState((s) => ({
         agentSessions: {
@@ -1621,6 +1623,10 @@ export default function ChatView() {
           [activeChatSessionId]: { ...session, messages: updatedMessages },
         },
       }));
+    }
+    // Restore attachments if any were attached to the original user message
+    if (userMsgToRetry.attachments && userMsgToRetry.attachments.length > 0) {
+      useAppStore.setState({ pendingAttachments: [...userMsgToRetry.attachments] });
     }
     triggerHaptic(20);
     sendMessage(userMsgToRetry.content);
@@ -2941,8 +2947,8 @@ export default function ChatView() {
                       )}
                     </button>
 
-                    {/* Retry Button on failed generation */}
-                    {msg.content.includes('*[Generation failed:') && !msg.isStreaming && (
+                    {/* Retry Button on failed generation or on-device error */}
+                    {(msg.content.includes('*[Generation failed:') || isErrorDisplayMessage(msg.content)) && !msg.isStreaming && (
                       <button
                         onClick={() => handleRetryMessage(msg.id)}
                         title="Retry generating response"
@@ -2950,6 +2956,18 @@ export default function ChatView() {
                       >
                         <RotateCcw className="w-3 h-3 text-rose-400" />
                         <span>Retry</span>
+                      </button>
+                    )}
+
+                    {/* Regenerate Button on the latest completed assistant message */}
+                    {!isGenerating && !msg.isStreaming && msg.id === lastAssistantId && !msg.content.includes('*[Generation failed:') && !isErrorDisplayMessage(msg.content) && (
+                      <button
+                        onClick={() => handleRetryMessage(msg.id)}
+                        title="Regenerate this response"
+                        className="flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-medium bg-zinc-900/80 hover:bg-zinc-800 text-zinc-400 hover:text-white border border-zinc-800/80 transition-all cursor-pointer"
+                      >
+                        <RotateCcw className="w-3 h-3 text-amber-400" />
+                        <span>Regenerate</span>
                       </button>
                     )}
 
