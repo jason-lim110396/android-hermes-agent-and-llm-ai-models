@@ -188,9 +188,34 @@ interface AppStore {
 // Free-first failover: the primary endpoint, then the persisted chain.
 function resolveFallbackConfig(get: () => AppStore) {
   const chain = get().modelFallbackEnabled ? get().modelFallbackChain : [];
+  // The shipped $0 presets (and most user-added free models) live on the same
+  // provider as the primary endpoint - e.g. OpenRouter's `:free` models share
+  // https://openrouter.ai/api/v1. Those presets are stored without a key (keys
+  // are session-only, see saveFallbackSettings), so sending them unauthenticated
+  // earns a 401, which the chain skips, and a paid->free 429 fallback collapses
+  // into an on-device weight download. Reuse the primary session key for
+  // same-origin chain entries. It never leaves this session and is never
+  // persisted, so this adds no storage or privacy exposure.
+  let primaryOrigin = '';
+  try {
+    const ep = get().apiEndpoint && get().apiEndpoint.trim();
+    if (ep) primaryOrigin = new URL(ep).origin;
+  } catch (_) {}
   const fallbacks = chain
     .filter((e) => e && e.endpoint && e.endpoint.trim())
-    .map((e) => ({ label: e.label || e.endpoint, endpoint: e.endpoint, apiKey: e.apiKey, model: e.model }));
+    .map((e) => {
+      let sameProvider = false;
+      try {
+        sameProvider = !!primaryOrigin && new URL(e.endpoint).origin === primaryOrigin;
+      } catch (_) {}
+      return {
+        label: e.label || e.endpoint,
+        endpoint: e.endpoint,
+        // An explicitly set chain key still wins; inherit only when absent.
+        apiKey: e.apiKey || (sameProvider ? get().apiKey || undefined : undefined),
+        model: e.model,
+      };
+    });
   const onFallback = (info: { from: string; to: string; reason: string }) => {
     get().setFallbackNotice(`Remote model unavailable: ${info.from} - ${info.reason}. Switched to ${info.to}.`);
   };
