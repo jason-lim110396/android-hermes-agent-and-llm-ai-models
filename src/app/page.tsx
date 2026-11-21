@@ -20,6 +20,7 @@ import { useAppStore, NavigationTab } from '@/appStore';
 import { holdWakeLock, releaseWakeLock } from '@/utils/wakeLock';
 import { initAndroidBackButton } from '@/utils/backButton';
 import { startVisibleInterval } from '@/utils/visibleInterval';
+import { startProactiveMemoryWatcher } from '@/utils/memoryGuard';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import ChatView from '@/components/ChatView';
 import ModelHub from '@/components/ModelHub';
@@ -86,6 +87,7 @@ export default function Home() {
     refreshHardwareProfile();
     checkCacheStatus();
     restorePersistedSessions();
+    const stopWatcher = startProactiveMemoryWatcher();
     // Android hardware back: close the top-most modal first (wired per
     // modal via useBackButtonClose), exit only when nothing is open.
     initAndroidBackButton();
@@ -97,10 +99,14 @@ export default function Home() {
       window.addEventListener('online', handleOnline);
       window.addEventListener('offline', handleOffline);
       return () => {
+        stopWatcher();
         window.removeEventListener('online', handleOnline);
         window.removeEventListener('offline', handleOffline);
       };
     }
+    return () => {
+      stopWatcher();
+    };
   }, [refreshHardwareProfile, checkCacheStatus, restorePersistedSessions]);
 
   const studioTabs: { id: NavigationTab; label: string; icon: any; color: string }[] = [

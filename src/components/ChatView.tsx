@@ -101,6 +101,7 @@ import { useBackButtonClose } from '@/utils/backButton';
 import MarkdownNotepadModal from './MarkdownNotepadModal';
 import QRCodeStudioModal from './QRCodeStudioModal';
 import { isLowMemory, isCriticalMemoryPressure } from '@/utils/memoryGuard';
+import { flushPersistNow } from '@/utils/sessionPersistence';
 import { subscribeThermalTelemetry, getThermalTelemetry, type ThermalTelemetry } from '@/utils/thermalGuard';
 import { copyToClipboardSafe, formatMessageForCopy } from '@/utils/clipboardGuard';
 import { calculateThroughputStats, formatThroughput } from '@/utils/tpsSampler';
@@ -1160,6 +1161,20 @@ export default function ChatView() {
         try { audio.src = ''; } catch (_) {}
         audioPlayerRef.current = null;
       }
+    };
+  }, []);
+
+  // Cooperative memory cleanup listener: on backgrounding or memory pressure spikes,
+  // shed historical DOM elements back to compact window, clean visualizers, and flush persistence.
+  React.useEffect(() => {
+    const handleMemoryCleanup = () => {
+      setMessagesWindowLimit(20);
+      cleanupAudioVisualizer();
+      flushPersistNow();
+    };
+    window.addEventListener('hermes:memory-cleanup', handleMemoryCleanup);
+    return () => {
+      window.removeEventListener('hermes:memory-cleanup', handleMemoryCleanup);
     };
   }, []);
 

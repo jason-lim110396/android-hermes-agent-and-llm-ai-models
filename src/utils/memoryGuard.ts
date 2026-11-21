@@ -150,3 +150,39 @@ export function triggerMemoryCleanupHint(): void {
     }
   }
 }
+
+let memoryWatcherTimer: ReturnType<typeof setInterval> | null = null;
+let lastCleanupTriggerTime = 0;
+
+/**
+ * Proactively checks JS heap memory pressure every 15s. If usageRatio >= 0.85
+ * (or device memory <= 4GB and heap ratio >= 0.75), triggers cooperative cleanup
+ * to prevent Android WebView Out-Of-Memory process termination.
+ */
+export function startProactiveMemoryWatcher(): () => void {
+  if (typeof window === 'undefined') return () => {};
+  if (memoryWatcherTimer) return () => {};
+
+  memoryWatcherTimer = setInterval(() => {
+    const stats = getHeapMemoryStats();
+    if (!stats) return;
+    const now = Date.now();
+    // Prevent triggering more than once every 30 seconds
+    if (now - lastCleanupTriggerTime < 30_000) return;
+
+    if (stats.usageRatio >= 0.85 || (isLowMemory() && stats.usageRatio >= 0.75)) {
+      console.warn(
+        `[MemoryGuard] Critical heap pressure detected (${Math.round(stats.usageRatio * 100)}% of limit). Triggering proactive memory trim.`
+      );
+      lastCleanupTriggerTime = now;
+      triggerMemoryCleanupHint();
+    }
+  }, 15_000);
+
+  return () => {
+    if (memoryWatcherTimer) {
+      clearInterval(memoryWatcherTimer);
+      memoryWatcherTimer = null;
+    }
+  };
+}
