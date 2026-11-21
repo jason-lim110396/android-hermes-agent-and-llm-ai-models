@@ -334,7 +334,11 @@ export default function FileSearchStudio() {
       sizeBytes: 1024 * 100,
       textContent: `File Summary: ${file.summary}\nLocation: ${file.path}`,
     };
-    addAttachment(attachment);
+    if (!addAttachment(attachment)) {
+      // Never claim to analyze a file that was refused by the attachment cap.
+      alert('Attachment limit reached (10 files or 12 MB). Send or clear the current batch first.');
+      return;
+    }
     sendMessage(`Please inspect and analyze this local file: ${file.name} (${file.path}). Key summary: ${file.summary}`);
     setCurrentTab('chat');
   };
