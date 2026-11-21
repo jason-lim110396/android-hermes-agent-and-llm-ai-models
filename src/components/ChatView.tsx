@@ -12,6 +12,7 @@ import {
   Flame,
   CheckCircle2,
   Check,
+  CornerUpLeft,
   ChevronDown,
   ChevronUp,
   X,
@@ -65,7 +66,7 @@ import {
   QrCode,
   ArrowRightLeft,
 } from 'lucide-react';
-import { useAppStore, Attachment } from '@/appStore';
+import { useAppStore, Attachment, ChatMessage } from '@/appStore';
 import { AVAILABLE_MODELS, ModelSpec } from '@/models';
 import { startVisibleInterval } from '@/utils/visibleInterval';
 import { isOversizedImage, downsampleImageFile } from '@/utils/imageOptimizer';
@@ -320,6 +321,25 @@ export default function ChatView() {
   // AI Code Playground & Sandbox State
   const [isCodeSandboxOpen, setIsCodeSandboxOpen] = useState(false);
   const [sandboxInitialCode, setSandboxInitialCode] = useState<string>('');
+
+  // Quote-Reply Interaction State
+  const [quotedMessage, setQuotedMessage] = useState<{
+    id: string;
+    role: 'user' | 'assistant' | 'system';
+    senderName: string;
+    snippet: string;
+  } | null>(null);
+
+  const handleQuoteMessage = (msg: ChatMessage) => {
+    triggerHaptic(20);
+    const snippet = msg.content.length > 140 ? msg.content.slice(0, 140) + '...' : msg.content;
+    setQuotedMessage({
+      id: msg.id,
+      role: msg.role,
+      senderName: msg.role === 'user' ? 'You' : msg.modelUsed || 'Hermes AI',
+      snippet,
+    });
+  };
 
   const handleRunInSandbox = (text: string) => {
     const match = text.match(/```(?:html|javascript|js|css|svg)?\s*([\s\S]*?)```/);
@@ -1275,7 +1295,12 @@ export default function ChatView() {
       setUploadError('You are currently offline. Please switch to a downloaded on-device model or connect to Wi-Fi/cellular.');
       return;
     }
-    const text = inputVal;
+    let text = inputVal;
+    if (quotedMessage) {
+      const cleanSnippet = quotedMessage.snippet.replace(/\n+/g, ' ');
+      text = `> **${quotedMessage.senderName}**: "${cleanSnippet}"\n\n${text}`;
+      setQuotedMessage(null);
+    }
     setInputVal('');
     sendMessage(text);
   };
@@ -2498,6 +2523,17 @@ export default function ChatView() {
                       </button>
                     )}
 
+                    {/* Quote / Reply Message */}
+                    <button
+                      type="button"
+                      onClick={() => handleQuoteMessage(msg)}
+                      title="Quote and reply to this insight"
+                      className="flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-medium bg-zinc-900/80 hover:bg-zinc-800 text-zinc-400 hover:text-white border border-zinc-800/80 transition-all cursor-pointer"
+                    >
+                      <CornerUpLeft className="w-3 h-3 text-cyan-400" />
+                      <span>Reply</span>
+                    </button>
+
                     {/* Copy Message with Multi-Format Options */}
                     <div className="relative inline-flex items-center">
                       <button
@@ -2619,6 +2655,39 @@ export default function ChatView() {
                     >
                       <Star className={`w-3 h-3 ${starredMessageIds.includes(msg.id) ? 'fill-current text-amber-400' : ''}`} />
                       <span>{starredMessageIds.includes(msg.id) ? 'Saved' : 'Save'}</span>
+                    </button>
+                  </div>
+                )}
+
+                {/* User Message Quick Actions */}
+                {isUser && (
+                  <div className="flex items-center justify-end gap-1.5 mt-1 px-1">
+                    <button
+                      type="button"
+                      onClick={() => handleQuoteMessage(msg)}
+                      title="Quote your message"
+                      className="flex items-center gap-1 text-[10px] text-zinc-400 hover:text-cyan-300 px-2 py-0.5 rounded-lg bg-zinc-900/60 border border-zinc-800/60 hover:bg-zinc-800 transition-colors cursor-pointer"
+                    >
+                      <CornerUpLeft className="w-3 h-3 text-cyan-400" />
+                      <span>Quote</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleCopyMessage(msg.id, msg.content)}
+                      title="Copy message"
+                      className="flex items-center gap-1 text-[10px] text-zinc-400 hover:text-white px-2 py-0.5 rounded-lg bg-zinc-900/60 border border-zinc-800/60 hover:bg-zinc-800 transition-colors cursor-pointer"
+                    >
+                      {copiedMessageId === msg.id ? (
+                        <>
+                          <Check className="w-3 h-3 text-emerald-400" />
+                          <span className="text-emerald-400 font-bold">Copied</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-3 h-3" />
+                          <span>Copy</span>
+                        </>
+                      )}
                     </button>
                   </div>
                 )}
@@ -2987,6 +3056,35 @@ export default function ChatView() {
             onRetry={startWhatsAppVoiceRecording}
             onDismiss={() => setMicPermissionDenied(false)}
           />
+        )}
+
+        {/* Quote-Reply Preview Card */}
+        {quotedMessage && !isRecordingVoice && (
+          <div className="flex items-center justify-between gap-2 px-3 py-1.5 bg-zinc-900 border border-cyan-500/40 rounded-xl mb-1 text-xs shadow-lg animate-in fade-in duration-150">
+            <div className="flex items-center gap-2 overflow-hidden flex-1">
+              <div className="w-1 h-7 bg-cyan-400 rounded-full shrink-0" />
+              <div className="overflow-hidden flex-1 leading-tight">
+                <span className="text-[10px] font-bold text-cyan-300 flex items-center gap-1">
+                  <CornerUpLeft className="w-3 h-3 text-cyan-400" />
+                  <span>Replying to {quotedMessage.senderName}</span>
+                </span>
+                <span className="text-[11px] text-zinc-300 truncate block mt-0.5">
+                  {quotedMessage.snippet}
+                </span>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                triggerHaptic(10);
+                setQuotedMessage(null);
+              }}
+              className="p-1 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors cursor-pointer"
+              aria-label="Dismiss reply quote"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
         )}
 
         {isRecordingVoice ? (
