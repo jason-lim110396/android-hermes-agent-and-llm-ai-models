@@ -7,6 +7,7 @@
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
+        android:usesCleartextTraffic="true"
         android:theme="@style/AppTheme">
 
         <activity
@@ -37,8 +38,15 @@
     </application>
 
     <!-- Permissions -->
-
+    <!-- The web app uses every one of these capabilities. Capacitor denies a
+         WebView request for anything the manifest does not declare, which is
+         why camera capture, GPS fixes and haptic feedback worked in desktop
+         browsers but silently failed on the installed APK. -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 </manifest>

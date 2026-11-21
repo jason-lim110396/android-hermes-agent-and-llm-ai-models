@@ -9,22 +9,37 @@ import com.getcapacitor.BridgeActivity;
 
 public class MainActivity extends BridgeActivity {
 
-    private static final int PERMISSION_REQ_RECORD_AUDIO = 101;
+    private static final int PERMISSION_REQ_DEVICE_FEATURES = 101;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        checkAudioPermission();
+        checkDeviceFeaturePermissions();
     }
 
-    private void checkAudioPermission() {
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
-                != PackageManager.PERMISSION_GRANTED) {
-            ActivityCompat.requestPermissions(
-                this,
-                new String[]{Manifest.permission.RECORD_AUDIO},
-                PERMISSION_REQ_RECORD_AUDIO
-            );
+    /**
+     * Capacitor denies WebView capability requests for permissions the app has
+     * not been granted, so the camera preview, GPS fixes and haptic feedback
+     * silently failed on the installed APK while working in desktop browsers.
+     * Request them up front, in one prompt, alongside the microphone.
+     */
+    private void checkDeviceFeaturePermissions() {
+        String[] wanted = new String[] {
+            Manifest.permission.RECORD_AUDIO,
+            Manifest.permission.CAMERA,
+            Manifest.permission.ACCESS_FINE_LOCATION,
+            Manifest.permission.ACCESS_COARSE_LOCATION,
+        };
+        boolean missing = false;
+        for (String permission : wanted) {
+            if (ContextCompat.checkSelfPermission(this, permission)
+                    != PackageManager.PERMISSION_GRANTED) {
+                missing = true;
+                break;
+            }
+        }
+        if (missing) {
+            ActivityCompat.requestPermissions(this, wanted, PERMISSION_REQ_DEVICE_FEATURES);
         }
     }
 }
