@@ -384,12 +384,17 @@ export default function ModelHub() {
           </div>
         )}
 
-        {hardwareProfile && hardwareProfile.storageEstimateGB.available < 3 && (
+        {hardwareProfile && hardwareProfile.storageEstimateGB.available < 1.5 ? (
+          <div className="p-2 mt-1.5 rounded-xl bg-rose-500/15 border border-rose-500/40 text-rose-200 text-[10px] font-semibold flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 shrink-0 text-rose-400 animate-pulse" />
+            <span>Critical Storage Warning: Only {hardwareProfile.storageEstimateGB.available} GB left. Large model downloads may be refused or aborted by Android.</span>
+          </div>
+        ) : hardwareProfile && hardwareProfile.storageEstimateGB.available < 3.5 ? (
           <div className="p-1.5 mt-1 rounded bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[10px] font-medium flex items-center gap-1.5">
             <AlertTriangle className="w-3 h-3 shrink-0 text-amber-400" />
-            <span>Low phone storage ({hardwareProfile.storageEstimateGB.available} GB left). Tap "Smart Purge Unused" to release space.</span>
+            <span>Low phone storage ({hardwareProfile.storageEstimateGB.available} GB left). Tap &quot;Smart Purge Unused&quot; to release space.</span>
           </div>
-        )}
+        ) : null}
       </div>
 
       {/* Network Traffic & Shard Resumer Card */}
@@ -726,6 +731,12 @@ export default function ModelHub() {
                       <div className="flex items-start gap-1.5 px-2 py-1.5 rounded-lg bg-rose-950/40 border border-rose-800/50 text-rose-300 text-[10px] mb-2 leading-relaxed">
                         <AlertTriangle className="w-3 h-3 text-rose-400 shrink-0 mt-0.5" />
                         <span>{dlState.errorMessage}</span>
+                      </div>
+                    )}
+                    {hardwareProfile && hardwareProfile.storageEstimateGB.available * 1024 < model.sizeMB && (
+                      <div className="flex items-center gap-1 text-[9px] text-amber-400 font-medium mb-1.5">
+                        <AlertTriangle className="w-3 h-3 text-amber-400 shrink-0" />
+                        <span>Insufficient free space ({hardwareProfile.storageEstimateGB.available} GB free &lt; {(model.sizeMB / 1024).toFixed(1)} GB required)</span>
                       </div>
                     )}
                     <div className="flex items-center justify-between">
