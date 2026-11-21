@@ -1,6 +1,11 @@
 'use client';
 
-import { triggerHaptic } from '@/utils/haptics';
+import {
+  triggerHaptic,
+  getHapticIntensity,
+  setHapticIntensity,
+  type HapticIntensity,
+} from '@/utils/haptics';
 import {
   getWakeLockUserPreference,
   setWakeLockUserPreference,
@@ -31,6 +36,7 @@ import {
   Radio,
   Sun,
   Moon,
+  Vibrate,
   Palette,
   Bell,
   BellRing,
@@ -124,6 +130,7 @@ export default function SettingsView() {
   });
   const [wakeLockEnabled, setWakeLockEnabled] = useState<boolean>(() => getWakeLockUserPreference());
   const [wakeLockActive, setWakeLockActive] = useState<boolean>(() => isWakeLockActive());
+  const [hapticIntensity, setHapticIntensityState] = useState<HapticIntensity>(() => getHapticIntensity());
 
   useEffect(() => {
     return subscribeWakeLockState(setWakeLockActive);
@@ -709,6 +716,56 @@ export default function SettingsView() {
           <div className="flex items-center justify-between text-[10px] text-zinc-500 pt-1.5 border-t border-zinc-800/80 font-mono">
             <span>Status: {wakeLockActive ? 'Active (Screen Lock Held)' : 'Idle / Inactive'}</span>
             <span className="text-zinc-400">Safe Cutoff: &le; 15% Battery</span>
+          </div>
+        </div>
+
+        {/* Tactile Haptics & Motor Vibration Intensity */}
+        <div className="bg-zinc-900/60 border border-zinc-800 rounded-2xl p-3.5 space-y-2.5">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Vibrate className="w-4 h-4 text-cyan-400" />
+              <div>
+                <label className="text-xs font-bold text-white block">Tactile Haptics & Vibration Engine</label>
+                <p className="text-[10px] text-zinc-400">Controls physical motor feedback strength across taps, toggles, and completed inference</p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                triggerHaptic('success');
+              }}
+              disabled={hapticIntensity === 'off'}
+              className="px-2.5 py-1 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white text-[10px] font-semibold border border-zinc-700/60 transition-all cursor-pointer disabled:opacity-40"
+              title="Test current haptic feedback"
+            >
+              Test Tap
+            </button>
+          </div>
+
+          <div className="grid grid-cols-5 gap-1.5 pt-1">
+            {(['off', 'subtle', 'crisp', 'normal', 'heavy'] as const).map((level) => {
+              const isActive = hapticIntensity === level;
+              return (
+                <button
+                  key={level}
+                  type="button"
+                  onClick={() => {
+                    setHapticIntensityState(level);
+                    setHapticIntensity(level);
+                    if (level !== 'off') {
+                      triggerHaptic('medium');
+                    }
+                  }}
+                  className={`py-1.5 px-1 rounded-xl text-xs font-semibold capitalize text-center transition-all cursor-pointer border ${
+                    isActive
+                      ? 'bg-cyan-500 text-black border-cyan-400 font-bold shadow-md shadow-cyan-500/20'
+                      : 'bg-zinc-950/80 text-zinc-400 border-zinc-800/80 hover:text-zinc-200'
+                  }`}
+                >
+                  {level}
+                </button>
+              );
+            })}
           </div>
         </div>
 
