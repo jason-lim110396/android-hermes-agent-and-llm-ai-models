@@ -3834,6 +3834,14 @@ export default function ChatView() {
                 rows={1}
                 className="w-full bg-transparent text-xs text-white placeholder-zinc-500 resize-none py-1.5 px-1 focus:outline-none max-h-28"
               />
+              {inputVal.trim().length > 15 && (
+                <div className="flex items-center justify-between px-1 pb-0.5 text-[9px] font-mono text-zinc-500 select-none">
+                  <span>{inputVal.length} chars • ~{Math.ceil(inputVal.length / 4)} tokens</span>
+                  {inputVal.length > 800 && (
+                    <span className="text-amber-400 font-sans">Long input</span>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* WhatsApp-Style Push-to-Talk Microphone Button */}
