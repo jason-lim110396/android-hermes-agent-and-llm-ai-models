@@ -278,22 +278,26 @@ let activeMLCEngine: MLCEngine | null = null;
 let currentLoadedModelId: string | null = null;
 
 // Mutex: prevents concurrent engine init/unload races that cause GPUBuffer mapAsync crashes
+//
+// Each acquisition enqueues its OWN resolver. A single global "current resolver"
+// slot is not enough: with A, B, C queued, A's release would resolve C's promise
+// and leave B and C waiting forever (a permanent stuck "generating" state, and
+// a window where two engine loads can overlap and OOM the WebView). A FIFO of
+// resolvers pairs every acquire with exactly one release, in call order.
 let engineInitLock: Promise<void> = Promise.resolve();
-let engineInitLockResolve: (() => void) | null = null;
+const engineInitLockQueue: Array<() => void> = [];
 
 function acquireEngineInitLock(): Promise<void> {
   const prev = engineInitLock;
   let resolve!: () => void;
   engineInitLock = new Promise<void>((r) => { resolve = r; });
-  engineInitLockResolve = resolve;
+  engineInitLockQueue.push(resolve);
   return prev;
 }
 
 function releaseEngineInitLock(): void {
-  if (engineInitLockResolve) {
-    engineInitLockResolve();
-    engineInitLockResolve = null;
-  }
+  const resolve = engineInitLockQueue.shift();
+  if (resolve) resolve();
 }
 
 // Global In-Flight Abort Controller for LLM inference & synthetic generation
