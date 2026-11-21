@@ -19,6 +19,7 @@ import {
 import { useAppStore, NavigationTab } from '@/appStore';
 import { holdWakeLock, releaseWakeLock } from '@/utils/wakeLock';
 import { initAndroidBackButton } from '@/utils/backButton';
+import { startVisibleInterval } from '@/utils/visibleInterval';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import ChatView from '@/components/ChatView';
 import ModelHub from '@/components/ModelHub';
@@ -58,6 +59,28 @@ export default function Home() {
 
   // Run hardware detection and check cached models automatically on mount
   const [isOnline, setIsOnline] = React.useState(true);
+  const [rttMs, setRttMs] = React.useState<number | null>(null);
+  const [effectiveType, setEffectiveType] = React.useState<string | null>(null);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const updateNetworkTelemetry = () => {
+      const conn = (navigator as any).connection;
+      if (conn) {
+        if (typeof conn.rtt === 'number' && conn.rtt > 0) {
+          setRttMs(conn.rtt);
+        }
+        if (conn.effectiveType) {
+          setEffectiveType(conn.effectiveType);
+        }
+      }
+    };
+
+    updateNetworkTelemetry();
+    const cancelInterval = startVisibleInterval(updateNetworkTelemetry, 5000);
+    return () => cancelInterval();
+  }, [isOnline]);
 
   useEffect(() => {
     refreshHardwareProfile();
@@ -121,11 +144,19 @@ export default function Home() {
           );
         })}
 
-        {/* Offline Sovereign Badge */}
-        {!isOnline && (
+        {/* Network & Connectivity Status Pill */}
+        {!isOnline ? (
           <div className="ml-auto flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-950/80 border border-emerald-500/40 text-emerald-300 text-[10px] font-mono shrink-0 font-bold shadow-md">
             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
             <span>100% Offline Mode</span>
+          </div>
+        ) : (
+          <div className="ml-auto flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-zinc-900/90 border border-zinc-800/80 text-[10px] font-mono shrink-0 shadow-sm">
+            <span className={`w-1.5 h-1.5 rounded-full ${rttMs && rttMs > 150 ? 'bg-amber-400' : 'bg-emerald-400 animate-pulse'}`} />
+            <span className="text-zinc-300 font-bold">{effectiveType ? effectiveType.toUpperCase() : 'ONLINE'}</span>
+            {rttMs !== null && (
+              <span className="text-zinc-500 font-mono text-[9px]">{rttMs}ms</span>
+            )}
           </div>
         )}
       </header>
