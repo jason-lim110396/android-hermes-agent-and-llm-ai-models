@@ -33,6 +33,7 @@ import {
   Plus,
   Layers,
   Copy,
+  RefreshCw,
   ArrowRight,
   Download,
   Cpu,
@@ -803,6 +804,65 @@ export default function ChatView() {
     const fitsGpu = m.engine === 'cpu-wasm' || !hardwareProfile || hardwareProfile.hasWebGpu;
     return fitsRam && fitsGpu;
   });
+
+  const [isCheckingConnection, setIsCheckingConnection] = useState(false);
+
+  const handleRetryConnection = async () => {
+    setIsCheckingConnection(true);
+    triggerHaptic(15);
+    try {
+      let isUp = typeof navigator !== 'undefined' ? navigator.onLine : false;
+      if (isUp) {
+        try {
+          const ctrl = new AbortController();
+          const tid = setTimeout(() => ctrl.abort(), 2500);
+          await fetch('https://clients3.google.com/generate_204', {
+            mode: 'no-cors',
+            signal: ctrl.signal,
+          });
+          clearTimeout(tid);
+          isUp = true;
+        } catch (_) {
+          isUp = typeof navigator !== 'undefined' ? navigator.onLine : false;
+        }
+      }
+      if (isUp) {
+        useAppStore.setState({ isOnline: true, justReconnected: true, networkQuality: 'fast' });
+        triggerHaptic([30, 50]);
+        setTimeout(() => {
+          useAppStore.setState({ justReconnected: false });
+        }, 4000);
+      } else {
+        triggerHaptic(60);
+      }
+    } finally {
+      setIsCheckingConnection(false);
+    }
+  };
+
+  const handleSwitchToOfflineModel = () => {
+    const firstReady = readyModels[0];
+    if (firstReady) {
+      triggerHaptic(20);
+      setSelectedModelId(firstReady.id);
+      if (firstReady.category === 'image') {
+        setOperatingMode('image-gen');
+      } else if (firstReady.category === 'vision') {
+        setOperatingMode('vision');
+      } else if (firstReady.category === 'voice') {
+        setOperatingMode('voice');
+      } else if (firstReady.category === 'embedding') {
+        setOperatingMode('embedding');
+      } else if (firstReady.capabilities.includes('agent')) {
+        setOperatingMode('agent');
+      } else {
+        setOperatingMode('chat');
+      }
+    } else {
+      setShowModelPicker(true);
+      triggerHaptic(20);
+    }
+  };
 
   // Filtered models for Quick Model Switcher Sheet
   const filteredModels = AVAILABLE_MODELS.filter((m) => {
@@ -3066,10 +3126,36 @@ export default function ChatView() {
           </div>
         )}
         {!isOnline && (
-          <div className="mb-1.5 px-2.5 py-1.5 rounded-lg bg-amber-950/50 border border-amber-500/40 text-amber-200 text-[11px] font-medium flex items-center justify-between shadow-sm">
-            <div className="flex items-center gap-1.5">
+          <div className="mb-1.5 px-2.5 py-1.5 rounded-lg bg-amber-950/60 border border-amber-500/40 text-amber-200 text-[11px] font-medium flex items-center justify-between shadow-sm animate-in fade-in duration-200">
+            <div className="flex items-center gap-1.5 min-w-0">
               <WifiOff className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-              <span>Offline mode — on-device models only</span>
+              <div className="truncate">
+                {downloads[selectedModelId]?.isReady ? (
+                  <span>Offline mode — running on-device with WebGPU</span>
+                ) : (
+                  <span className="text-amber-300 font-semibold">Active model requires internet</span>
+                )}
+              </div>
+            </div>
+            <div className="flex items-center gap-1.5 shrink-0 ml-2">
+              {!downloads[selectedModelId]?.isReady && (
+                <button
+                  type="button"
+                  onClick={handleSwitchToOfflineModel}
+                  className="px-2 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-[10px] font-bold transition-all cursor-pointer"
+                >
+                  {readyModels[0] ? `Switch to ${readyModels[0].name.split(' ')[0]}` : 'Pick Local Model'}
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={handleRetryConnection}
+                disabled={isCheckingConnection}
+                className="flex items-center gap-1 px-2 py-0.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white border border-zinc-700 text-[10px] font-medium transition-all cursor-pointer disabled:opacity-50"
+              >
+                <RefreshCw className={`w-2.5 h-2.5 ${isCheckingConnection ? 'animate-spin text-amber-400' : ''}`} />
+                <span>{isCheckingConnection ? 'Checking...' : 'Retry'}</span>
+              </button>
             </div>
           </div>
         )}
