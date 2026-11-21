@@ -32,6 +32,7 @@ import {
   Database,
   Lock,
   Unlock,
+  Trash2,
 } from 'lucide-react';
 import { useAppStore } from '@/appStore';
 import { AVAILABLE_MODELS } from '@/models';
@@ -48,6 +49,11 @@ import {
   requestStoragePersistence,
   type StorageQuotaReport,
 } from '@/utils/storageGuard';
+import {
+  getMemoryTelemetry,
+  triggerMemoryCleanupHint,
+  type MemoryTelemetry,
+} from '@/utils/memoryGuard';
 
 export default function DeviceDiagnostics() {
   const hardwareProfile = useAppStore((s) => s.hardwareProfile);
@@ -83,6 +89,24 @@ export default function DeviceDiagnostics() {
   // Storage Quota & Eviction Defense State
   const [storageReport, setStorageReport] = useState<StorageQuotaReport | null>(null);
   const [isRequestingPersistence, setIsRequestingPersistence] = useState<boolean>(false);
+
+  // Chromium WebView Heap & Memory Pressure State
+  const [memoryTelemetry, setMemoryTelemetry] = useState<MemoryTelemetry>(() => getMemoryTelemetry());
+  const [isTrimmingMemory, setIsTrimmingMemory] = useState<boolean>(false);
+  const [trimMemorySuccess, setTrimMemorySuccess] = useState<boolean>(false);
+
+  const handleTrimMemory = () => {
+    setIsTrimmingMemory(true);
+    triggerHaptic(20);
+    triggerMemoryCleanupHint();
+    setTimeout(() => {
+      setMemoryTelemetry(getMemoryTelemetry());
+      setIsTrimmingMemory(false);
+      setTrimMemorySuccess(true);
+      triggerHaptic([30, 40]);
+      setTimeout(() => setTrimMemorySuccess(false), 3000);
+    }, 400);
+  };
 
   interface WebGpuLimitsData {
     maxBufferSizeMB: number | null;
@@ -281,6 +305,7 @@ export default function DeviceDiagnostics() {
     }
 
     const cancelThermalTimer = startVisibleInterval(() => {
+      setMemoryTelemetry(getMemoryTelemetry());
       setThermalTemp((prev) => {
         if (isSimulatingSpike) return prev;
         const delta = (Math.random() - 0.5) * 0.4;
@@ -463,7 +488,14 @@ export default function DeviceDiagnostics() {
           <div className="text-lg font-black text-white">
             {hardwareProfile ? `${hardwareProfile.estimatedRamGB} GB` : 'Detecting...'}
           </div>
-          <span className="text-[10px] text-zinc-500">Physical memory estimate</span>
+          <div className="flex items-center justify-between mt-0.5">
+            <span className="text-[10px] text-zinc-500">Physical memory</span>
+            {memoryTelemetry.heapStats && (
+              <span className="text-[9px] font-mono text-cyan-400 font-semibold">
+                {memoryTelemetry.heapStats.usedJSHeapMB}MB Heap
+              </span>
+            )}
+          </div>
         </div>
 
         {/* CPU Cores */}
@@ -615,6 +647,127 @@ export default function DeviceDiagnostics() {
             </div>
           </div>
         )}
+      </div>
+
+      {/* WebView JS Heap & Memory Pressure Defense Card */}
+      <div className="rounded-2xl bg-zinc-900/70 border border-zinc-800/80 p-4 mb-4">
+        <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
+          <div className="flex items-center gap-2">
+            <div className="p-1.5 rounded-lg bg-cyan-500/20 text-cyan-400">
+              <Cpu className="w-4 h-4" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="text-sm font-bold text-white">
+                  WebView JS Heap & Memory Pressure Defense
+                </h2>
+                <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold border ${
+                  memoryTelemetry.pressureLevel === 'nominal'
+                    ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                    : memoryTelemetry.pressureLevel === 'elevated'
+                    ? 'bg-amber-500/20 text-amber-400 border-amber-500/30'
+                    : 'bg-rose-500/20 text-rose-400 border-rose-500/30'
+                }`}>
+                  {memoryTelemetry.pressureLevel === 'nominal' ? 'Nominal Pressure' : memoryTelemetry.pressureLevel === 'elevated' ? 'Elevated Pressure' : 'Critical Pressure'}
+                </span>
+              </div>
+              <p className="text-[11px] text-zinc-400">
+                Live Chromium heap telemetry, low-memory device detection, and cooperative DOM buffer trimming
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={handleTrimMemory}
+            disabled={isTrimmingMemory}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer disabled:opacity-60 ${
+              trimMemorySuccess
+                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                : 'bg-cyan-600 hover:bg-cyan-500 text-white shadow-lg shadow-cyan-600/20'
+            }`}
+          >
+            {trimMemorySuccess ? (
+              <>
+                <Check className="w-3.5 h-3.5 text-emerald-400" />
+                <span>Memory Trimmed!</span>
+              </>
+            ) : (
+              <>
+                <Trash2 className={`w-3.5 h-3.5 ${isTrimmingMemory ? 'animate-spin' : ''}`} />
+                <span>{isTrimmingMemory ? 'Trimming...' : 'Trim Heap Memory'}</span>
+              </>
+            )}
+          </button>
+        </div>
+
+        {/* Heap Progress Bar if available */}
+        {memoryTelemetry.heapStats ? (
+          <div className="space-y-2">
+            <div className="flex items-center justify-between text-xs font-mono">
+              <span className="text-zinc-400">
+                JS Heap: <strong className="text-white">{memoryTelemetry.heapStats.usedJSHeapMB} MB</strong> / {memoryTelemetry.heapStats.jsHeapLimitMB} MB
+              </span>
+              <span className={
+                memoryTelemetry.heapStats.usageRatio >= 0.8
+                  ? 'text-rose-400 font-bold'
+                  : memoryTelemetry.heapStats.usageRatio >= 0.6
+                  ? 'text-amber-300 font-bold'
+                  : 'text-cyan-300 font-bold'
+              }>
+                {Math.round(memoryTelemetry.heapStats.usageRatio * 100)}% heap allocated
+              </span>
+            </div>
+            <div className="w-full h-2.5 rounded-full bg-zinc-950 p-0.5 border border-zinc-800 overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all duration-500 ${
+                  memoryTelemetry.heapStats.usageRatio >= 0.8
+                    ? 'bg-gradient-to-r from-amber-500 to-rose-500'
+                    : memoryTelemetry.heapStats.usageRatio >= 0.6
+                    ? 'bg-gradient-to-r from-cyan-500 to-amber-500'
+                    : 'bg-gradient-to-r from-emerald-500 to-cyan-500'
+                }`}
+                style={{ width: `${Math.min(100, Math.max(4, Math.round(memoryTelemetry.heapStats.usageRatio * 100)))}%` }}
+              />
+            </div>
+          </div>
+        ) : (
+          <div className="p-2.5 rounded-xl bg-zinc-950/60 border border-zinc-800 text-[11px] text-zinc-400">
+            Performance heap metric is sandboxed on this WebView build. Standard low-memory threshold profiling is active.
+          </div>
+        )}
+
+        {/* Sub-breakdown metrics */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-3 pt-3 border-t border-zinc-800/60 text-[11px]">
+          <div className="p-2 rounded-xl bg-zinc-950/60 border border-zinc-800/60">
+            <div className="text-zinc-500">Device RAM Class</div>
+            <div className="text-xs font-bold text-white mt-0.5">
+              {memoryTelemetry.deviceRamGB ? `${memoryTelemetry.deviceRamGB} GB` : hardwareProfile ? `${hardwareProfile.estimatedRamGB} GB` : 'Standard'}
+            </div>
+          </div>
+          <div className="p-2 rounded-xl bg-zinc-950/60 border border-zinc-800/60">
+            <div className="text-zinc-500">Low-Memory Profile</div>
+            <div className={`text-xs font-bold mt-0.5 ${memoryTelemetry.isLowMemoryDevice ? 'text-amber-400' : 'text-emerald-400'}`}>
+              {memoryTelemetry.isLowMemoryDevice ? 'Active (<=4GB RAM)' : 'Standard (Nominal)'}
+            </div>
+          </div>
+          <div className="p-2 rounded-xl bg-zinc-950/60 border border-zinc-800/60">
+            <div className="text-zinc-500">Total Heap Bound</div>
+            <div className="text-xs font-bold text-cyan-400 mt-0.5">
+              {memoryTelemetry.heapStats ? `${memoryTelemetry.heapStats.totalJSHeapMB} MB Total` : 'Dynamic OS Limit'}
+            </div>
+          </div>
+          <div className="p-2 rounded-xl bg-zinc-950/60 border border-zinc-800/60">
+            <div className="text-zinc-500">Cooperative GC Hook</div>
+            <div className="text-xs font-bold text-emerald-400 mt-0.5">
+              Dispatched & Ready
+            </div>
+          </div>
+        </div>
+
+        {/* Recommendation advisory */}
+        <div className="mt-3 p-2.5 rounded-xl bg-cyan-950/20 border border-cyan-500/20 text-[10px] text-cyan-200/90 leading-relaxed flex items-start gap-2">
+          <Info className="w-3.5 h-3.5 text-cyan-400 shrink-0 mt-0.5" />
+          <span>{memoryTelemetry.recommendation}</span>
+        </div>
       </div>
 
       {/* Live Latency & Battery Real-Time Monitor */}
