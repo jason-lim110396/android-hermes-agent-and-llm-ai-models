@@ -168,7 +168,17 @@ export default function ExportDocumentModal({
     }
 
     // Default: Markdown (.md)
-    let md = `# 🤖 ${title}\n\n`;
+    const approxTokens = Math.round(messages.reduce((acc, m) => acc + (m.content?.length || 0), 0) / 4);
+    let md = `---\n`;
+    md += `title: "${title.replace(/"/g, '\\"')}"\n`;
+    md += `model: "${modelName}"\n`;
+    md += `date: "${new Date().toISOString()}"\n`;
+    md += `total_messages: ${messages.length}\n`;
+    md += `approx_tokens: ${approxTokens}\n`;
+    md += `platform: "Android (Hermes WebGPU)"\n`;
+    md += `---\n\n`;
+
+    md += `# 🤖 ${title}\n\n`;
     md += `*Generated on-device via ${modelName}*\n`;
     md += `*Timestamp: ${timestampStr}*\n\n---\n\n`;
 
