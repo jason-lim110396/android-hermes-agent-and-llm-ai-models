@@ -1,6 +1,6 @@
 import type { MLCEngine, InitProgressReport } from '@mlc-ai/web-llm';
 import { AVAILABLE_MODELS, ModelSpec } from './models';
-import { describeLimitFailure, isUsageLimitFailure } from './utils/modelFallback';
+import { describeLimitFailure, isLimitFailureText, isUsageLimitFailure } from './utils/modelFallback';
 import { speakGuarded } from './utils/speechGuard';
 import { redactSensitiveMessages } from './utils/sensitiveContent';
 import {
@@ -177,6 +177,14 @@ async function streamChatCompletion(
     const decoder = new TextDecoder();
     let fullText = '';
     let buffer = '';
+    // Some OpenAI-compatible free routers answer with HTTP 200 and a JSON
+    // error object instead of SSE (e.g. {"error":{"message":"Rate limit
+    // reached"}}). No `data:` lines are seen, so without this the turn looks
+    // like an empty answer and silently drops to on-device inference - which
+    // on a phone can start a multi-hundred-MB weight download mid-conversation.
+    // Keep the non-SSE text so a quota error can be reclassified as a 429 and
+    // advance the free fallback chain with a visible notice.
+    let nonSseText = '';
     while (true) {
       if (signal.aborted) {
         try { await reader.cancel(); } catch (_) {}
@@ -196,7 +204,13 @@ async function streamChatCompletion(
       for (const line of lines) {
         if (signal.aborted) throw new Error('Task stopped by user');
         const trimmed = line.trim();
-        if (!trimmed.startsWith('data:')) continue;
+        if (!trimmed.startsWith('data:')) {
+          if (trimmed) {
+            nonSseText += (nonSseText ? '\n' : '') + trimmed;
+            if (nonSseText.length > 4000) nonSseText = nonSseText.slice(-4000);
+          }
+          continue;
+        }
         const dataStr = trimmed.slice(5).trim();
         if (!dataStr || dataStr === '[DONE]') continue;
         try {
@@ -208,6 +222,19 @@ async function streamChatCompletion(
           }
         } catch (_) {}
       }
+    }
+    // An error object delivered as a plain 200 body never produced a `data:`
+    // line. Treat a limit/quota message as a 429 so the caller's chain loop
+    // advances to the next free endpoint (and shows the switch notice) instead
+    // of reporting an empty answer and falling through to on-device inference.
+    const leftover = buffer.trim();
+    const errorBody = leftover ? `${nonSseText}\n${leftover}` : nonSseText;
+    if (!fullText && errorBody && isLimitFailureText(errorBody)) {
+      throw new RemoteEndpointError(
+        `${candidate.label}: in-body usage-limit error`,
+        429,
+        errorBody.slice(0, 400)
+      );
     }
     return fullText;
   } catch (err) {

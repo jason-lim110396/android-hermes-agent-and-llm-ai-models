@@ -132,8 +132,19 @@ export function isUsageLimitFailure(status: number, detail: string): boolean {
   // 401 is a bad key; 500 is a server fault. Neither means "try a different
   // provider" - sending the same prompt elsewhere would hide the real error.
   if (status === 401 || status < 400 || status >= 600) return false;
-  const body = (detail || '').toLowerCase();
   // 403 / 503 / 4xx only count when the provider actually says quota or limit.
+  return isLimitFailureText(detail);
+}
+
+/**
+ * True when a provider's error text says the request was refused for a
+ * usage/quota reason. Used both for non-200 statuses (isUsageLimitFailure) and
+ * for the in-body error objects some OpenAI-compatible routers return with an
+ * HTTP 200 status - on a phone those must advance the free fallback chain, not
+ * be mistaken for an empty answer that drops the turn to on-device inference.
+ */
+export function isLimitFailureText(detail: string): boolean {
+  const body = (detail || '').toLowerCase();
   return LIMIT_HINTS.some((hint) => body.includes(hint));
 }
 
