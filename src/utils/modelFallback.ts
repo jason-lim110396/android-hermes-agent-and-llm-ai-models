@@ -211,12 +211,51 @@ export interface EndpointCooldown {
   model?: string;
   until: number;
   reason: string;
+  isRetryAfterHeader?: boolean;
 }
 
-const endpointCooldowns = new Map<string, EndpointCooldown>();
+const COOLDOWN_STORAGE_KEY = 'hermes_endpoint_cooldowns_v1';
 
 function getCooldownKey(endpoint: string, model?: string): string {
   return `${endpoint.trim().toLowerCase()}::${(model || '').trim().toLowerCase()}`;
+}
+
+function loadPersistedCooldowns(): Map<string, EndpointCooldown> {
+  const map = new Map<string, EndpointCooldown>();
+  if (typeof window === 'undefined') return map;
+  try {
+    const raw = sessionStorage.getItem(COOLDOWN_STORAGE_KEY);
+    if (!raw) return map;
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return map;
+    const now = Date.now();
+    for (const item of parsed) {
+      if (item && typeof item.endpoint === 'string' && typeof item.until === 'number' && item.until > now) {
+        map.set(getCooldownKey(item.endpoint, item.model), {
+          endpoint: item.endpoint,
+          model: typeof item.model === 'string' ? item.model : undefined,
+          until: item.until,
+          reason: typeof item.reason === 'string' ? item.reason : 'rate limit',
+          isRetryAfterHeader: !!item.isRetryAfterHeader,
+        });
+      }
+    }
+  } catch (_) {}
+  return map;
+}
+
+const endpointCooldowns = loadPersistedCooldowns();
+
+function persistCooldowns(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const active = getAllActiveCooldowns();
+    if (active.length === 0) {
+      sessionStorage.removeItem(COOLDOWN_STORAGE_KEY);
+    } else {
+      sessionStorage.setItem(COOLDOWN_STORAGE_KEY, JSON.stringify(active));
+    }
+  } catch (_) {}
 }
 
 /**
@@ -227,7 +266,8 @@ export function recordEndpointCooldown(
   endpoint: string,
   model: string | undefined,
   reason: string,
-  durationMs = 60_000
+  durationMs = 60_000,
+  isRetryAfterHeader = false
 ): void {
   const key = getCooldownKey(endpoint, model);
   endpointCooldowns.set(key, {
@@ -235,7 +275,9 @@ export function recordEndpointCooldown(
     model,
     until: Date.now() + durationMs,
     reason,
+    isRetryAfterHeader,
   });
+  persistCooldowns();
 }
 
 /**
@@ -244,28 +286,32 @@ export function recordEndpointCooldown(
 export function isEndpointInCooldown(
   endpoint: string,
   model?: string
-): { inCooldown: boolean; reason?: string; remainingSeconds?: number } {
+): { inCooldown: boolean; reason?: string; remainingSeconds?: number; isRetryAfterHeader?: boolean } {
   const key = getCooldownKey(endpoint, model);
   const entry = endpointCooldowns.get(key);
   if (!entry) return { inCooldown: false };
   const remainingMs = entry.until - Date.now();
   if (remainingMs <= 0) {
     endpointCooldowns.delete(key);
+    persistCooldowns();
     return { inCooldown: false };
   }
   return {
     inCooldown: true,
     reason: entry.reason,
     remainingSeconds: Math.ceil(remainingMs / 1000),
+    isRetryAfterHeader: entry.isRetryAfterHeader,
   };
 }
 
 export function clearEndpointCooldown(endpoint: string, model?: string): void {
   endpointCooldowns.delete(getCooldownKey(endpoint, model));
+  persistCooldowns();
 }
 
 export function clearAllEndpointCooldowns(): void {
   endpointCooldowns.clear();
+  persistCooldowns();
 }
 
 /**

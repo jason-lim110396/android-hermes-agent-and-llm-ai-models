@@ -1410,7 +1410,7 @@ export default function SettingsView() {
                     <div className="flex items-center gap-1.5 mt-1 bg-amber-950/60 border border-amber-500/40 rounded px-1.5 py-0.5 w-fit">
                       <Clock className="w-2.5 h-2.5 text-amber-400 shrink-0" />
                       <span className="text-[8px] font-mono text-amber-200">
-                        Cooldown: {cooldownInfo.reason || 'rate-limited'} ({cooldownInfo.remainingSeconds}s left)
+                        Cooldown: {cooldownInfo.reason || 'rate-limited'} ({cooldownInfo.remainingSeconds}s left{cooldownInfo.isRetryAfterHeader ? ' · Retry-After' : ''})
                       </span>
                       <button
                         onClick={() => {

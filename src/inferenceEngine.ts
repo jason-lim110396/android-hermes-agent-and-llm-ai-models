@@ -87,15 +87,57 @@ export interface InferenceBackendConfig {
   onAnsweredModel?: (info: { label: string; model?: string; isFallback?: boolean; reason?: string }) => void;
 }
 
-class RemoteEndpointError extends Error {
+export class RemoteEndpointError extends Error {
   status: number;
   detail: string;
-  constructor(message: string, status: number, detail: string) {
+  retryAfterSeconds?: number;
+  constructor(message: string, status: number, detail: string, retryAfterSeconds?: number) {
     super(message);
     this.name = 'RemoteEndpointError';
     this.status = status;
     this.detail = detail;
+    this.retryAfterSeconds = retryAfterSeconds;
   }
+}
+
+/**
+ * Extracts retry-after duration in seconds from standard HTTP headers
+ * (Retry-After in seconds or HTTP-date, x-ratelimit-reset, retry-after-ms).
+ * Clamped between 10s and 3600s (1 hour) for safe mobile client behavior.
+ */
+export function parseRetryAfterHeader(headers: Headers): number | undefined {
+  const retryAfter = headers.get('retry-after');
+  if (retryAfter) {
+    const parsedSec = parseInt(retryAfter.trim(), 10);
+    if (!Number.isNaN(parsedSec) && parsedSec > 0) {
+      return Math.min(Math.max(parsedSec, 10), 3600);
+    }
+    const dateMs = Date.parse(retryAfter);
+    if (!Number.isNaN(dateMs)) {
+      const diffSec = Math.ceil((dateMs - Date.now()) / 1000);
+      if (diffSec > 0) {
+        return Math.min(Math.max(diffSec, 10), 3600);
+      }
+    }
+  }
+
+  const resetHeader = headers.get('x-ratelimit-reset') || headers.get('retry-after-ms');
+  if (resetHeader) {
+    const val = parseFloat(resetHeader.trim());
+    if (!Number.isNaN(val) && val > 0) {
+      if (val > 1_000_000_000_000) {
+        const diffSec = Math.ceil((val - Date.now()) / 1000);
+        if (diffSec > 0) return Math.min(Math.max(diffSec, 10), 3600);
+      } else if (val > 1_000_000_000) {
+        const diffSec = Math.ceil(val - Date.now() / 1000);
+        if (diffSec > 0) return Math.min(Math.max(diffSec, 10), 3600);
+      } else {
+        return Math.min(Math.max(Math.ceil(val), 10), 3600);
+      }
+    }
+  }
+
+  return undefined;
 }
 
 // A mobile network can drop without ever erroring the socket: the fetch (or a
@@ -175,7 +217,13 @@ async function streamChatCompletion(
       try {
         detail = (await res.text()).slice(0, 400);
       } catch (_) {}
-      throw new RemoteEndpointError(`${candidate.label}: HTTP ${res.status} ${res.statusText}`, res.status, detail);
+      const retryAfterSec = parseRetryAfterHeader(res.headers);
+      throw new RemoteEndpointError(
+        `${candidate.label}: HTTP ${res.status} ${res.statusText}`,
+        res.status,
+        detail,
+        retryAfterSec
+      );
     }
 
     // A 200 with no body is not an answer; report it instead of returning ''
@@ -463,8 +511,12 @@ async function executeRemoteFallbackChain(
           ? describeLimitFailure(lastFailure.status, lastFailure.detail)
           : (lastFailure?.message || 'unavailable');
 
+      const retryAfterSec =
+        lastFailure instanceof RemoteEndpointError ? lastFailure.retryAfterSeconds : undefined;
+      const durationMs = retryAfterSec ? retryAfterSec * 1000 : (isTimeout ? 45_000 : 60_000);
+
       // Record rate limit / timeout / quota cooldown so next messages don't waste time on this dead endpoint
-      recordEndpointCooldown(candidate.endpoint, candidate.model, reason, isTimeout ? 45_000 : 60_000);
+      recordEndpointCooldown(candidate.endpoint, candidate.model, reason, durationMs, !!retryAfterSec);
 
       if (isFetchFailure || isTimeout) {
         console.warn(
