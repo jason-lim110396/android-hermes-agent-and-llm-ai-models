@@ -15,8 +15,12 @@ import {
 import {
   getStorageQuotaReport,
   requestStoragePersistence,
+  auditModelCacheIntegrity,
+  purgeOrphanModelCaches,
   type StorageQuotaReport,
+  type CacheAuditResult,
 } from '@/utils/storageGuard';
+import { AVAILABLE_MODELS } from '@/models';
 import React, { useEffect, useRef, useState } from 'react';
 import {
   Sliders,
@@ -173,12 +177,46 @@ export default function SettingsView() {
   const [storageReport, setStorageReport] = useState<StorageQuotaReport | null>(null);
   const [isPersistingStorage, setIsPersistingStorage] = useState(false);
   const [confirmingClearCache, setConfirmingClearCache] = useState(false);
+  const [cacheAudit, setCacheAudit] = useState<CacheAuditResult | null>(null);
+  const [isAuditingCache, setIsAuditingCache] = useState(false);
+  const [isPurgingOrphans, setIsPurgingOrphans] = useState(false);
+  const [purgeStatusMessage, setPurgeStatusMessage] = useState<string | null>(null);
 
   const refreshStorage = async () => {
     try {
       const rep = await getStorageQuotaReport();
       setStorageReport(rep);
     } catch (_) {}
+  };
+
+  const handleAuditCache = async () => {
+    setIsAuditingCache(true);
+    triggerHaptic(10);
+    try {
+      const knownIds = AVAILABLE_MODELS.map((m) => m.id);
+      const res = await auditModelCacheIntegrity(knownIds);
+      setCacheAudit(res);
+      triggerHaptic(res.integrity === 'healthy' ? 'success' : 'warning');
+    } catch (_) {} finally {
+      setIsAuditingCache(false);
+    }
+  };
+
+  const handlePurgeOrphans = async () => {
+    setIsPurgingOrphans(true);
+    triggerHaptic(15);
+    try {
+      const knownIds = AVAILABLE_MODELS.map((m) => m.id);
+      const res = await purgeOrphanModelCaches(knownIds);
+      setPurgeStatusMessage(`Cleaned ${res.purgedCount} orphan caches (freed ~${res.freedEstMB} MB)`);
+      triggerHaptic('success');
+      await refreshStorage();
+      await handleAuditCache();
+    } catch (_) {
+      setPurgeStatusMessage('Cleanup failed or not supported in this WebView');
+    } finally {
+      setIsPurgingOrphans(false);
+    }
   };
 
   useEffect(() => {
@@ -1961,6 +1999,53 @@ export default function SettingsView() {
               </div>
             </div>
           )}
+
+          {/* Cache Integrity & Orphan Weight Auditor */}
+          <div className="pt-2 border-t border-zinc-800/60">
+            <div className="flex items-center justify-between mb-1.5">
+              <div>
+                <h5 className="text-[11px] font-bold text-zinc-300">Model Weight Cache Integrity</h5>
+                <p className="text-[10px] text-zinc-500">Scan for orphan model weights from incomplete or interrupted downloads.</p>
+              </div>
+              <button
+                type="button"
+                onClick={handleAuditCache}
+                disabled={isAuditingCache}
+                className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-cyan-300 text-[10px] font-bold border border-zinc-700/60 cursor-pointer disabled:opacity-40"
+              >
+                <RefreshCw className={`w-3 h-3 ${isAuditingCache ? 'animate-spin' : ''}`} />
+                <span>{isAuditingCache ? 'Auditing...' : 'Audit Cache'}</span>
+              </button>
+            </div>
+
+            {cacheAudit && (
+              <div className="p-2.5 rounded-xl bg-zinc-950/60 border border-zinc-800 space-y-1.5 text-[11px]">
+                <div className="flex items-center justify-between">
+                  <span className="text-zinc-400">Total Cache Buckets:</span>
+                  <span className="font-mono text-zinc-200 font-bold">{cacheAudit.totalCachesCount}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-zinc-400">Orphan Weight Caches:</span>
+                  <span className={`font-mono font-bold ${cacheAudit.orphanCaches.length > 0 ? 'text-amber-400' : 'text-emerald-400'}`}>
+                    {cacheAudit.orphanCaches.length} found {cacheAudit.orphanSizeEstimateMB > 0 ? `(~${cacheAudit.orphanSizeEstimateMB} MB)` : ''}
+                  </span>
+                </div>
+                {cacheAudit.orphanCaches.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={handlePurgeOrphans}
+                    disabled={isPurgingOrphans}
+                    className="w-full mt-1 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-[10px] font-bold transition-all cursor-pointer"
+                  >
+                    {isPurgingOrphans ? 'Purging Orphans...' : `Clean ${cacheAudit.orphanCaches.length} Orphan Caches (~${cacheAudit.orphanSizeEstimateMB} MB)`}
+                  </button>
+                )}
+                {purgeStatusMessage && (
+                  <div className="text-[10px] text-emerald-400 font-medium pt-0.5">{purgeStatusMessage}</div>
+                )}
+              </div>
+            )}
+          </div>
 
           <div className="flex items-center justify-between pt-1 border-t border-zinc-800/60">
             <div>
