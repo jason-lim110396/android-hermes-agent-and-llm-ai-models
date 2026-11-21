@@ -611,6 +611,8 @@ export default function ChatView() {
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [isComposerFocused, setIsComposerFocused] = useState(false);
   const [isAwayFromBottom, setIsAwayFromBottom] = useState(false);
+  const [unreadStreamingTokens, setUnreadStreamingTokens] = useState(0);
+  const lastContentLengthRef = useRef(0);
   const lastKeyboardHeightRef = useRef(0);
 
   // Keyboard-aware composer: when the visual viewport is shorter than the layout
@@ -776,6 +778,27 @@ export default function ChatView() {
       }
     }
   }, [messages, isGenerating, isAwayFromBottom, currentSession?.id]);
+
+  // Track tokens streamed while scrolled away from the bottom
+  React.useEffect(() => {
+    if (!isGenerating) {
+      setUnreadStreamingTokens(0);
+      lastContentLengthRef.current = 0;
+      return;
+    }
+    const lastMsg = messages[messages.length - 1];
+    if (lastMsg && lastMsg.role === 'assistant') {
+      const curLen = lastMsg.content.length;
+      if (isAwayFromBottom) {
+        const diff = Math.max(0, curLen - lastContentLengthRef.current);
+        const approxTokens = Math.round(diff / 4);
+        if (approxTokens > 0) {
+          setUnreadStreamingTokens((prev) => prev + approxTokens);
+        }
+      }
+      lastContentLengthRef.current = curLen;
+    }
+  }, [messages, isGenerating, isAwayFromBottom]);
 
   // WhatsApp-Style Voice Note State
   const [isRecordingVoice, setIsRecordingVoice] = useState(false);
@@ -2868,6 +2891,7 @@ export default function ChatView() {
         <button
           onClick={() => {
             setIsAwayFromBottom(false);
+            setUnreadStreamingTokens(0);
             const el = messagesContainerRef.current;
             if (el) {
               el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
@@ -2890,6 +2914,11 @@ export default function ChatView() {
                 <span className="relative inline-flex rounded-full h-2 w-2 bg-cyan-500"></span>
               </span>
               <span>Streaming</span>
+              {unreadStreamingTokens > 0 && (
+                <span className="px-1.5 py-0.5 rounded-full bg-cyan-400 text-black font-mono text-[9px] font-bold">
+                  +{unreadStreamingTokens}
+                </span>
+              )}
               <ChevronDown className="w-4 h-4 ml-0.5 animate-bounce" />
             </>
           ) : (
