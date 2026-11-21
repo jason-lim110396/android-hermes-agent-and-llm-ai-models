@@ -796,156 +796,36 @@ export async function callRealLLMInference({
     // Option A: If User provided an external Local Server / Ollama / OpenRouter API
     // (a stray whitespace-only value must not count as a configured endpoint)
     const remoteEndpoint = config?.apiEndpoint?.trim();
-    if (config && remoteEndpoint) {
-      const sanitizedRemotePrompt = redactSensitiveMessages(messages, systemPrompt);
-      if (sanitizedRemotePrompt.redactionCount > 0) {
-        try { config.onPrivacyRedaction?.(sanitizedRemotePrompt.redactionCount); } catch (_) {}
-      }
+    if (config && (remoteEndpoint || (config.backendType === 'api' && config.fallbacks?.length))) {
       const primaryModel = config.customModelName || (modelId.includes('hermes') ? 'nousresearch/hermes-3-llama-3.2-3b' : modelId);
-      const candidates: FallbackEndpoint[] = [
-        {
+      const candidates: FallbackEndpoint[] = [];
+      if (remoteEndpoint) {
+        candidates.push({
           label: config.customModelName || 'primary endpoint',
           endpoint: remoteEndpoint,
           apiKey: config.apiKey,
           model: primaryModel,
-        },
-        ...(config.fallbacks || []).filter((f) => f && f.endpoint && f.endpoint.trim()),
-      ];
-
-      let lastFailure: RemoteEndpointError | Error | null = null;
-      for (let i = 0; i < candidates.length; i++) {
-        const candidate = candidates[i];
-        if (signal.aborted) throw new Error('Task stopped by user');
-        if (i > 0 && lastFailure) {
-          const switchReason =
-            lastFailure instanceof RemoteEndpointError
-              ? describeLimitFailure(lastFailure.status, lastFailure.detail)
-              : (lastFailure.message || 'unavailable');
-          try {
-            config.onFallback?.({
-              from: candidates[i - 1].label,
-              to: candidate.label,
-              reason: switchReason,
-            });
-          } catch (_) {}
-        }
-        try {
-          const text = await streamChatCompletion(
-            candidate,
-            { systemPrompt: sanitizedRemotePrompt.systemPrompt, messages: sanitizedRemotePrompt.messages, temperature, maxTokens },
-            signal,
-            onStreamChunk
-          );
-          if (text) {
-            const reason =
-              i > 0
-                ? lastFailure instanceof RemoteEndpointError
-                  ? describeLimitFailure(lastFailure.status, lastFailure.detail)
-                  : (lastFailure?.message || 'unavailable')
-                : undefined;
-            // Report the endpoint that actually produced this answer so the
-            // message header reflects reality, not the send-time selection.
-            try {
-              config.onAnsweredModel?.({
-                label: candidate.label,
-                model: candidate.model,
-                isFallback: i > 0,
-                reason,
-              });
-            } catch (_) {}
-            if (i > 0 && reason) {
-              try {
-                config.onFallback?.({ from: candidates[0].label, to: candidate.label, reason });
-              } catch (_) {}
-            }
-            return text;
-          }
-          // An empty 200 is not a useful answer. Keep switching so one bad
-          // provider cannot stop the whole chain, and keep it as the reason if
-          // it was the last candidate (otherwise the empty turn would fall
-          // through to on-device inference with no notice at all).
-          lastFailure = new Error(`${candidate.label} returned an empty answer`);
-          console.warn(`Inference endpoint "${candidate.label}" returned an empty answer, trying next in chain.`);
-        } catch (err: unknown) {
-          if (signal.aborted) throw err;
-          lastFailure = err as Error;
-          // A half-streamed answer from the failed endpoint must not be mixed
-          // with the next endpoint's output. The store callbacks must honour
-          // this empty write without throttling it.
-          try { onStreamChunk(''); } catch (_) {}
-          // A 401 means *this* candidate's key was rejected. The other
-          // candidates hold their own keys, so the chain keeps going instead
-          // of letting one bad key block every free fallback behind it.
-          if (lastFailure instanceof RemoteEndpointError && lastFailure.status === 401) {
-            console.warn(
-              `Inference endpoint "${candidate.label}" rejected its API key (401), trying the next endpoint:`,
-              err
-            );
-            continue;
-          }
-          // Forwarding a prompt to a different provider is only justified when
-          // the current one rejected it for usage/quota reasons (429/402/403
-          // quota/503 limit) or went unreachable. A plain HTTP failure such as
-          // 404 or a malformed-request 400 on the primary endpoint means the
-          // prompt/route is wrong; replaying it down the whole free chain just burns
-          // every endpoint. However, if candidate i > 0 (already a fallback candidate)
-          // fails with an endpoint-specific HTTP error, continue to candidate i + 1.
-          const isTerminalHttpError =
-            lastFailure instanceof RemoteEndpointError &&
-            !isUsageLimitFailure(lastFailure.status, lastFailure.detail);
-          if (isTerminalHttpError) {
-            console.warn(
-              `Inference endpoint "${candidate.label}" failed with a non-quota HTTP error:`,
-              err
-            );
-            if (i === 0) {
-              break;
-            }
-            continue;
-          }
-          // A failed fetch with no HTTP status is a transport fault: offline,
-          // DNS failure, TLS error, or a dead local endpoint. A stalled request
-          // (no response, or no data mid-stream) is the same class of failure.
-          // If the device is genuinely offline, no remote endpoint can succeed;
-          // stop the chain immediately and fall through to on-device inference.
-          const errMessage = (lastFailure?.message || '').toLowerCase();
-          const isTimeout = lastFailure instanceof RemoteTimeoutError;
-          const isFetchFailure =
-            !(lastFailure instanceof RemoteEndpointError) &&
-            (lastFailure instanceof TypeError ||
-              errMessage.includes('fetch failed') ||
-              errMessage.includes('network request failed') ||
-              errMessage.includes('failed to fetch'));
-          const offline =
-            typeof navigator !== 'undefined' && typeof navigator.onLine === 'boolean'
-              ? !navigator.onLine
-              : false;
-          if (offline) {
-            console.warn(
-              `Inference endpoint "${candidate.label}" unreachable while offline; not forwarding the prompt to other providers.`,
-              err
-            );
-            lastFailure = new Error('device is offline', { cause: err });
-            break;
-          }
-          if (isFetchFailure || isTimeout) {
-            console.warn(
-              isTimeout
-                ? `Inference endpoint "${candidate.label}" stopped responding; trying next candidate.`
-                : `Inference endpoint "${candidate.label}" failed at the network layer; trying next candidate.`,
-              err
-            );
-            continue;
-          }
-          const reason =
-            lastFailure instanceof RemoteEndpointError
-              ? describeLimitFailure(lastFailure.status, lastFailure.detail)
-              : (lastFailure?.message || 'unavailable');
-          console.warn(`Inference endpoint "${candidate.label}" failed (${reason}), trying next in chain:`, err);
-        }
+        });
+      }
+      if (config.fallbacks) {
+        candidates.push(...config.fallbacks);
       }
 
-      if (lastFailure) {
+      const remoteResult = await executeRemoteFallbackChain(
+        candidates,
+        { messages, systemPrompt, temperature, maxTokens },
+        config,
+        signal,
+        onStreamChunk,
+        modelSpec
+      );
+
+      if (remoteResult.success && remoteResult.text) {
+        return remoteResult.text;
+      }
+
+      if (remoteResult.lastFailure) {
+        const lastFailure = remoteResult.lastFailure;
         const reason =
           lastFailure instanceof RemoteEndpointError
             ? describeLimitFailure(lastFailure.status, lastFailure.detail)
@@ -970,15 +850,41 @@ export async function callRealLLMInference({
     // every endpoint failed, does the selected on-device model run. CPU (WASM)
     // models dispatch to wllama/llama.cpp entirely, never to WebGPU.
     if (isCpuWasmModel(modelSpec)) {
-      return await callCpuLLMInference({
-        messages,
-        modelId,
-        systemPrompt,
-        temperature,
-        maxTokens: effectiveMaxTokens,
-        onProgress,
-        onStreamChunk,
-      });
+      try {
+        return await callCpuLLMInference({
+          messages,
+          modelId,
+          systemPrompt,
+          temperature,
+          maxTokens: effectiveMaxTokens,
+          onProgress,
+          onStreamChunk,
+        });
+      } catch (cpuErr: any) {
+        if (signal.aborted) throw cpuErr;
+        const errorMsg = cpuErr?.message || String(cpuErr);
+        const isOnline = typeof navigator === 'undefined' || navigator.onLine !== false;
+        if (isOnline && config?.fallbacks && config.fallbacks.length > 0) {
+          try {
+            if (onProgress) onProgress('CPU model unavailable — auto-switching to free cloud model...', 50);
+            const fallbackResult = await executeRemoteFallbackChain(
+              config.fallbacks,
+              { messages, systemPrompt, temperature, maxTokens: effectiveMaxTokens },
+              config,
+              signal,
+              onStreamChunk,
+              modelSpec,
+              `On-device CPU model (${modelSpec?.name || modelId}) unavailable: ${errorMsg.slice(0, 100)}`
+            );
+            if (fallbackResult.success && fallbackResult.text) {
+              return fallbackResult.text;
+            }
+          } catch (fbErr) {
+            console.warn('Auto-fallback after CPU failure failed:', fbErr);
+          }
+        }
+        throw cpuErr;
+      }
     }
 
     // Option B: REAL ON-DEVICE WEBGPU INFERENCE VIA WEBLLM
@@ -1065,6 +971,29 @@ export async function callRealLLMInference({
           if (onProgress) onProgress(`GPU buffer hiccup — retrying with a fresh engine (attempt ${attempt + 1}/${MAX_ATTEMPTS})...`, 5);
           await new Promise((r) => setTimeout(r, 300 * attempt)); // small progressive backoff
           continue; // retry loop
+        }
+
+        // If the device is online and fallback chain is available, attempt auto-recovery
+        // through the free cloud fallback chain instead of stranding the user.
+        const isOnline = typeof navigator === 'undefined' || navigator.onLine !== false;
+        if (isOnline && config?.fallbacks && config.fallbacks.length > 0) {
+          try {
+            if (onProgress) onProgress('On-device model unavailable — auto-switching to free cloud model...', 50);
+            const fallbackResult = await executeRemoteFallbackChain(
+              config.fallbacks,
+              { messages, systemPrompt, temperature, maxTokens: effectiveMaxTokens },
+              config,
+              signal,
+              onStreamChunk,
+              modelSpec,
+              `On-device model (${modelSpec?.name || modelId}) unavailable: ${errorMsg.slice(0, 100)}`
+            );
+            if (fallbackResult.success && fallbackResult.text) {
+              return fallbackResult.text;
+            }
+          } catch (fbErr) {
+            console.warn('Auto-fallback to free cloud models after on-device failure also failed:', fbErr);
+          }
         }
 
         let diagnosticHint = '';
