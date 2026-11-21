@@ -101,3 +101,47 @@ export async function downsampleImageFile(file: File): Promise<OptimizedImage> {
     return { dataUrl: original, mimeType: file.type, sizeBytes: file.size };
   }
 }
+
+/**
+ * Applies an adaptive high-contrast black-and-white filter to a captured document data URL.
+ * Produces crisp, high-legibility text regions for on-device OCR inference.
+ */
+export function applyHighContrastDocumentFilter(dataUrl: string): Promise<string> {
+  return new Promise((resolve) => {
+    if (typeof window === 'undefined') {
+      resolve(dataUrl);
+      return;
+    }
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.width;
+        canvas.height = img.height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          resolve(dataUrl);
+          return;
+        }
+        ctx.drawImage(img, 0, 0);
+        const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const data = imgData.data;
+
+        for (let i = 0; i < data.length; i += 4) {
+          const lum = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+          const val = lum > 132 ? 255 : Math.max(0, Math.round((lum / 132) * 55));
+          data[i] = val;
+          data[i + 1] = val;
+          data[i + 2] = val;
+        }
+
+        ctx.putImageData(imgData, 0, 0);
+        resolve(canvas.toDataURL('image/jpeg', 0.9));
+      } catch (_) {
+        resolve(dataUrl);
+      }
+    };
+    img.onerror = () => resolve(dataUrl);
+    img.src = dataUrl;
+  });
+}
