@@ -621,6 +621,19 @@ export async function callRealLLMInference({
       for (let i = 0; i < candidates.length; i++) {
         const candidate = candidates[i];
         if (signal.aborted) throw new Error('Task stopped by user');
+        if (i > 0 && lastFailure) {
+          const switchReason =
+            lastFailure instanceof RemoteEndpointError
+              ? describeLimitFailure(lastFailure.status, lastFailure.detail)
+              : (lastFailure.message || 'unavailable');
+          try {
+            config.onFallback?.({
+              from: candidates[i - 1].label,
+              to: candidate.label,
+              reason: switchReason,
+            });
+          } catch (_) {}
+        }
         try {
           const text = await streamChatCompletion(
             candidate,

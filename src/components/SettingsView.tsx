@@ -104,6 +104,8 @@ export default function SettingsView() {
 
   const [isTestingEndpoint, setIsTestingEndpoint] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const [testingFallbackId, setTestingFallbackId] = useState<string | null>(null);
+  const [fallbackTestResults, setFallbackTestResults] = useState<Record<string, { ok: boolean; message: string }>>({});
   const [clearCacheSuccess, setClearCacheSuccess] = useState(false);
   const [backupStatus, setBackupStatus] = useState<string | null>(null);
 
@@ -233,6 +235,55 @@ export default function SettingsView() {
       setTestResult({ ok: false, message: `Connection failed: ${err?.message || 'Host unreachable or CORS blocked'}` });
     } finally {
       setIsTestingEndpoint(false);
+    }
+  };
+
+  const handleTestFallbackEndpoint = async (entry: FallbackModelEntry, idx?: number) => {
+    const targetId = entry.id || (idx !== undefined ? String(idx) : `entry-${Date.now()}`);
+    setTestingFallbackId(targetId);
+    setFallbackTestResults((prev) => {
+      const next = { ...prev };
+      delete next[targetId];
+      return next;
+    });
+
+    const start = performance.now();
+    try {
+      const ctrl = new AbortController();
+      const timeoutId = setTimeout(() => ctrl.abort(), 4000);
+
+      const rawUrl = entry.endpoint.trim().replace(/\/+$/, '');
+      const pingUrl = rawUrl.endsWith('/models') ? rawUrl : `${rawUrl}/models`;
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (entry.apiKey && entry.apiKey.trim()) {
+        headers['Authorization'] = `Bearer ${entry.apiKey.trim()}`;
+      }
+
+      const res = await fetch(pingUrl, { signal: ctrl.signal, headers });
+      clearTimeout(timeoutId);
+      const latency = Math.round(performance.now() - start);
+
+      if (res.ok) {
+        setFallbackTestResults((prev) => ({
+          ...prev,
+          [targetId]: { ok: true, message: `HTTP ${res.status} • ${latency}ms` },
+        }));
+      } else {
+        setFallbackTestResults((prev) => ({
+          ...prev,
+          [targetId]: { ok: false, message: `HTTP ${res.status} (${latency}ms)` },
+        }));
+      }
+    } catch (err: any) {
+      setFallbackTestResults((prev) => ({
+        ...prev,
+        [targetId]: {
+          ok: false,
+          message: err?.name === 'AbortError' ? 'Timed out (4s)' : (err?.message || 'Unreachable'),
+        },
+      }));
+    } finally {
+      setTestingFallbackId(null);
     }
   };
 
@@ -756,8 +807,26 @@ export default function SettingsView() {
                     {entry.model ? ` - ${entry.model}` : ''}
                     {entry.apiKey ? ' - key set' : ''}
                   </p>
+                  {fallbackTestResults[entry.id || String(idx)] && (
+                    <span className={`text-[8px] font-mono px-1.5 py-0.2 rounded border inline-block mt-0.5 ${
+                      fallbackTestResults[entry.id || String(idx)].ok
+                        ? 'bg-emerald-950/60 border-emerald-500/40 text-emerald-300'
+                        : 'bg-rose-950/60 border-rose-500/40 text-rose-300'
+                    }`}>
+                      {fallbackTestResults[entry.id || String(idx)].message}
+                    </span>
+                  )}
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    disabled={testingFallbackId === (entry.id || String(idx))}
+                    onClick={() => handleTestFallbackEndpoint(entry, idx)}
+                    className="p-1 rounded text-zinc-500 hover:text-cyan-400 transition-colors disabled:opacity-20 cursor-pointer"
+                    aria-label={`Test ${entry.label}`}
+                    title="Test connection"
+                  >
+                    <Wifi className={`w-3.5 h-3.5 ${testingFallbackId === (entry.id || String(idx)) ? 'animate-pulse text-cyan-400' : ''}`} />
+                  </button>
                   <button
                     disabled={idx === 0}
                     onClick={() => {

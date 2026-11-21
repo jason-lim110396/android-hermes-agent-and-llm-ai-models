@@ -182,6 +182,8 @@ export default function ChatView() {
   const isOnline = useAppStore((s) => s.isOnline);
   const justReconnected = useAppStore((s) => s.justReconnected);
   const setJustReconnected = useAppStore((s) => s.setJustReconnected);
+  const fallbackNotice = useAppStore((s) => s.fallbackNotice);
+  const clearFallbackNotice = useAppStore((s) => s.clearFallbackNotice);
   const downloads = useAppStore((s) => s.downloads);
   const startDownloadModel = useAppStore((s) => s.startDownloadModel);
   const setCurrentTab = useAppStore((s) => s.setCurrentTab);
@@ -228,6 +230,7 @@ export default function ChatView() {
   const [showSearch, setShowSearch] = useState(false);
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
+  const [activeFallbackTooltipId, setActiveFallbackTooltipId] = useState<string | null>(null);
   // Honest feedback when a picked file cannot be read (e.g. the file was moved
   // by another app, a virtual document URI, or a low-memory read failure).
   // Without this the picker clears and the file is silently skipped, so the
@@ -561,6 +564,16 @@ export default function ChatView() {
     const fitsGpu = m.engine === 'cpu-wasm' || !hardwareProfile || hardwareProfile.hasWebGpu;
     return fitsRam && fitsGpu;
   });
+
+  // Auto-dismiss the floating fallback notification after 9 seconds so it doesn't linger indefinitely
+  React.useEffect(() => {
+    if (fallbackNotice) {
+      const timer = setTimeout(() => {
+        clearFallbackNotice();
+      }, 9000);
+      return () => clearTimeout(timer);
+    }
+  }, [fallbackNotice, clearFallbackNotice]);
 
   // Re-check distance-from-bottom when messages grow without a scroll event
   // (e.g. streaming chunks extend the timeline) so isAwayFromBottom stays accurate.
@@ -1785,13 +1798,41 @@ export default function ChatView() {
                 <div className="flex items-center gap-2 mb-1 text-[10px] text-zinc-400 px-1">
                   <span>{isUser ? 'You' : msg.modelUsed || 'Hermes AI'}</span>
                   {!isUser && msg.isFallback && (
-                    <span
-                      className="px-1.5 py-0.2 rounded bg-amber-950/80 border border-amber-500/40 text-amber-300 text-[8px] font-bold flex items-center gap-1"
-                      title={msg.fallbackReason ? `Fallback trigger: ${msg.fallbackReason}` : 'Answered via free fallback model'}
-                    >
-                      <ArrowRightLeft className="w-2.5 h-2.5 text-amber-400" />
-                      FALLBACK
-                    </span>
+                    <div className="relative inline-flex items-center">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          triggerHaptic(10);
+                          setActiveFallbackTooltipId((prev) => (prev === msg.id ? null : msg.id));
+                        }}
+                        className="px-1.5 py-0.2 rounded bg-amber-950/80 border border-amber-500/40 text-amber-300 text-[8px] font-bold flex items-center gap-1 cursor-pointer active:scale-95 transition-transform"
+                        aria-label="Toggle fallback details"
+                        title={msg.fallbackReason ? `Fallback trigger: ${msg.fallbackReason}` : 'Answered via free fallback model'}
+                      >
+                        <ArrowRightLeft className="w-2.5 h-2.5 text-amber-400" />
+                        FALLBACK
+                      </button>
+                      {activeFallbackTooltipId === msg.id && (
+                        <div className="absolute left-0 top-full mt-1 z-30 min-w-[210px] max-w-[280px] p-2 rounded-lg bg-zinc-900 border border-amber-500/50 shadow-xl text-[10px] text-zinc-200 leading-snug animate-in fade-in duration-150">
+                          <div className="flex items-center justify-between gap-1 mb-1 font-bold text-amber-300">
+                            <span className="flex items-center gap-1">
+                              <ArrowRightLeft className="w-3 h-3" />
+                              Fallback Active
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setActiveFallbackTooltipId(null)}
+                              className="text-zinc-400 hover:text-zinc-200 p-0.5"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </div>
+                          <p className="text-zinc-300">
+                            {msg.fallbackReason ? `Trigger: ${msg.fallbackReason}` : 'Primary provider rate-limited or unavailable; served via free fallback preset.'}
+                          </p>
+                        </div>
+                      )}
+                    </div>
                   )}
                   {msg.mode === 'agent' && (
                     <span className="px-1.5 py-0.2 rounded bg-indigo-950/80 border border-indigo-500/30 text-indigo-300 text-[8px] font-bold">
@@ -2381,6 +2422,21 @@ export default function ChatView() {
               <WifiOff className="w-3.5 h-3.5 text-amber-400 shrink-0" />
               <span>Offline mode — on-device models only</span>
             </div>
+          </div>
+        )}
+        {fallbackNotice && (
+          <div className="mb-1.5 px-2.5 py-1.5 rounded-lg bg-amber-950/70 border border-amber-500/50 text-amber-200 text-[11px] font-semibold flex items-center justify-between shadow-md animate-in fade-in slide-in-from-bottom duration-200">
+            <div className="flex items-center gap-2 min-w-0 pr-1">
+              <ArrowRightLeft className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+              <span className="truncate">{fallbackNotice}</span>
+            </div>
+            <button
+              onClick={clearFallbackNotice}
+              aria-label="Dismiss fallback notification"
+              className="p-1 -mr-1 text-amber-400 hover:text-amber-100 transition-colors cursor-pointer shrink-0"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
           </div>
         )}
         {/* Quick Actions (hidden only while the soft keyboard is open): the
