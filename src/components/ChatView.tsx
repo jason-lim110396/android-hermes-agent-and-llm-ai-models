@@ -67,6 +67,7 @@ import {
   RotateCcw,
   QrCode,
   ArrowRightLeft,
+  ExternalLink,
 } from 'lucide-react';
 import { useAppStore, Attachment, ChatMessage } from '@/appStore';
 import { AVAILABLE_MODELS, ModelSpec } from '@/models';
@@ -431,6 +432,20 @@ export default function ChatView() {
     return [];
   });
   const [showBookmarksDrawer, setShowBookmarksDrawer] = useState(false);
+  const [bookmarkSearchQuery, setBookmarkSearchQuery] = useState('');
+
+  const handleJumpToBookmarkedMessage = (msgId: string) => {
+    setShowBookmarksDrawer(false);
+    triggerHaptic(20);
+    setTimeout(() => {
+      const el = document.getElementById(`msg-${msgId}`);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        el.classList.add('ring-2', 'ring-amber-400');
+        setTimeout(() => el.classList.remove('ring-2', 'ring-amber-400'), 2000);
+      }
+    }, 150);
+  };
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [isCompressorModalOpen, setIsCompressorModalOpen] = useState(false);
@@ -3964,6 +3979,28 @@ export default function ChatView() {
               </button>
             </div>
 
+            {/* Bookmark Filter Search */}
+            {allStarredMessages.length > 1 && (
+              <div className="relative my-2">
+                <Search className="w-3.5 h-3.5 text-zinc-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  placeholder="Filter saved bookmarks..."
+                  value={bookmarkSearchQuery}
+                  onChange={(e) => setBookmarkSearchQuery(e.target.value)}
+                  className="w-full pl-8 pr-7 py-1.5 rounded-xl bg-zinc-950 border border-zinc-800 text-xs text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-amber-500/50"
+                />
+                {bookmarkSearchQuery && (
+                  <button
+                    onClick={() => setBookmarkSearchQuery('')}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-white p-0.5 cursor-pointer"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                )}
+              </div>
+            )}
+
             {/* Bookmarks List */}
             <div className="flex-1 overflow-y-auto py-3 space-y-2.5">
               {allStarredMessages.length === 0 ? (
@@ -3979,6 +4016,12 @@ export default function ChatView() {
                 </div>
               ) : (
                 allStarredMessages
+                  .filter((msg) =>
+                    bookmarkSearchQuery.trim()
+                      ? msg.content.toLowerCase().includes(bookmarkSearchQuery.toLowerCase()) ||
+                        (msg.modelUsed || '').toLowerCase().includes(bookmarkSearchQuery.toLowerCase())
+                      : true
+                  )
                   .map((msg) => (
                     <div key={msg.id} className="p-3 rounded-xl bg-zinc-950 border border-zinc-800/80 space-y-2">
                       <div className="flex items-center justify-between text-[10px] text-zinc-400">
@@ -3995,6 +4038,14 @@ export default function ChatView() {
                         {msg.content.replace(/<think>[\s\S]*?<\/think>/g, '').trim()}
                       </p>
                       <div className="flex items-center gap-2 pt-1 border-t border-zinc-800">
+                        <button
+                          onClick={() => handleJumpToBookmarkedMessage(msg.id)}
+                          className="flex items-center gap-1 text-[10px] text-amber-300 hover:text-white px-2 py-1 rounded bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 transition-all cursor-pointer"
+                          title="Jump directly to this message in chat"
+                        >
+                          <ExternalLink className="w-3 h-3 text-amber-400" />
+                          <span>Jump to Chat</span>
+                        </button>
                         <button
                           onClick={() => handleCopyMessage(msg.id, msg.content)}
                           className="flex items-center gap-1 text-[10px] text-zinc-400 hover:text-white px-2 py-1 rounded bg-zinc-900 border border-zinc-800 cursor-pointer"
