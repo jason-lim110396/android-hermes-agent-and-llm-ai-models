@@ -2179,7 +2179,24 @@ export default function ChatView() {
                     className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-left text-xs font-bold text-zinc-300 hover:bg-zinc-800 transition-all cursor-pointer"
                   >
                     <Download className="w-4 h-4 text-cyan-400 shrink-0" />
-                    <span className="flex-1">Export Session</span>
+                    <span className="flex-1">Export Session (Modal)</span>
+                  </button>
+
+                  {/* One-Tap Markdown Direct Download */}
+                  <button
+                    onClick={() => {
+                      setShowMoreTools(false);
+                      handleExportSession();
+                    }}
+                    title="One-tap direct download of current conversation as formatted Markdown (.md) with YAML frontmatter"
+                    className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-left text-xs font-bold text-emerald-300 hover:bg-emerald-950/40 border border-emerald-500/20 transition-all cursor-pointer"
+                  >
+                    <FileText className="w-4 h-4 text-emerald-400 shrink-0" />
+                    <div className="flex-1">
+                      <div>Quick Export (.md)</div>
+                      <div className="text-[9px] font-normal text-emerald-400/80">One-tap direct file download</div>
+                    </div>
+                    <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-emerald-950/80 text-emerald-300 border border-emerald-500/30">.MD</span>
                   </button>
 
                   {/* Context Compressor (was a Row-2 button) */}
