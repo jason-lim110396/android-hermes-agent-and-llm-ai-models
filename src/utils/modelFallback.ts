@@ -291,6 +291,22 @@ const LIMIT_HINTS = [
   'overloaded_error',
   'temporarily_unavailable',
   'error_code: 429',
+  'country, region, or territory not supported',
+  'user location is not supported',
+  'location is not supported',
+  'region not supported',
+  'country not supported',
+  'geo_blocked',
+  'geoblocked',
+  'location_not_supported',
+  'unsupported_country',
+  'unsupported_region',
+  'unsupported_country_region_territory',
+  'permission_denied',
+  'access_denied',
+  'origin dns error',
+  'origin connection error',
+  'upstream request error',
 ];
 
 /**
@@ -299,12 +315,13 @@ const LIMIT_HINTS = [
  */
 export function isUsageLimitFailure(status: number, detail: string): boolean {
   // 429 (rate limit), 402 (payment required), 408 (request timeout), 413 (payload too large),
-  // 499 (client/edge timeout), 507 (insufficient storage), and 509 (bandwidth limit exceeded).
+  // 451 (legal / geo-restriction), 499 (client/edge timeout), 507 (insufficient storage), and 509 (bandwidth limit exceeded).
   if (
     status === 429 ||
     status === 402 ||
     status === 408 ||
     status === 413 ||
+    status === 451 ||
     status === 499 ||
     status === 507 ||
     status === 509
@@ -345,6 +362,7 @@ export function describeLimitFailure(status: number, detail: string): string {
   const hint = LIMIT_HINTS.find((h) => body.includes(h));
   if (hint) return `limit: ${hint}`;
   if (status === 429) return 'rate limit';
+  if (status === 451) return 'legal / region restriction (451)';
   if (status === 413) return 'payload too large (413)';
   if (status === 529) return 'provider overloaded (529)';
   if (status === 402) return 'payment required';
