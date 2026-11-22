@@ -54,6 +54,11 @@ import {
   triggerMemoryCleanupHint,
   type MemoryTelemetry,
 } from '@/utils/memoryGuard';
+import {
+  getSessionVaultStats,
+  flushPersistNow,
+  type SessionVaultStats,
+} from '@/utils/sessionPersistence';
 
 export default function DeviceDiagnostics() {
   const hardwareProfile = useAppStore((s) => s.hardwareProfile);
@@ -89,6 +94,24 @@ export default function DeviceDiagnostics() {
   // Storage Quota & Eviction Defense State
   const [storageReport, setStorageReport] = useState<StorageQuotaReport | null>(null);
   const [isRequestingPersistence, setIsRequestingPersistence] = useState<boolean>(false);
+
+  // Session Vault Persistence Telemetry
+  const [vaultStats, setVaultStats] = useState<SessionVaultStats>(() => getSessionVaultStats());
+  const [isSyncingVault, setIsSyncingVault] = useState<boolean>(false);
+  const [syncVaultSuccess, setSyncVaultSuccess] = useState<boolean>(false);
+
+  const handleSyncVaultNow = () => {
+    setIsSyncingVault(true);
+    triggerHaptic(20);
+    flushPersistNow();
+    setTimeout(() => {
+      setVaultStats(getSessionVaultStats());
+      setIsSyncingVault(false);
+      setSyncVaultSuccess(true);
+      triggerHaptic([30, 40]);
+      setTimeout(() => setSyncVaultSuccess(false), 2500);
+    }, 350);
+  };
 
   // Chromium WebView Heap & Memory Pressure State
   const [memoryTelemetry, setMemoryTelemetry] = useState<MemoryTelemetry>(() => getMemoryTelemetry());
@@ -306,6 +329,7 @@ export default function DeviceDiagnostics() {
 
     const cancelThermalTimer = startVisibleInterval(() => {
       setMemoryTelemetry(getMemoryTelemetry());
+      setVaultStats(getSessionVaultStats());
       setThermalTemp((prev) => {
         if (isSimulatingSpike) return prev;
         const delta = (Math.random() - 0.5) * 0.4;
@@ -647,6 +671,70 @@ export default function DeviceDiagnostics() {
             </div>
           </div>
         )}
+      </div>
+
+      {/* Session Persistence Vault Telemetry & Eviction Card */}
+      <div className="rounded-2xl bg-zinc-900/70 border border-zinc-800/80 p-4 mb-4">
+        <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
+          <div className="flex items-center gap-2">
+            <div className="p-1.5 rounded-lg bg-emerald-500/20 text-emerald-400">
+              <Database className="w-4 h-4" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="text-sm font-bold text-white">
+                  Session Persistence Vault & Eviction Seal
+                </h2>
+                <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold border ${
+                  vaultStats.hasPendingWrite
+                    ? 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+                    : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                }`}>
+                  {vaultStats.hasPendingWrite ? 'Pending Debounced Sync' : 'Synced to Vault'}
+                </span>
+              </div>
+              <p className="text-[11px] text-zinc-400">
+                Guarantees chat histories and agent reasoning traces survive background OS termination and WebView destruction
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={handleSyncVaultNow}
+            disabled={isSyncingVault}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-medium text-xs cursor-pointer shadow-sm active:scale-95 transition-all"
+            title="Immediately flush pending session snapshots to local storage"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isSyncingVault ? 'animate-spin' : ''}`} />
+            <span>{isSyncingVault ? 'Flushing Vault...' : syncVaultSuccess ? 'Vault Flushed!' : 'Sync Vault Now'}</span>
+          </button>
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 text-[10px] font-mono text-zinc-400">
+          <div className="p-2 rounded-xl bg-zinc-950/80 border border-zinc-800">
+            <div className="text-zinc-500">Active Sessions</div>
+            <div className="text-xs font-bold text-zinc-200 mt-0.5">
+              {vaultStats.totalSessionCount} ({vaultStats.chatSessionCount} Chat / {vaultStats.agentSessionCount} Agent)
+            </div>
+          </div>
+          <div className="p-2 rounded-xl bg-zinc-950/80 border border-zinc-800">
+            <div className="text-zinc-500">Persisted Messages</div>
+            <div className="text-xs font-bold text-zinc-200 mt-0.5">
+              {vaultStats.totalMessagesCount} messages
+            </div>
+          </div>
+          <div className="p-2 rounded-xl bg-zinc-950/80 border border-zinc-800">
+            <div className="text-zinc-500">Vault Memory Size</div>
+            <div className="text-xs font-bold text-emerald-400 mt-0.5">
+              {vaultStats.estimatedKB} KB
+            </div>
+          </div>
+          <div className="p-2 rounded-xl bg-zinc-950/80 border border-zinc-800">
+            <div className="text-zinc-500">Last Synced</div>
+            <div className="text-xs font-bold text-zinc-300 mt-0.5">
+              {vaultStats.lastPersistedTimestamp ? new Date(vaultStats.lastPersistedTimestamp).toLocaleTimeString() : 'On startup'}
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* WebView JS Heap & Memory Pressure Defense Card */}
