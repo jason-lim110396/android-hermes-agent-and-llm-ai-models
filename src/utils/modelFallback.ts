@@ -43,6 +43,24 @@ export const FREE_FALLBACK_PRESETS: FallbackModelEntry[] = [
     model: 'google/gemini-2.0-flash-exp:free',
   },
   {
+    id: 'openrouter-llama33-70b-free',
+    label: 'Meta Llama 3.3 70B (free)',
+    endpoint: 'https://openrouter.ai/api/v1',
+    model: 'meta-llama/llama-3.3-70b-instruct:free',
+  },
+  {
+    id: 'openrouter-deepseek-r1-free',
+    label: 'DeepSeek R1 (free)',
+    endpoint: 'https://openrouter.ai/api/v1',
+    model: 'deepseek/deepseek-r1:free',
+  },
+  {
+    id: 'openrouter-mistral-small-free',
+    label: 'Mistral Small 3.1 24B (free)',
+    endpoint: 'https://openrouter.ai/api/v1',
+    model: 'mistralai/mistral-small-3.1-24b-instruct:free',
+  },
+  {
     id: 'openrouter-ernie-free',
     label: 'ERNIE 5.5 Flash Preview (free)',
     endpoint: 'https://openrouter.ai/api/v1',
@@ -68,10 +86,15 @@ export const FREE_FALLBACK_PRESETS: FallbackModelEntry[] = [
   },
 ];
 
+/** Default recommended free fallback chain presets for resilient $0 failover. */
+export function getDefaultFallbackChain(): FallbackModelEntry[] {
+  return FREE_FALLBACK_PRESETS.slice(0, 3);
+}
+
 export function loadFallbackSettings(): FallbackSettings {
   const fallback: FallbackSettings = {
     enabled: true,
-    chain: FREE_FALLBACK_PRESETS.slice(0, 2),
+    chain: getDefaultFallbackChain(),
   };
   if (typeof window === 'undefined') return fallback;
   try {
@@ -184,6 +207,14 @@ const LIMIT_HINTS = [
   'busy',
   'out of balance',
   'insufficient_quota',
+  'no endpoints available',
+  'no available endpoints',
+  'no healthy upstream',
+  'capacity exceeded',
+  'traffic exceeded',
+  'daily limit',
+  'temporarily unavailable',
+  'upstream connect error',
 ];
 
 /**

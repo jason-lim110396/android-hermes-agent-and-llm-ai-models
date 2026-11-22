@@ -128,17 +128,29 @@ export function parseRetryAfterHeader(headers: Headers): number | undefined {
     }
   }
 
-  const resetHeader = headers.get('x-ratelimit-reset') || headers.get('retry-after-ms');
+  const retryAfterMs = headers.get('retry-after-ms');
+  if (retryAfterMs) {
+    const ms = parseFloat(retryAfterMs.trim());
+    if (!Number.isNaN(ms) && ms > 0) {
+      const sec = Math.ceil(ms / 1000);
+      return Math.min(Math.max(sec, 10), 3600);
+    }
+  }
+
+  const resetHeader = headers.get('x-ratelimit-reset');
   if (resetHeader) {
     const val = parseFloat(resetHeader.trim());
     if (!Number.isNaN(val) && val > 0) {
       if (val > 1_000_000_000_000) {
+        // Epoch milliseconds
         const diffSec = Math.ceil((val - Date.now()) / 1000);
         if (diffSec > 0) return Math.min(Math.max(diffSec, 10), 3600);
       } else if (val > 1_000_000_000) {
-        const diffSec = Math.ceil(val - Date.now() / 1000);
+        // Epoch seconds
+        const diffSec = Math.ceil(val - (Date.now() / 1000));
         if (diffSec > 0) return Math.min(Math.max(diffSec, 10), 3600);
       } else {
+        // Delta seconds
         return Math.min(Math.max(Math.ceil(val), 10), 3600);
       }
     }
@@ -202,12 +214,17 @@ async function streamChatCompletion(
   armTimer(FIRST_BYTE_TIMEOUT_MS);
 
   try {
+    const isOpnRouter = candidate.endpoint.toLowerCase().includes('openrouter.ai');
     const res = await fetch(url, {
       method: 'POST',
       signal: requestController.signal,
       headers: {
         'Content-Type': 'application/json',
         ...(candidate.apiKey ? { Authorization: `Bearer ${candidate.apiKey}` } : {}),
+        ...(isOpnRouter ? {
+          'HTTP-Referer': 'https://github.com/jason-lim110396/android-hermes-agent-and-llm-ai-models',
+          'X-Title': 'Android Hermes AI',
+        } : {}),
       },
       body: JSON.stringify({
         model: candidate.model,
@@ -220,9 +237,16 @@ async function streamChatCompletion(
 
     if (!res.ok) {
       // Read the body so a quota message is not mistaken for a network error.
+      // Parse structured JSON error objects if present to get clean, honest details.
       let detail = '';
       try {
-        detail = (await res.text()).slice(0, 400);
+        const rawText = await res.text();
+        try {
+          const parsed = JSON.parse(rawText);
+          detail = parsed?.error?.message || parsed?.error?.detail || parsed?.message || rawText.slice(0, 500);
+        } catch {
+          detail = rawText.slice(0, 500);
+        }
       } catch (_) {}
       const retryAfterSec = parseRetryAfterHeader(res.headers);
       throw new RemoteEndpointError(
@@ -496,17 +520,6 @@ async function executeRemoteFallbackChain(
           });
         } catch (_) {}
 
-        if ((i > 0 || effectiveInitialReason) && reason) {
-          try {
-            config?.onFallback?.({
-              from: effectiveInitialReason
-                ? (skippedPrimaryLabel || modelSpec?.name || 'primary endpoint')
-                : orderedCandidates[0].label,
-              to: candidate.label,
-              reason,
-            });
-          } catch (_) {}
-        }
         return { success: true, text, hops };
       }
 

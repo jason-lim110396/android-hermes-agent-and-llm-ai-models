@@ -80,6 +80,7 @@ import {
   clearAllEndpointCooldowns,
   getAllActiveCooldowns,
   updateFallbackChainEntry,
+  getDefaultFallbackChain,
 } from '@/utils/modelFallback';
 
 export interface FirewallCustomRule {
@@ -441,10 +442,24 @@ export default function SettingsView() {
 
       const rawUrl = entry.endpoint.trim().replace(/\/+$/, '');
       const pingUrl = rawUrl.endsWith('/models') ? rawUrl : `${rawUrl}/models`;
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (entry.apiKey && entry.apiKey.trim()) {
-        headers['Authorization'] = `Bearer ${entry.apiKey.trim()}`;
-      }
+      const isOpnRouter = pingUrl.toLowerCase().includes('openrouter.ai');
+      let sameProvider = false;
+      try {
+        const ep = apiEndpoint && apiEndpoint.trim();
+        if (ep && new URL(entry.endpoint).origin === new URL(ep).origin) {
+          sameProvider = true;
+        }
+      } catch (_) {}
+      const effectiveKey = (entry.apiKey && entry.apiKey.trim()) || (sameProvider ? (apiKey && apiKey.trim()) : undefined);
+
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        ...(effectiveKey ? { Authorization: `Bearer ${effectiveKey}` } : {}),
+        ...(isOpnRouter ? {
+          'HTTP-Referer': 'https://github.com/jason-lim110396/android-hermes-agent-and-llm-ai-models',
+          'X-Title': 'Android Hermes AI',
+        } : {}),
+      };
 
       const res = await fetch(pingUrl, { signal: ctrl.signal, headers });
       clearTimeout(timeoutId);
@@ -1575,6 +1590,21 @@ export default function SettingsView() {
               </div>
             );
             })}
+          </div>
+
+          <div className="flex items-center justify-between gap-1 pt-1">
+            <span className="text-[10px] font-bold text-zinc-400">Add free presets:</span>
+            <button
+              type="button"
+              onClick={() => {
+                triggerHaptic(10);
+                setModelFallbackChain(getDefaultFallbackChain());
+              }}
+              className="text-[9px] font-semibold text-emerald-400 hover:text-emerald-300 underline cursor-pointer"
+              title="Reset fallback chain to default recommended free presets"
+            >
+              Reset to Defaults
+            </button>
           </div>
 
           <div className="flex flex-wrap gap-1.5">
