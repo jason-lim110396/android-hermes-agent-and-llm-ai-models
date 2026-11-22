@@ -151,6 +151,14 @@ export function triggerMemoryCleanupHint(): void {
   }
 }
 
+/**
+ * Explicit notification to trigger immediate cooperative memory trimming across components.
+ */
+export function notifyMemoryPressureTrim(source = 'general'): void {
+  console.warn(`[MemoryGuard] Memory trim requested by ${source}`);
+  triggerMemoryCleanupHint();
+}
+
 let memoryWatcherTimer: ReturnType<typeof setInterval> | null = null;
 let lastCleanupTriggerTime = 0;
 
@@ -158,6 +166,7 @@ let lastCleanupTriggerTime = 0;
  * Proactively checks JS heap memory pressure every 15s. If usageRatio >= 0.85
  * (or device memory <= 4GB and heap ratio >= 0.75), triggers cooperative cleanup
  * to prevent Android WebView Out-Of-Memory process termination.
+ * Also registers visibilitychange and pagehide listeners to shed memory on backgrounding.
  */
 export function startProactiveMemoryWatcher(): () => void {
   if (typeof window === 'undefined') return () => {};
@@ -179,10 +188,38 @@ export function startProactiveMemoryWatcher(): () => void {
     }
   }, 15_000);
 
+  const handleVisibilityChange = () => {
+    if (typeof document === 'undefined') return;
+    if (document.visibilityState === 'hidden') {
+      const stats = getHeapMemoryStats();
+      const lowMem = isLowMemory();
+      if (lowMem || (stats && stats.usageRatio >= 0.7)) {
+        triggerMemoryCleanupHint();
+      }
+    }
+  };
+
+  const handlePageHide = () => {
+    triggerMemoryCleanupHint();
+  };
+
+  if (typeof document !== 'undefined') {
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+  }
+  if (typeof window !== 'undefined') {
+    window.addEventListener('pagehide', handlePageHide);
+  }
+
   return () => {
     if (memoryWatcherTimer) {
       clearInterval(memoryWatcherTimer);
       memoryWatcherTimer = null;
+    }
+    if (typeof document !== 'undefined') {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    }
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('pagehide', handlePageHide);
     }
   };
 }

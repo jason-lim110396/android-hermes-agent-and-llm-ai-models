@@ -1,7 +1,7 @@
 'use client';
 
 import { triggerHaptic } from '@/utils/haptics';
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   Sparkles,
   Download,
@@ -103,6 +103,19 @@ export default function ImageStudio() {
 
   const imageModels = AVAILABLE_MODELS.filter((m) => m.category === 'image' || m.capabilities.includes('image-gen'));
   const currentModel = imageModels.find((m) => m.id === selectedModelId) || imageModels[0];
+
+  useEffect(() => {
+    const handleMemoryCleanup = () => {
+      // Trim historical diffusion images down to the single most recent item
+      // to shed heavy base64 strings and canvas contexts when memory pressure spikes.
+      setHistory((prev) => prev.slice(0, 1));
+      setScrubImage(null);
+    };
+    window.addEventListener('hermes:memory-cleanup', handleMemoryCleanup);
+    return () => {
+      window.removeEventListener('hermes:memory-cleanup', handleMemoryCleanup);
+    };
+  }, []);
 
   const handleGenerate = async () => {
     if (!prompt.trim() || isGenerating) return;
