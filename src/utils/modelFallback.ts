@@ -366,6 +366,7 @@ export interface EndpointCooldown {
   until: number;
   reason: string;
   isRetryAfterHeader?: boolean;
+  consecutiveFailures?: number;
 }
 
 const COOLDOWN_STORAGE_KEY = 'hermes_endpoint_cooldowns_v1';
@@ -391,6 +392,7 @@ function loadPersistedCooldowns(): Map<string, EndpointCooldown> {
           until: item.until,
           reason: typeof item.reason === 'string' ? item.reason : 'rate limit',
           isRetryAfterHeader: !!item.isRetryAfterHeader,
+          consecutiveFailures: typeof item.consecutiveFailures === 'number' ? item.consecutiveFailures : 1,
         });
       }
     }
@@ -415,6 +417,7 @@ function persistCooldowns(): void {
 /**
  * Record a temporary cooldown for an endpoint that experienced 429, quota exhaustion, or gateway timeouts.
  * Default cooldown is 60 seconds (or customized via durationMs).
+ * Automatically applies exponential backoff for consecutive failures unless an explicit Retry-After header was parsed.
  */
 export function recordEndpointCooldown(
   endpoint: string,
@@ -424,12 +427,25 @@ export function recordEndpointCooldown(
   isRetryAfterHeader = false
 ): void {
   const key = getCooldownKey(endpoint, model);
+  const existing = endpointCooldowns.get(key);
+  const prevFailures = existing?.consecutiveFailures ?? 0;
+  const consecutiveFailures = prevFailures + 1;
+
+  // If no explicit Retry-After header was specified, apply progressive exponential backoff (up to 10 minutes)
+  let effectiveDuration = durationMs;
+  if (!isRetryAfterHeader && consecutiveFailures > 1) {
+    // 60s * 1.5^(failures - 1), capped at 600_000 (10 minutes)
+    const multiplier = Math.min(Math.pow(1.5, consecutiveFailures - 1), 10);
+    effectiveDuration = Math.min(Math.round(durationMs * multiplier), 600_000);
+  }
+
   endpointCooldowns.set(key, {
     endpoint,
     model,
-    until: Date.now() + durationMs,
+    until: Date.now() + effectiveDuration,
     reason,
     isRetryAfterHeader,
+    consecutiveFailures,
   });
   persistCooldowns();
 }
