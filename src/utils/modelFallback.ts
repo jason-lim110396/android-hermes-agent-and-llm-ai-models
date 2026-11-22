@@ -348,7 +348,6 @@ export function describeLimitFailure(status: number, detail: string): string {
   if (status === 507) return 'insufficient server storage (507)';
   if (status === 509) return 'bandwidth limit exceeded (509)';
   if (status === 403) return 'quota / tier blocked (403)';
-  if (status === 403) return 'quota / tier blocked (403)';
   if (status === 500) return 'internal server error (500)';
   if (status === 502) return 'bad gateway (502)';
   if (status === 503) return 'provider unavailable (503)';
