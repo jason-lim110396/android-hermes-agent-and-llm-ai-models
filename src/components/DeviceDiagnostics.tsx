@@ -728,6 +728,11 @@ export default function DeviceDiagnostics() {
                 }`}>
                   {vaultStats.hasPendingWrite ? 'Pending Debounced Sync' : 'Synced to Vault'}
                 </span>
+                {vaultStats.hasIndexedDbTier && (
+                  <span className="px-1.5 py-0.5 rounded-full text-[9px] font-mono font-medium bg-cyan-950/60 text-cyan-300 border border-cyan-800/60">
+                    Dual-Tier IDB Active
+                  </span>
+                )}
               </div>
               <p className="text-[11px] text-zinc-400">
                 Guarantees chat histories and agent reasoning traces survive background OS termination and WebView destruction
