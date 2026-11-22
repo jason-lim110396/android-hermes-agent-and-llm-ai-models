@@ -42,6 +42,7 @@ import { AVAILABLE_MODELS } from '@/models';
 import { speakGuarded } from '@/utils/speechGuard';
 import { isSpeechRecognitionPermissionDenied } from '@/utils/nativeAppSettings';
 import PermissionDeniedNotice from './PermissionDeniedNotice';
+import VoiceCallModal from './VoiceCallModal';
 import { attachGuardedRecognition, createSilenceDetector, type SilenceDetector } from '@/utils/voiceSession';
 import { startVisibleInterval } from '@/utils/visibleInterval';
 
@@ -87,6 +88,7 @@ export default function VoiceStudio() {
   const setCurrentTab = useAppStore((s) => s.setCurrentTab);
 
   const [activeTab, setActiveTab] = useState<'tts' | 'stt' | 'cloner' | 'vocoder' | 'trimmer'>('tts');
+  const [isVoiceCallOpen, setIsVoiceCallOpen] = useState(false);
   const [ttsInput, setTtsInput] = useState(SAMPLE_SCRIPTS[0]);
   const [selectedVoiceId, setSelectedVoiceId] = useState<string>('kokoro-female');
   const [pitch, setPitch] = useState<number>(1.05);
@@ -912,6 +914,36 @@ export default function VoiceStudio() {
       </div>
 
       <div className="p-4 space-y-4 max-w-2xl mx-auto w-full">
+        {/* Real-time Hands-Free ChatGPT Voice Call Banner */}
+        <div className="rounded-2xl p-4 bg-gradient-to-r from-emerald-950/60 via-teal-950/50 to-cyan-950/60 border border-emerald-500/30 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-lg">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-emerald-500/20 border border-emerald-400/40 flex items-center justify-center shrink-0">
+              <AudioLines className="w-5 h-5 text-emerald-400 animate-pulse" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-white">Live Voice Call</span>
+                <span className="px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 text-[9px] font-mono font-bold">
+                  ChatGPT Mode
+                </span>
+              </div>
+              <p className="text-[11px] text-zinc-400 mt-0.5">
+                Continuous hands-free dialogue with real-time audio orb & instant barge-in.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => {
+              triggerHaptic('success');
+              setIsVoiceCallOpen(true);
+            }}
+            className="w-full sm:w-auto px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-md cursor-pointer transition-all active:scale-95 shrink-0"
+          >
+            <Radio className="w-4 h-4 animate-pulse" />
+            <span>Start Voice Call</span>
+          </button>
+        </div>
+
         {/* ========================================================= */}
         {/* TAB 1: NEURAL TEXT-TO-SPEECH (TTS) */}
         {/* ========================================================= */}
@@ -2104,6 +2136,12 @@ export default function VoiceStudio() {
           </div>
         )}
       </div>
+
+      {/* Real-time Hands-Free ChatGPT Voice Call Modal */}
+      <VoiceCallModal
+        isOpen={isVoiceCallOpen}
+        onClose={() => setIsVoiceCallOpen(false)}
+      />
     </div>
   );
 }
