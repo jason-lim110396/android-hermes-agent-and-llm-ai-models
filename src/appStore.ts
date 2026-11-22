@@ -20,6 +20,7 @@ import {
   clearPersistedSessions,
   getSessionVaultStats,
   loadPersistedSessions,
+  loadPersistedSessionsFromIdb,
   schedulePersistSessions,
   SessionVaultStats,
 } from './utils/sessionPersistence';
@@ -829,27 +830,66 @@ export const useAppStore = create<AppStore>((set, get) => {
   // run. Called once after mount (never during SSR/hydration) so the server
   // HTML and the first client render always agree.
   restorePersistedSessions: () => {
+    // 1. Synchronous primary restore from localStorage for instant, zero-flicker UI render
     const persisted = loadPersistedSessions();
-    if (!persisted) return;
-    const hasChat = Object.keys(persisted.chatSessions).length > 0;
-    const hasAgent = Object.keys(persisted.agentSessions).length > 0;
-    if (!hasChat && !hasAgent) return;
-    set((state) => ({
-      // Merge over whatever exists (rather than wholesale replace) so sessions
-      // created between store init and this restore are never discarded.
-      chatSessions: hasChat ? { ...state.chatSessions, ...persisted.chatSessions } : state.chatSessions,
-      agentSessions: hasAgent ? { ...state.agentSessions, ...persisted.agentSessions } : state.agentSessions,
-      activeChatSessionId: hasChat
-        ? persisted.chatSessions[persisted.activeChatSessionId]
-          ? persisted.activeChatSessionId
-          : Object.keys(persisted.chatSessions)[0]
-        : state.activeChatSessionId,
-      activeAgentSessionId: hasAgent
-        ? persisted.agentSessions[persisted.activeAgentSessionId]
-          ? persisted.activeAgentSessionId
-          : Object.keys(persisted.agentSessions)[0]
-        : state.activeAgentSessionId,
-    }));
+    if (persisted) {
+      const hasChat = Object.keys(persisted.chatSessions).length > 0;
+      const hasAgent = Object.keys(persisted.agentSessions).length > 0;
+      if (hasChat || hasAgent) {
+        set((state) => ({
+          // Merge over whatever exists (rather than wholesale replace) so sessions
+          // created between store init and this restore are never discarded.
+          chatSessions: hasChat ? { ...state.chatSessions, ...persisted.chatSessions } : state.chatSessions,
+          agentSessions: hasAgent ? { ...state.agentSessions, ...persisted.agentSessions } : state.agentSessions,
+          activeChatSessionId: hasChat
+            ? persisted.chatSessions[persisted.activeChatSessionId]
+              ? persisted.activeChatSessionId
+              : Object.keys(persisted.chatSessions)[0]
+            : state.activeChatSessionId,
+          activeAgentSessionId: hasAgent
+            ? persisted.agentSessions[persisted.activeAgentSessionId]
+              ? persisted.activeAgentSessionId
+              : Object.keys(persisted.agentSessions)[0]
+            : state.activeAgentSessionId,
+        }));
+      }
+    }
+
+    // 2. Asynchronous secondary check against high-capacity IndexedDB vault tier:
+    // If localStorage was trimmed due to quota, wiped by OS low-memory termination,
+    // or missing, restore the richer history from IndexedDB without losing user messages.
+    loadPersistedSessionsFromIdb()
+      .then((idbPersisted) => {
+        if (!idbPersisted) return;
+        set((state) => {
+          let updated = false;
+          const newChat = { ...state.chatSessions };
+          const newAgent = { ...state.agentSessions };
+
+          for (const [id, sess] of Object.entries(idbPersisted.chatSessions)) {
+            const current = newChat[id];
+            if (!current || (sess.messages && sess.messages.length > current.messages.length)) {
+              newChat[id] = sess;
+              updated = true;
+            }
+          }
+
+          for (const [id, sess] of Object.entries(idbPersisted.agentSessions)) {
+            const current = newAgent[id];
+            if (!current || (sess.messages && sess.messages.length > current.messages.length)) {
+              newAgent[id] = sess;
+              updated = true;
+            }
+          }
+
+          if (!updated) return state;
+          return {
+            chatSessions: newChat,
+            agentSessions: newAgent,
+          };
+        });
+      })
+      .catch(() => {});
   },
 
   // Honest "Clear Cache" support: drop every in-memory conversation so the

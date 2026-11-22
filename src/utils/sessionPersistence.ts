@@ -17,6 +17,12 @@
 import type { ChatMessage, ChatSession } from '@/appStore';
 import { App as CapApp } from '@capacitor/app';
 import { triggerMemoryCleanupHint } from './memoryGuard';
+import {
+  hasIndexedDb,
+  saveSessionsToIndexedDb,
+  loadSessionsFromIndexedDb,
+  clearIndexedDbSessions,
+} from './indexedDbGuard';
 
 const STORAGE_KEY = 'hermes_sessions_v1';
 const PERSIST_DEBOUNCE_MS = 1000;
@@ -44,6 +50,7 @@ export interface SessionVaultStats {
   estimatedKB: number;
   lastPersistedTimestamp: number | null;
   hasPendingWrite: boolean;
+  hasIndexedDbTier: boolean;
 }
 
 export type { PersistedSessions };
@@ -180,12 +187,17 @@ export function flushPersistNow(): void {
   const snapshot = pendingSnapshot;
   pendingSnapshot = null;
   try {
-    tryWrite({
+    const limitedPayload = {
       chatSessions: limitSessions(snapshot.chatSessions, snapshot.activeChatSessionId),
       agentSessions: limitSessions(snapshot.agentSessions, snapshot.activeAgentSessionId),
       activeChatSessionId: snapshot.activeChatSessionId,
       activeAgentSessionId: snapshot.activeAgentSessionId,
-    });
+    };
+    tryWrite(limitedPayload);
+    // Non-blocking dual-tier persistence: mirror the full untruncated snapshot into IndexedDB
+    if (hasIndexedDb()) {
+      saveSessionsToIndexedDb(snapshot).catch(() => {});
+    }
   } catch (_) {
     // Persistence is best-effort; the live in-memory app must never break.
   }
@@ -205,7 +217,7 @@ export function clearPendingPersist(): void {
 }
 
 /**
- * Explicitly removes the persisted session vault from localStorage and discards
+ * Explicitly removes the persisted session vault from localStorage and IndexedDB and discards
  * any pending debounced writes. Prevents lingering or orphaned session trees.
  */
 export function clearPersistedSessions(): void {
@@ -215,6 +227,9 @@ export function clearPersistedSessions(): void {
       window.localStorage.removeItem(STORAGE_KEY);
       lastPersistedTime = null;
     } catch (_) {}
+    if (hasIndexedDb()) {
+      clearIndexedDbSessions().catch(() => {});
+    }
   }
 }
 
@@ -232,6 +247,7 @@ export function getSessionVaultStats(): SessionVaultStats {
       estimatedKB: 0,
       lastPersistedTimestamp: lastPersistedTime,
       hasPendingWrite: pendingSnapshot !== null,
+      hasIndexedDbTier: false,
     };
   }
 
@@ -269,6 +285,7 @@ export function getSessionVaultStats(): SessionVaultStats {
     estimatedKB: Math.round((estimatedBytes / 1024) * 10) / 10,
     lastPersistedTimestamp: lastPersistedTime,
     hasPendingWrite: pendingSnapshot !== null,
+    hasIndexedDbTier: hasIndexedDb(),
   };
 }
 
@@ -361,6 +378,36 @@ export function loadPersistedSessions(): PersistedSessions | null {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
+    const chatSessions = sanitizeSessions(parsed.chatSessions);
+    const agentSessions = sanitizeSessions(parsed.agentSessions);
+    if (!chatSessions && !agentSessions) return null;
+    return {
+      chatSessions: chatSessions || {},
+      agentSessions: agentSessions || {},
+      activeChatSessionId:
+        typeof parsed.activeChatSessionId === 'string' && chatSessions?.[parsed.activeChatSessionId]
+          ? parsed.activeChatSessionId
+          : Object.keys(chatSessions || {})[0] || '',
+      activeAgentSessionId:
+        typeof parsed.activeAgentSessionId === 'string' && agentSessions?.[parsed.activeAgentSessionId]
+          ? parsed.activeAgentSessionId
+          : Object.keys(agentSessions || {})[0] || '',
+    };
+  } catch (_) {
+    return null;
+  }
+}
+
+/**
+ * Asynchronously loads and sanitizes sessions saved in the IndexedDB vault tier.
+ * Returns null if unavailable or empty.
+ */
+export async function loadPersistedSessionsFromIdb(): Promise<PersistedSessions | null> {
+  if (typeof window === 'undefined' || !hasIndexedDb()) return null;
+  try {
+    const raw = await loadSessionsFromIndexedDb();
+    if (!raw || typeof raw !== 'object') return null;
+    const parsed = raw as Record<string, unknown>;
     const chatSessions = sanitizeSessions(parsed.chatSessions);
     const agentSessions = sanitizeSessions(parsed.agentSessions);
     if (!chatSessions && !agentSessions) return null;
