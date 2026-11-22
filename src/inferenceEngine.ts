@@ -276,6 +276,7 @@ async function streamChatCompletion(
     // Set when an SSE error object carries a quota/limit message, even if text
     // already streamed. Drives the chain advance at the end of the stream.
     let sawLimitError = false;
+    let sseRetryAfterSeconds: number | undefined = undefined;
     // Track reasoning state for models (DeepSeek R1, Qwen 2.5, Ollama, vLLM, OpenRouter)
     // that stream thinking tokens in delta.reasoning_content or delta.reasoning.
     let inReasoningPhase = false;
@@ -357,6 +358,20 @@ async function streamChatCompletion(
               // an error event means the generation was interrupted. Remember it so we advance
               // the chain instead of returning the truncated text as success.
               sawLimitError = true;
+
+              // Inspect possible retry_after / reset headers or error payload fields
+              if (typeof rawErr === 'object' && rawErr !== null) {
+                const errObj = rawErr as Record<string, unknown>;
+                const rawRetry = errObj.retry_after ?? errObj.retryAfter ?? errObj.reset;
+                if (typeof rawRetry === 'number' && rawRetry > 0) {
+                  sseRetryAfterSeconds = Math.min(Math.max(Math.ceil(rawRetry), 10), 3600);
+                } else if (typeof rawRetry === 'string') {
+                  const p = parseInt(rawRetry.trim(), 10);
+                  if (!Number.isNaN(p) && p > 0) {
+                    sseRetryAfterSeconds = Math.min(Math.max(p, 10), 3600);
+                  }
+                }
+              }
             }
           }
           // Modern reasoning models (DeepSeek R1, Qwen 2.5, vLLM, Ollama, OpenRouter)
@@ -435,7 +450,8 @@ async function streamChatCompletion(
       throw new RemoteEndpointError(
         `${candidate.label}: ${cleanReason}`,
         429,
-        cleanReason
+        cleanReason,
+        sseRetryAfterSeconds
       );
     }
     return fullText;
