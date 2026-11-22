@@ -226,17 +226,17 @@ export function isUsageLimitFailure(status: number, detail: string): boolean {
   if (status === 429 || status === 402 || status === 408) return true;
   // 529 (Site is overloaded) is returned by Anthropic, OpenRouter, and other LLM gateways.
   if (status === 529) return true;
-  // 502/503/504 are transient gateway/server failures - by definition a
-  // different provider can often serve the same prompt. Free routers return
-  // these constantly ("Model overloaded", "Server capacity reached",
-  // "Service Unavailable") with text that does not match any quota keyword.
-  if (status === 502 || status === 503 || status === 504) return true;
+  // 500/502/503/504 are server/gateway failures: an internal server crash or gateway outage on one
+  // provider should fail over to another healthy provider in the fallback chain.
+  if (status === 500 || status === 502 || status === 503 || status === 504) return true;
   // 520-526 are Cloudflare edge proxy / origin timeouts common on public free routers.
   if (status >= 520 && status <= 526) return true;
-  // 401 is a bad key; 500 is an unrecoverable server fault. Neither means "try a different
-  // provider" - sending the same prompt elsewhere would hide the real error.
+  // 404 (model / route not found or deprecated) and 410 (gone) indicate that the specific model
+  // or route is unavailable on this provider; other presets in the chain can serve the prompt.
+  if (status === 404 || status === 410) return true;
+  // 401 is an invalid API key; status outside 400-599 is unexpected.
   if (status === 401 || status < 400 || status >= 600) return false;
-  // 403 / other 4xx only count when the provider actually says quota or limit.
+  // 403 / other 4xx only count when the provider actually says quota, limit, or model availability.
   return isLimitFailureText(detail);
 }
 
@@ -264,9 +264,12 @@ export function describeLimitFailure(status: number, detail: string): string {
   if (status === 402) return 'payment required';
   if (status === 408) return 'request timeout (408)';
   if (status === 403) return 'quota / tier blocked';
+  if (status === 500) return 'internal server error (500)';
   if (status === 502) return 'bad gateway (502)';
   if (status === 503) return 'provider unavailable (503)';
   if (status === 504) return 'gateway timeout (504)';
+  if (status === 404) return 'model / route not found (404)';
+  if (status === 410) return 'model decommissioned (410)';
   if (status >= 520 && status <= 526) return `edge proxy error (${status})`;
   return `HTTP ${status}`;
 }
