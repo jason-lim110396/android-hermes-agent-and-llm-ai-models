@@ -79,6 +79,18 @@ export const FREE_FALLBACK_PRESETS: FallbackModelEntry[] = [
     model: 'google/gemma-4-26b-a4b-it:free',
   },
   {
+    id: 'openrouter-qwen-coder-free',
+    label: 'Qwen 2.5 Coder 32B (free)',
+    endpoint: 'https://openrouter.ai/api/v1',
+    model: 'qwen/qwen-2.5-coder-32b-instruct:free',
+  },
+  {
+    id: 'openrouter-deepseek-chat-free',
+    label: 'DeepSeek V3 Chat (free)',
+    endpoint: 'https://openrouter.ai/api/v1',
+    model: 'deepseek/deepseek-chat:free',
+  },
+  {
     id: 'ollama-local',
     label: 'Local Ollama / vLLM',
     endpoint: 'http://192.168.1.100:11434/v1',
