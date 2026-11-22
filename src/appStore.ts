@@ -265,19 +265,22 @@ const PROMPT_NOTICE_PREFIXES = [
 const STOPPED_MARKERS = ['*[Stopped by user]*', '*[Task stopped by user]*'];
 const FAILED_MARKER_RE = /^\*\[Generation failed: .*\]\*$/;
 
-/** Strips the blockquote fallback/privacy notices and the stopped/failed
- * markers that were rendered into a past assistant reply. Returns the
- * content unchanged when nothing was stripped. */
+/** Strips the blockquote fallback/privacy notices, internal thinking blocks (<think>...</think>),
+ * and the stopped/failed markers that were rendered into a past assistant reply. Returns the
+ * clean conversational content suitable for LLM prompt context without context bloat. */
 export function stripPromptNotices(content: string): string {
   if (!content) return content;
-  const lines = content.split('\n');
+  // Strip internal reasoning process traces (<think>...</think>) so past reasoning does not
+  // consume critical context window on subsequent conversational turns.
+  const withoutThinking = content.replace(/<think>[\s\S]*?<\/think>\n*/g, '').trim();
+  const lines = withoutThinking.split('\n');
   const kept = lines.filter((line) => {
     const trimmed = line.trim();
     if (STOPPED_MARKERS.includes(trimmed)) return false;
     if (FAILED_MARKER_RE.test(trimmed)) return false;
     return !PROMPT_NOTICE_PREFIXES.some((p) => trimmed.startsWith(p));
   });
-  if (kept.length === lines.length) return content;
+  if (kept.length === lines.length && withoutThinking === content) return content;
   // Drop the blank separator line the notice was appended with.
   while (kept.length > 0 && kept[kept.length - 1].trim() === '') kept.pop();
   return kept.join('\n');
