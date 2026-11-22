@@ -531,6 +531,14 @@ export function reconcileSessionWithIdb(
       updated = { ...updated, fallbackReason: idbMsg.fallbackReason };
       msgChanged = true;
     }
+    if (idbMsg.modelUsed && !cm.modelUsed) {
+      updated = { ...updated, modelUsed: idbMsg.modelUsed };
+      msgChanged = true;
+    }
+    if (idbMsg.mode && !cm.mode) {
+      updated = { ...updated, mode: idbMsg.mode };
+      msgChanged = true;
+    }
     if (msgChanged) {
       changed = true;
       return updated;
@@ -554,7 +562,12 @@ export function reconcileSessionWithIdb(
   let combinedMessages: ChatMessage[];
   if (missingOlderMessages.length > 0) {
     combinedMessages = [...missingOlderMessages, ...reconciledCurrent].sort(
-      (a, b) => (a.timestamp || 0) - (b.timestamp || 0)
+      (a, b) => {
+        const timeA = typeof a.timestamp === 'number' && Number.isFinite(a.timestamp) ? a.timestamp : 0;
+        const timeB = typeof b.timestamp === 'number' && Number.isFinite(b.timestamp) ? b.timestamp : 0;
+        if (timeA !== timeB) return timeA - timeB;
+        return (a.id || '').localeCompare(b.id || '');
+      }
     );
   } else {
     combinedMessages = reconciledCurrent;
@@ -564,6 +577,7 @@ export function reconcileSessionWithIdb(
     session: {
       ...current,
       title: current.title || idbSess.title,
+      createdAt: current.createdAt || idbSess.createdAt || Date.now(),
       pinned: current.pinned ?? idbSess.pinned,
       category: current.category || idbSess.category,
       tags: current.tags?.length ? current.tags : idbSess.tags,
