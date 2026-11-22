@@ -641,6 +641,8 @@ async function executeRemoteFallbackChain(
       // Key rejected (401)
       if (lastFailure instanceof RemoteEndpointError && lastFailure.status === 401) {
         console.warn(`Inference endpoint "${candidate.label}" rejected its API key (401), trying next:`, err);
+        // Cooldown the endpoint so subsequent turns skip it immediately without roundtrip lag
+        recordEndpointCooldown(candidate.endpoint, candidate.model, 'API key rejected (401)', 300_000);
         continue;
       }
 
@@ -649,13 +651,16 @@ async function executeRemoteFallbackChain(
         !isUsageLimitFailure(lastFailure.status, lastFailure.detail);
       if (isTerminalHttpError) {
         console.warn(`Inference endpoint "${candidate.label}" failed with a non-quota HTTP error:`, err);
+        const switchReason =
+          lastFailure instanceof RemoteEndpointError
+            ? `HTTP ${lastFailure.status} error`
+            : (lastFailure.message || 'endpoint error');
+        // Record temporary cooldown so next turns do not thrash this broken route
+        recordEndpointCooldown(candidate.endpoint, candidate.model, switchReason, 300_000);
+
         // If there are subsequent candidates in the fallback chain (e.g. free presets), continue
         // rather than failing the whole chain immediately, unless this was the last candidate.
         if (i < orderedCandidates.length - 1) {
-          const switchReason =
-            lastFailure instanceof RemoteEndpointError
-              ? `HTTP ${lastFailure.status} error`
-              : (lastFailure.message || 'endpoint error');
           hops.push({
             from: candidate.label,
             to: orderedCandidates[i + 1].label,
