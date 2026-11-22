@@ -39,7 +39,7 @@ import {
 } from 'lucide-react';
 import { useAppStore } from '@/appStore';
 import { AVAILABLE_MODELS } from '@/models';
-import { speakGuarded } from '@/utils/speechGuard';
+import { speakGuarded, createSpeechUtterance } from '@/utils/speechGuard';
 import { isSpeechRecognitionPermissionDenied } from '@/utils/nativeAppSettings';
 import PermissionDeniedNotice from './PermissionDeniedNotice';
 import VoiceCallModal from './VoiceCallModal';
@@ -561,27 +561,31 @@ export default function VoiceStudio() {
         if (window.speechSynthesis.paused) {
           window.speechSynthesis.resume();
         }
-        const utterance = new SpeechSynthesisUtterance(text);
-        utterance.rate = voiceRate;
-        utterance.pitch = voicePitch;
-        utterance.lang = 'en-US';
-        utterance.volume = 1.0;
+        const utterance = createSpeechUtterance(text);
+        if (utterance) {
+          utterance.rate = voiceRate;
+          utterance.pitch = voicePitch;
+          utterance.lang = 'en-US';
+          utterance.volume = 1.0;
 
-        const voices = window.speechSynthesis.getVoices();
-        if (voices && voices.length > 0) {
-          const naturalVoice = voices.find(
-            (v) => (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('Neural')) && v.lang.startsWith('en')
-          ) || voices.find((v) => v.lang.startsWith('en')) || voices[0];
-          if (naturalVoice) {
-            utterance.voice = naturalVoice;
-            if (naturalVoice.lang) utterance.lang = naturalVoice.lang;
+          const voices = window.speechSynthesis.getVoices();
+          if (voices && voices.length > 0) {
+            const naturalVoice = voices.find(
+              (v) => (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('Neural')) && v.lang.startsWith('en')
+            ) || voices.find((v) => v.lang.startsWith('en')) || voices[0];
+            if (naturalVoice) {
+              utterance.voice = naturalVoice;
+              if (naturalVoice.lang) utterance.lang = naturalVoice.lang;
+            }
           }
-        }
 
-        utterance.onstart = () => {
-          drawClonerSpectrum();
-        };
-        speakGuarded(utterance);
+          utterance.onstart = () => {
+            drawClonerSpectrum();
+          };
+          speakGuarded(utterance, text);
+        } else {
+          speakGuarded(null, text);
+        }
       } catch (_) {
         handlePreviewTrimmedAudio();
         useAppStore.setState({ isSpeaking: false });

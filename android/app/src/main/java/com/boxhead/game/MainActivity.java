@@ -11,6 +11,7 @@ public class MainActivity extends BridgeActivity {
         // injected into the WebView) is built during super.onCreate, so a
         // plugin added afterwards would be invisible to the web side.
         registerPlugin(HermesAppSettings.class);
+        registerPlugin(HermesTTS.class);
         super.onCreate(savedInstanceState);
         // Deliberately no startup permission prompt. Capacitor's bridge asks
         // for each permission at the moment the feature needs it - camera

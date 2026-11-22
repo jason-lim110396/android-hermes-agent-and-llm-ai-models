@@ -34,6 +34,7 @@ import {
   onSpeakingChange,
   hasSpeechSynthesis,
   playWebAudioSpeechChime,
+  createSpeechUtterance,
 } from '@/utils/speechGuard';
 import { isSpeechRecognitionPermissionDenied } from '@/utils/nativeAppSettings';
 
@@ -150,10 +151,13 @@ export default function VoiceCallModal({ isOpen, onClose }: VoiceCallModalProps)
           setAssistantText(spoken);
           if (spoken.length > 0) {
             setCallState('speaking');
-            const utterance = new SpeechSynthesisUtterance(spoken.slice(0, 500));
-            utterance.lang = 'en-US';
-            utterance.volume = 1.0;
-            speakGuarded(utterance);
+            const chunk = spoken.slice(0, 500);
+            const utterance = createSpeechUtterance(chunk);
+            if (utterance) {
+              utterance.lang = 'en-US';
+              utterance.volume = 1.0;
+            }
+            speakGuarded(utterance, chunk);
           } else {
             setCallState('listening');
             if (hasSpeechRecognition) {
@@ -283,12 +287,14 @@ export default function VoiceCallModal({ isOpen, onClose }: VoiceCallModalProps)
         if (window.speechSynthesis.paused) {
           window.speechSynthesis.resume();
         }
-        const utterance = new SpeechSynthesisUtterance(greeting);
-        utterance.lang = 'en-US';
-        utterance.volume = 1.0;
-        utterance.rate = 1.0;
-        utterance.pitch = 1.05;
-        speakGuarded(utterance);
+        const utterance = createSpeechUtterance(greeting);
+        if (utterance) {
+          utterance.lang = 'en-US';
+          utterance.volume = 1.0;
+          utterance.rate = 1.0;
+          utterance.pitch = 1.05;
+        }
+        speakGuarded(utterance, greeting);
       } catch (_) {
         playWebAudioSpeechChime(greeting);
       }

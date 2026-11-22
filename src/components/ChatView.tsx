@@ -1,5 +1,5 @@
 import { triggerHaptic } from '@/utils/haptics';
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import {
   Send,
   Paperclip,
@@ -404,6 +404,19 @@ export default function ChatView() {
   // "Quick Actions" dropdown for the former scroller chips above the composer.
   const [showQuickActions, setShowQuickActions] = useState(false);
   const [showModelPicker, setShowModelPicker] = useState(false);
+  const modelPickerRef = useRef<HTMLDivElement>(null);
+
+  // Close model picker dropdown on outside click
+  useEffect(() => {
+    if (!showModelPicker) return;
+    const handlePointerDown = (e: PointerEvent) => {
+      if (modelPickerRef.current && !modelPickerRef.current.contains(e.target as Node)) {
+        setShowModelPicker(false);
+      }
+    };
+    document.addEventListener('pointerdown', handlePointerDown);
+    return () => document.removeEventListener('pointerdown', handlePointerDown);
+  }, [showModelPicker]);
   const [modelSearchQuery, setModelSearchQuery] = useState('');
   const [modelCategoryFilter, setModelCategoryFilter] = useState<'all' | 'ready' | 'vision' | 'agent' | 'text' | 'code'>('all');
   const [showSessionPicker, setShowSessionPicker] = useState(false);
@@ -1947,11 +1960,11 @@ export default function ChatView() {
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden bg-zinc-950 relative">
       {/* ── TOP CONTROL BAR  (2 compact rows) ── */}
-      <div className="border-b border-zinc-800/80 bg-zinc-950/90 backdrop-blur-md z-20">
+      <div className="border-b border-zinc-800/80 bg-zinc-950/95 z-20">
         {/* Row 1: Model Selector (category browsing consolidated into Model Hub) */}
         <div className="px-2 pt-2 pb-1.5 flex items-center justify-between gap-1.5">
           {/* Model Selector */}
-          <div className="relative shrink-0">
+          <div ref={modelPickerRef} className="relative shrink-0">
             <button
               type="button"
               onClick={() => setShowModelPicker((prev) => !prev)}
@@ -1968,15 +1981,14 @@ export default function ChatView() {
               <>
                 {/* Backdrop to easily dismiss when tapping outside on mobile */}
                 <div
-                  className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm"
+                  className="fixed inset-0 z-40 bg-black/60"
                   onClick={() => setShowModelPicker(false)}
                 />
 
-                {/* Bottom Sheet on Mobile / Dropdown on Tablet+ */}
-                <div className="fixed inset-x-0 bottom-0 sm:absolute sm:inset-x-auto sm:left-0 sm:top-full sm:bottom-auto mt-1.5 w-full sm:w-[420px] max-w-[100vw] sm:max-w-[92vw] bg-zinc-900 border border-zinc-700/80 rounded-t-3xl sm:rounded-2xl shadow-2xl p-3 z-50 space-y-2.5 max-h-[85vh] sm:max-h-[34rem] overflow-y-auto">
-                  {/* Sheet Drag Indicator & Header */}
-                  <div className="sm:hidden w-10 h-1 bg-zinc-700 rounded-full mx-auto mb-1.5" />
-                  <div className="flex items-center justify-between pb-2 border-b border-zinc-800">
+                {/* Dropdown Popover */}
+                <div className="absolute left-0 top-full mt-2 w-[calc(100vw-20px)] xs:w-[380px] sm:w-[440px] max-w-[96vw] bg-zinc-900 border border-zinc-700/90 rounded-2xl shadow-2xl p-3 z-50 space-y-2.5 max-h-[75vh] flex flex-col animate-in fade-in zoom-in-95 duration-150">
+                  {/* Header */}
+                  <div className="flex items-center justify-between pb-2 border-b border-zinc-800 shrink-0">
                     <div>
                       <div className="flex items-center gap-2">
                         <span className="text-xs font-bold text-cyan-400">Quick Model Switcher</span>
@@ -2000,7 +2012,7 @@ export default function ChatView() {
                   </div>
 
                   {/* Search Input */}
-                  <div className="relative">
+                  <div className="relative shrink-0">
                     <Search className="w-3.5 h-3.5 text-zinc-500 absolute left-2.5 top-1/2 -translate-y-1/2" />
                     <input
                       type="text"
@@ -2021,7 +2033,7 @@ export default function ChatView() {
                   </div>
 
                   {/* Category Filter Pills */}
-                  <div className="flex items-center gap-1 overflow-x-auto pb-1 text-[10px] font-bold">
+                  <div className="flex items-center gap-1 overflow-x-auto pb-1 text-[10px] font-bold shrink-0 scrollbar-none">
                     {(['all', 'ready', 'text', 'code', 'agent', 'vision'] as const).map((cat) => (
                       <button
                         key={cat}
@@ -2042,7 +2054,7 @@ export default function ChatView() {
                   </div>
 
                   {/* Model Cards List */}
-                  <div className="space-y-1.5 max-h-[50vh] sm:max-h-[18rem] overflow-y-auto pr-0.5">
+                  <div className="space-y-1.5 flex-1 min-h-0 overflow-y-auto pr-0.5 overscroll-contain">
                     {filteredModels.length > 0 ? (
                       filteredModels.map((m) => {
                         const isCur = m.id === selectedModelId;

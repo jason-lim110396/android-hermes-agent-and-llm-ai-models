@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { cancelSpeech, hasSpeechSynthesis, onSpeakingChange, speakGuarded } from './utils/speechGuard';
+import { cancelSpeech, hasSpeechSynthesis, onSpeakingChange, speakGuarded, createSpeechUtterance } from './utils/speechGuard';
 import { AVAILABLE_MODELS, ModelSpec } from './models';
 import { DeviceHardwareProfile, profileMobileHardware } from './deviceProfiler';
 import { AgentStep, AGENT_TOOLS } from './agentTools';
@@ -1120,7 +1120,6 @@ export const useAppStore = create<AppStore>((set, get) => {
   },
 
   speakText: (text: string) => {
-    if (!hasSpeechSynthesis()) return;
     try {
       // Strip think tags, markdown syntax, and data URLs before speaking
       const clean = text
@@ -1132,7 +1131,13 @@ export const useAppStore = create<AppStore>((set, get) => {
         .trim();
       if (!clean) return;
 
-      const utterance = new SpeechSynthesisUtterance(clean.slice(0, 500)); // mobile friendly chunk
+      const chunk = clean.slice(0, 500); // mobile friendly chunk
+      const utterance = createSpeechUtterance(chunk);
+      if (!utterance) {
+        speakGuarded(null, chunk);
+        return;
+      }
+
       utterance.rate = get().voiceRate || 1.0;
       utterance.pitch = get().voicePitch || 1.0;
       utterance.lang = 'en-US';
@@ -1159,10 +1164,7 @@ export const useAppStore = create<AppStore>((set, get) => {
         }
       }
 
-      // Guarded speech keeps isSpeaking honest on Android WebViews that drop
-      // onstart or onend (a stuck flag would block the user from speaking
-      // again). The guard mirrors its state back into the store.
-      speakGuarded(utterance);
+      speakGuarded(utterance, chunk);
     } catch (_) {
       set({ isSpeaking: false });
     }

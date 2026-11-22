@@ -17,7 +17,7 @@ import {
   ChevronDown,
   Sparkles,
 } from 'lucide-react';
-import { cancelSpeech, speakGuarded, onSpeakingChange } from '@/utils/speechGuard';
+import { cancelSpeech, speakGuarded, onSpeakingChange, createSpeechUtterance } from '@/utils/speechGuard';
 import { useBackButtonClose } from '@/utils/backButton';
 
 interface Phrase {
@@ -131,24 +131,26 @@ export default function OfflinePhraseBookModal({ isOpen, onClose }: OfflinePhras
   const speakRequestIdRef = useRef(0);
 
   const handleSpeak = (phrase: Phrase) => {
-    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+    if (typeof window === 'undefined') return;
     const text = phrase.translations[selectedLang.code];
     if (!text) return;
     const requestId = ++speakRequestIdRef.current;
     const isCurrent = () => speakRequestIdRef.current === requestId;
-    const utter = new SpeechSynthesisUtterance(text);
-    utter.lang = selectedLang.bcp47 || 'en-US';
-    utter.volume = 1.0;
-    utter.rate = 0.9;
-    utter.onstart = () => { if (isCurrent()) setSpeakingId(phrase.id); };
-    utter.onend = () => { if (isCurrent()) setSpeakingId(null); };
-    utter.onerror = () => { if (isCurrent()) setSpeakingId(null); };
-    synthRef.current = utter;
+    const utter = createSpeechUtterance(text);
+    if (utter) {
+      utter.lang = selectedLang.bcp47 || 'en-US';
+      utter.volume = 1.0;
+      utter.rate = 0.9;
+      utter.onstart = () => { if (isCurrent()) setSpeakingId(phrase.id); };
+      utter.onend = () => { if (isCurrent()) setSpeakingId(null); };
+      utter.onerror = () => { if (isCurrent()) setSpeakingId(null); };
+      synthRef.current = utter;
+    }
     triggerHaptic(20);
     setTtsError(false);
     // If the engine refuses the utterance outright, clear the row immediately
     // instead of leaving a phantom "Stop" state that never resolves.
-    if (!speakGuarded(utter)) {
+    if (!speakGuarded(utter, text)) {
       speakRequestIdRef.current++;
       setSpeakingId(null);
       setTtsError(true);
