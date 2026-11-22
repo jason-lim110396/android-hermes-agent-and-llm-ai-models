@@ -1610,7 +1610,10 @@ export default function ChatView() {
     if ((!promptText.trim() && pendingAttachments.length === 0) || isGenerating) return false;
     if (!isOnline && !downloads[selectedModelId]?.isReady) {
       if (readyModels.length > 0) {
-        const targetModel = readyModels[0];
+        const targetModel =
+          readyModels.find(
+            (m) => m.category !== 'image' && m.category !== 'voice' && !m.capabilities.includes('image-gen')
+          ) || readyModels[0];
         triggerHaptic(20);
         setSelectedModelId(targetModel.id);
         if (targetModel.category === 'image') {
@@ -1618,7 +1621,7 @@ export default function ChatView() {
         } else if (targetModel.category === 'voice') {
           setOperatingMode('voice');
         } else {
-          setOperatingMode('chat');
+          setOperatingMode(operatingMode === 'agent' ? 'agent' : 'chat');
         }
         setFallbackNotice(`Offline: automatically switched to on-device ${targetModel.name.split(' ')[0]} model.`);
         setUploadError(null);
@@ -1653,7 +1656,10 @@ export default function ChatView() {
     // Check offline readiness before destructive message removal
     if (!isOnline && !downloads[selectedModelId]?.isReady) {
       if (readyModels.length > 0) {
-        const targetModel = readyModels[0];
+        const targetModel =
+          readyModels.find(
+            (m) => m.category !== 'image' && m.category !== 'voice' && !m.capabilities.includes('image-gen')
+          ) || readyModels[0];
         triggerHaptic(20);
         setSelectedModelId(targetModel.id);
         if (targetModel.category === 'image') {
@@ -1661,7 +1667,7 @@ export default function ChatView() {
         } else if (targetModel.category === 'voice') {
           setOperatingMode('voice');
         } else {
-          setOperatingMode('chat');
+          setOperatingMode(operatingMode === 'agent' ? 'agent' : 'chat');
         }
         setFallbackNotice(`Offline retry: automatically switched to on-device ${targetModel.name.split(' ')[0]} model.`);
         setUploadError(null);

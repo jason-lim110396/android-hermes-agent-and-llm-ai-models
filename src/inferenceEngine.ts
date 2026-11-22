@@ -1275,6 +1275,8 @@ export async function callRealLLMInference({
           diagnosticHint = `\n\n**Diagnostic**: The mobile GPU driver failed during a buffer-readback step ${MAX_ATTEMPTS > 1 ? `(retried ${MAX_ATTEMPTS}x, still failing) ` : ''}— a known Android WebGPU/driver compatibility issue on some devices. Switch to a **CPU Universal** model in the Model Picker (e.g. SmolLM2 360M CPU, Qwen 0.5B CPU, or Meta Llama 3.2 1B CPU) which runs on pure CPU without WebGPU.`;
         } else if (errorMsg.includes('GPU') || errorMsg.includes('adapter') || errorMsg.includes('device')) {
           diagnosticHint = '\n\n**Diagnostic**: WebGPU hardware acceleration is not supported or not enabled in your current browser/WebView. Switch to a **CPU Universal** model in the top Model Picker.';
+        } else if (!isOnline || errorMsg.includes('offline') || errorMsg.includes('Failed to fetch')) {
+          diagnosticHint = `\n\n**Diagnostic**: Device is offline and model weights for **${modelSpec?.name || modelId}** are not cached. Connect to the internet or switch to an already downloaded model in Model Hub.`;
         } else if (errorMsg.includes('Cannot find') || errorMsg.includes('404') || errorMsg.includes('fetch') || errorMsg.includes('cache')) {
           diagnosticHint = `\n\n**Diagnostic**: Model weights for **${modelSpec?.name || modelId}** were not found in local cache. Please open the **Model Hub** tab and download the model weights first.`;
         }
