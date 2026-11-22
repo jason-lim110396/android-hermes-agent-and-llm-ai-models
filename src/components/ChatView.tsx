@@ -2665,6 +2665,26 @@ export default function ChatView() {
                           <p className="text-zinc-300">
                             {msg.fallbackReason ? `Trigger: ${msg.fallbackReason}` : 'Primary provider rate-limited or unavailable; served via free fallback preset.'}
                           </p>
+                          {msg.fallbackHops && msg.fallbackHops.length > 0 && (
+                            <div className="mt-2 pt-1.5 border-t border-zinc-800 space-y-1.5">
+                              <div className="text-[9px] font-semibold text-amber-300/90 flex items-center gap-1">
+                                <span>Transition Chain ({msg.fallbackHops.length} hop{msg.fallbackHops.length === 1 ? '' : 's'}):</span>
+                              </div>
+                              {msg.fallbackHops.map((hop, idx) => (
+                                <div key={idx} className="bg-zinc-950/60 p-1 rounded border border-zinc-800/80 text-[9px]">
+                                  <div className="flex items-center gap-1 text-zinc-300">
+                                    <span className="text-amber-400 font-mono text-[8px] font-bold">#{idx + 1}</span>
+                                    <span className="text-zinc-200 font-medium truncate max-w-[90px]">{hop.from}</span>
+                                    <ArrowRightLeft className="w-2.5 h-2.5 text-zinc-500 shrink-0" />
+                                    <span className="text-amber-300 font-medium truncate max-w-[90px]">{hop.to}</span>
+                                  </div>
+                                  <div className="text-[8px] text-zinc-400 mt-0.5 italic">
+                                    Reason: {hop.reason}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </div>
                         </>
                       )}

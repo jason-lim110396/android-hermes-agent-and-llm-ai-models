@@ -251,6 +251,16 @@ function sanitizeSessions(raw: unknown): Record<string, ChatSession> | null {
       modelUsed: typeof m.modelUsed === 'string' ? m.modelUsed : undefined,
       isFallback: typeof m.isFallback === 'boolean' ? m.isFallback : undefined,
       fallbackReason: typeof m.fallbackReason === 'string' ? m.fallbackReason : undefined,
+      fallbackHops: Array.isArray((m as any).fallbackHops)
+        ? ((m as any).fallbackHops as unknown[])
+            .filter((h): h is Record<string, unknown> => !!h && typeof h === 'object')
+            .map((h) => ({
+              from: typeof h.from === 'string' ? h.from : 'unknown',
+              to: typeof h.to === 'string' ? h.to : 'unknown',
+              reason: typeof h.reason === 'string' ? h.reason : 'failover',
+              timestamp: typeof h.timestamp === 'number' && Number.isFinite(h.timestamp) ? h.timestamp : undefined,
+            }))
+        : undefined,
     }));
     out[id] = { ...sess, createdAt, messages };
   }

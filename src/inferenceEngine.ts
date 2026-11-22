@@ -7,6 +7,7 @@ import {
   recordEndpointCooldown,
   isEndpointInCooldown,
   clearEndpointCooldown,
+  FallbackHop,
 } from './utils/modelFallback';
 import { speakGuarded } from './utils/speechGuard';
 import { redactSensitiveMessages } from './utils/sensitiveContent';
@@ -84,7 +85,13 @@ export interface InferenceBackendConfig {
    * fallback), so the UI can label the reply with the provider/model that
    * produced it instead of the on-device model selected at send time.
    */
-  onAnsweredModel?: (info: { label: string; model?: string; isFallback?: boolean; reason?: string }) => void;
+  onAnsweredModel?: (info: {
+    label: string;
+    model?: string;
+    isFallback?: boolean;
+    reason?: string;
+    hops?: FallbackHop[];
+  }) => void;
 }
 
 export class RemoteEndpointError extends Error {
@@ -347,6 +354,7 @@ interface RemoteChainExecutionResult {
   success: boolean;
   text?: string;
   lastFailure?: Error | null;
+  hops?: FallbackHop[];
 }
 
 async function executeRemoteFallbackChain(
@@ -393,12 +401,22 @@ async function executeRemoteFallbackChain(
 
   const orderedCandidates = activeCandidates.length > 0 ? activeCandidates : uniqueCandidates;
 
+  const hops: FallbackHop[] = [];
   let effectiveInitialReason = initialSwitchReason;
   let skippedPrimaryLabel: string | null = null;
   if (!effectiveInitialReason && uniqueCandidates.length > 0 && orderedCandidates[0] !== uniqueCandidates[0]) {
     const primaryCd = isEndpointInCooldown(uniqueCandidates[0].endpoint, uniqueCandidates[0].model);
     skippedPrimaryLabel = uniqueCandidates[0].label;
     effectiveInitialReason = `Primary endpoint (${uniqueCandidates[0].label}) in cooldown (${primaryCd.reason || 'rate limit'}${primaryCd.remainingSeconds ? ` - ${primaryCd.remainingSeconds}s remaining` : ''})`;
+  }
+
+  if (effectiveInitialReason && orderedCandidates.length > 0) {
+    hops.push({
+      from: skippedPrimaryLabel || modelSpec?.name || 'primary endpoint',
+      to: orderedCandidates[0].label,
+      reason: effectiveInitialReason,
+      timestamp: Date.now(),
+    });
   }
 
   let lastFailure: RemoteEndpointError | Error | null = null;
@@ -412,6 +430,12 @@ async function executeRemoteFallbackChain(
         lastFailure instanceof RemoteEndpointError
           ? describeLimitFailure(lastFailure.status, lastFailure.detail)
           : (lastFailure.message || 'unavailable');
+      hops.push({
+        from: orderedCandidates[i - 1].label,
+        to: candidate.label,
+        reason: switchReason,
+        timestamp: Date.now(),
+      });
       try {
         config?.onFallback?.({
           from: orderedCandidates[i - 1].label,
@@ -456,6 +480,7 @@ async function executeRemoteFallbackChain(
             model: candidate.model,
             isFallback: i > 0 || !!effectiveInitialReason,
             reason,
+            hops: hops.length > 0 ? [...hops] : undefined,
           });
         } catch (_) {}
 
@@ -470,7 +495,7 @@ async function executeRemoteFallbackChain(
             });
           } catch (_) {}
         }
-        return { success: true, text };
+        return { success: true, text, hops };
       }
 
       lastFailure = new Error(`${candidate.label} returned an empty answer`);
@@ -541,7 +566,7 @@ async function executeRemoteFallbackChain(
     }
   }
 
-  return { success: false, lastFailure };
+  return { success: false, lastFailure, hops };
 }
 
 // Global Singleton WebLLM Engine
@@ -859,6 +884,7 @@ export async function callRealLLMInference({
     // Option A: If User provided an external Local Server / Ollama / OpenRouter API
     // (a stray whitespace-only value must not count as a configured endpoint)
     let remoteExhaustedReason: string | undefined = undefined;
+    let remoteCumulativeHops: FallbackHop[] = [];
     const remoteEndpoint = config?.apiEndpoint?.trim();
     if (config && (remoteEndpoint || (config.backendType === 'api' && config.fallbacks?.length))) {
       const primaryModel = config.customModelName || (modelId.includes('hermes') ? 'nousresearch/hermes-3-llama-3.2-3b' : modelId);
@@ -898,6 +924,17 @@ export async function callRealLLMInference({
         // Name the actual on-device destination: a CPU (GGUF) model must not
         // be described as a WebGPU/WebLLM download.
         const to = isCpuWasmModel(modelSpec) ? 'on-device CPU model' : 'on-device model';
+        const lastCandidateLabel =
+          candidates.length > 0 ? candidates[candidates.length - 1].label : 'remote endpoints';
+        remoteCumulativeHops = [
+          ...(remoteResult.hops || []),
+          {
+            from: lastCandidateLabel,
+            to,
+            reason,
+            timestamp: Date.now(),
+          },
+        ];
         console.warn(`All configured inference endpoints failed, transitioning to ${to}:`, lastFailure);
         // On a phone the on-device fallback can download hundreds of MB and
         // crash a low-memory WebView. Tell the user why it is happening before
@@ -932,6 +969,7 @@ export async function callRealLLMInference({
               model: modelId,
               isFallback: true,
               reason: `Remote models unavailable: ${remoteExhaustedReason}`,
+              hops: remoteCumulativeHops.length > 0 ? remoteCumulativeHops : undefined,
             });
           } catch (_) {}
         }
@@ -1039,6 +1077,7 @@ export async function callRealLLMInference({
               model: modelId,
               isFallback: true,
               reason: `Remote models unavailable: ${remoteExhaustedReason}`,
+              hops: remoteCumulativeHops.length > 0 ? remoteCumulativeHops : undefined,
             });
           } catch (_) {}
         }
