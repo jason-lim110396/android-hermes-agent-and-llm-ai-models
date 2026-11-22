@@ -868,7 +868,11 @@ export const useAppStore = create<AppStore>((set, get) => {
 
           for (const [id, sess] of Object.entries(idbPersisted.chatSessions)) {
             const current = newChat[id];
-            if (!current || (sess.messages && sess.messages.length > current.messages.length)) {
+            const hasRicherAttachments =
+              current &&
+              sess.messages &&
+              sess.messages.some((m, idx) => m.attachments?.length && !current.messages?.[idx]?.attachments?.length);
+            if (!current || (sess.messages && sess.messages.length > current.messages.length) || hasRicherAttachments) {
               newChat[id] = sess;
               updated = true;
             }
@@ -876,7 +880,11 @@ export const useAppStore = create<AppStore>((set, get) => {
 
           for (const [id, sess] of Object.entries(idbPersisted.agentSessions)) {
             const current = newAgent[id];
-            if (!current || (sess.messages && sess.messages.length > current.messages.length)) {
+            const hasRicherAttachments =
+              current &&
+              sess.messages &&
+              sess.messages.some((m, idx) => m.attachments?.length && !current.messages?.[idx]?.attachments?.length);
+            if (!current || (sess.messages && sess.messages.length > current.messages.length) || hasRicherAttachments) {
               newAgent[id] = sess;
               updated = true;
             }
@@ -1354,10 +1362,90 @@ export const useAppStore = create<AppStore>((set, get) => {
 
     if (!userText.trim() && pendingAttachments.length === 0) return;
 
-    // Strict manual model choice — no automatic model switching!
-    const activeModelId = selectedModelId;
+    let activeModelId = selectedModelId;
+    let switchedNotice = '';
+
+    // Pre-flight offline readiness: if offline and selected model is not downloaded,
+    // auto-switch to a ready text/conversational model if one exists.
+    if (!get().isOnline && !downloads[activeModelId]?.isReady) {
+      const readyModels = AVAILABLE_MODELS.filter((m) => downloads[m.id]?.isReady);
+      const readyTextModel =
+        readyModels.find(
+          (m) => m.category !== 'image' && m.category !== 'voice' && !m.capabilities.includes('image-gen')
+        ) || readyModels[0];
+
+      if (readyTextModel) {
+        activeModelId = readyTextModel.id;
+        get().setSelectedModelId(readyTextModel.id);
+        if (readyTextModel.category === 'image') {
+          get().setOperatingMode('image-gen');
+        } else if (readyTextModel.category === 'voice') {
+          get().setOperatingMode('voice');
+        }
+        switchedNotice = `*Offline mode: automatically switched to on-device ${readyTextModel.name.split(' ')[0]} model.*`;
+        get().setFallbackNotice(`Offline: automatically switched to on-device ${readyTextModel.name.split(' ')[0]} model.`);
+      } else {
+        // No local model downloaded: post clean offline guidance without hanging or throwing unhandled fetch errors
+        const userMessage: ChatMessage = {
+          id: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+          role: 'user',
+          content: userText,
+          timestamp: Date.now(),
+          attachments: [...pendingAttachments],
+        };
+        const assistantMessage: ChatMessage = {
+          id: `asst-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+          role: 'assistant',
+          content:
+            '*[Offline: Device is offline and no on-device models are downloaded. Connect to the internet or download an offline model in Model Hub to chat offline.]*',
+          timestamp: Date.now(),
+          modelUsed: 'Offline Guard',
+          mode: operatingMode,
+          isStreaming: false,
+        };
+
+        if (operatingMode === 'agent') {
+          const sess = agentSessions[activeAgentSessionId] || {
+            id: activeAgentSessionId,
+            title: 'Hermes Agent Workspace',
+            createdAt: Date.now(),
+            messages: [],
+          };
+          set((state: any) => ({
+            agentSessions: {
+              ...state.agentSessions,
+              [activeAgentSessionId]: {
+                ...sess,
+                messages: [...sess.messages, userMessage, assistantMessage],
+              },
+            },
+            pendingAttachments: [],
+            isGenerating: false,
+          }));
+        } else {
+          const sess = chatSessions[activeChatSessionId] || {
+            id: activeChatSessionId,
+            title: 'General Chat',
+            createdAt: Date.now(),
+            messages: [],
+          };
+          set((state: any) => ({
+            chatSessions: {
+              ...state.chatSessions,
+              [activeChatSessionId]: {
+                ...sess,
+                messages: [...sess.messages, userMessage, assistantMessage],
+              },
+            },
+            pendingAttachments: [],
+            isGenerating: false,
+          }));
+        }
+        return;
+      }
+    }
+
     const currentModel = AVAILABLE_MODELS.find((m) => m.id === activeModelId);
-    const switchedNotice = '';
 
     const userMessage: ChatMessage = {
       id: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
