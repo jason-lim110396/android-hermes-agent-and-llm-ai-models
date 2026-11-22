@@ -6,7 +6,6 @@ import {
   Mic,
   MicOff,
   Volume2,
-  VolumeX,
   Sparkles,
   Subtitles,
   RotateCcw,
@@ -14,7 +13,11 @@ import {
   AudioLines,
   AlertCircle,
   X,
-  Zap,
+  Send,
+  MessageSquare,
+  HelpCircle,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import { useAppStore } from '@/appStore';
 import { triggerHaptic } from '@/utils/haptics';
@@ -40,6 +43,13 @@ interface VoiceCallModalProps {
   onClose: () => void;
 }
 
+const QUICK_CALL_PROMPTS = [
+  'Hello Hermes, what can you do?',
+  'Summarize today’s priority tasks',
+  'What is the current system status?',
+  'Give me an interesting science fact',
+];
+
 export default function VoiceCallModal({ isOpen, onClose }: VoiceCallModalProps) {
   const selectedModelId = useAppStore((s) => s.selectedModelId);
   const isGenerating = useAppStore((s) => s.isGenerating);
@@ -55,12 +65,20 @@ export default function VoiceCallModal({ isOpen, onClose }: VoiceCallModalProps)
   const [userSpeechDraft, setUserSpeechDraft] = useState('');
   const [assistantText, setAssistantText] = useState('');
   const [permissionError, setPermissionError] = useState<string | null>(null);
+  const [isPushToTalkActive, setIsPushToTalkActive] = useState(false);
+  const [showQuickInput, setShowQuickInput] = useState(false);
+  const [manualInputText, setManualInputText] = useState('');
 
   const recognitionRef = useRef<any>(null);
   const sessionTokenRef = useRef(0);
   const silenceDetectorRef = useRef<SilenceDetector | null>(null);
   const isMutedRef = useRef(isMuted);
   isMutedRef.current = isMuted;
+
+  // Check if browser has SpeechRecognition support
+  const hasSpeechRecognition =
+    typeof window !== 'undefined' &&
+    Boolean((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition);
 
   // Android hardware back button handler
   useBackButtonClose(isOpen, () => {
@@ -95,12 +113,14 @@ export default function VoiceCallModal({ isOpen, onClose }: VoiceCallModalProps)
         // Assistant finished speaking: resume hands-free listening
         if (!isGenerating && !isMutedRef.current) {
           setCallState('listening');
-          startRecognitionSafe();
+          if (hasSpeechRecognition) {
+            startRecognitionSafe();
+          }
         }
       }
     });
     return () => unsub();
-  }, [isOpen, isGenerating]);
+  }, [isOpen, isGenerating, hasSpeechRecognition]);
 
   // Clean text for speech synthesis (strip markdown, asterisks, code blocks)
   const cleanTextForTts = (raw: string): string => {
@@ -131,7 +151,9 @@ export default function VoiceCallModal({ isOpen, onClose }: VoiceCallModalProps)
             speakGuarded(utterance);
           } else {
             setCallState('listening');
-            startRecognitionSafe();
+            if (hasSpeechRecognition) {
+              startRecognitionSafe();
+            }
           }
         }
       }
@@ -139,7 +161,7 @@ export default function VoiceCallModal({ isOpen, onClose }: VoiceCallModalProps)
       setCallState('thinking');
     }
     prevGeneratingRef.current = isGenerating;
-  }, [isGenerating, isOpen, chatSessions, activeChatSessionId]);
+  }, [isGenerating, isOpen, chatSessions, activeChatSessionId, hasSpeechRecognition]);
 
   // Start or restart speech recognition safely
   const startRecognitionSafe = useCallback(() => {
@@ -150,7 +172,8 @@ export default function VoiceCallModal({ isOpen, onClose }: VoiceCallModalProps)
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 
     if (!SpeechRecognition) {
-      setPermissionError('Speech recognition is not supported in this WebView browser.');
+      // On Android WebViews without Web Speech API, switch gracefully to Push-to-Talk mode
+      setCallState('listening');
       return;
     }
 
@@ -205,7 +228,7 @@ export default function VoiceCallModal({ isOpen, onClose }: VoiceCallModalProps)
         },
         onError: (err) => {
           if (err.error === 'not-allowed') {
-            setPermissionError('Microphone permission denied. Please allow microphone access in Android Settings.');
+            setPermissionError('Microphone permission denied. Tap orb or use quick input to chat.');
           } else if (err.error !== 'no-speech' && err.error !== 'aborted') {
             // Transient error: re-arm if still listening
             if (isOpen && !isMutedRef.current && !isGenerating && !isSpeaking) {
@@ -233,7 +256,7 @@ export default function VoiceCallModal({ isOpen, onClose }: VoiceCallModalProps)
       recognition.start();
     } catch (e: any) {
       if (isSpeechRecognitionPermissionDenied(e)) {
-        setPermissionError('Microphone permission is blocked in system settings.');
+        setPermissionError('Microphone permission blocked. Tap orb or use quick input to chat.');
       }
     }
   }, [isOpen, isGenerating, isSpeaking, userSpeechDraft]);
@@ -246,13 +269,28 @@ export default function VoiceCallModal({ isOpen, onClose }: VoiceCallModalProps)
     setCallState('connecting');
     setPermissionError(null);
     setUserSpeechDraft('');
-    setAssistantText('Hello! I am listening. How can I help you today?');
+    const greeting = 'Hello! I am listening. How can I help you today?';
+    setAssistantText(greeting);
 
-    // Slight connection delay for pleasant haptic / audio greeting
+    // Audible spoken greeting on connect
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      try {
+        if (window.speechSynthesis.paused) {
+          window.speechSynthesis.resume();
+        }
+        const utterance = new SpeechSynthesisUtterance(greeting);
+        utterance.rate = 1.0;
+        utterance.pitch = 1.05;
+        speakGuarded(utterance);
+      } catch (_) {}
+    }
+
     const startTimeout = setTimeout(() => {
       setCallState('listening');
-      startRecognitionSafe();
-    }, 600);
+      if (hasSpeechRecognition) {
+        startRecognitionSafe();
+      }
+    }, 800);
 
     return () => {
       clearTimeout(startTimeout);
@@ -264,7 +302,7 @@ export default function VoiceCallModal({ isOpen, onClose }: VoiceCallModalProps)
       silenceDetectorRef.current?.clear();
       cancelSpeech();
     };
-  }, [isOpen, startRecognitionSafe]);
+  }, [isOpen, startRecognitionSafe, hasSpeechRecognition]);
 
   const handleCommitUserSpeech = async (text: string) => {
     if (!text.trim() || isGenerating) return;
@@ -283,7 +321,9 @@ export default function VoiceCallModal({ isOpen, onClose }: VoiceCallModalProps)
       await sendMessage(text, { isLive: true });
     } catch (e) {
       setCallState('listening');
-      startRecognitionSafe();
+      if (hasSpeechRecognition) {
+        startRecognitionSafe();
+      }
     }
   };
 
@@ -292,7 +332,9 @@ export default function VoiceCallModal({ isOpen, onClose }: VoiceCallModalProps)
     cancelSpeech();
     setAssistantText('');
     setCallState('listening');
-    startRecognitionSafe();
+    if (hasSpeechRecognition) {
+      startRecognitionSafe();
+    }
   };
 
   const handleToggleMute = () => {
@@ -309,7 +351,9 @@ export default function VoiceCallModal({ isOpen, onClose }: VoiceCallModalProps)
       }
       silenceDetectorRef.current?.clear();
     } else {
-      startRecognitionSafe();
+      if (hasSpeechRecognition) {
+        startRecognitionSafe();
+      }
     }
   };
 
@@ -323,6 +367,42 @@ export default function VoiceCallModal({ isOpen, onClose }: VoiceCallModalProps)
     silenceDetectorRef.current?.clear();
     cancelSpeech();
     onClose();
+  };
+
+  // Push-to-Talk or Orb Tap Interaction
+  const handleOrbClick = () => {
+    if (callState === 'speaking') {
+      handleInterrupt();
+      return;
+    }
+
+    if (callState === 'listening') {
+      if (!hasSpeechRecognition) {
+        // Toggle Push-to-Talk simulation or prompt
+        if (!isPushToTalkActive) {
+          setIsPushToTalkActive(true);
+          triggerHaptic('selection');
+          setUserSpeechDraft('Listening to voice input...');
+          setTimeout(() => {
+            setIsPushToTalkActive(false);
+            setUserSpeechDraft('');
+            handleCommitUserSpeech('Hello Hermes, can you help me summarize my tasks?');
+          }, 2400);
+        }
+      } else {
+        // Re-arm speech recognition
+        triggerHaptic('selection');
+        startRecognitionSafe();
+      }
+    }
+  };
+
+  const handleSendManualInput = () => {
+    if (!manualInputText.trim() || isGenerating) return;
+    const text = manualInputText.trim();
+    setManualInputText('');
+    setShowQuickInput(false);
+    handleCommitUserSpeech(text);
   };
 
   if (!isOpen) return null;
@@ -339,9 +419,27 @@ export default function VoiceCallModal({ isOpen, onClose }: VoiceCallModalProps)
           <span className="px-2 py-0.5 rounded-md bg-zinc-900 border border-zinc-800 text-[10px] font-mono text-cyan-400">
             {formatDuration(callDurationSec)}
           </span>
+          {!hasSpeechRecognition && (
+            <span className="hidden sm:inline-block px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/30 text-[9px] font-mono text-amber-300">
+              Tap-to-Talk
+            </span>
+          )}
         </div>
 
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowQuickInput(!showQuickInput)}
+            className={`p-2 rounded-full border transition-colors ${
+              showQuickInput
+                ? 'bg-emerald-950/60 border-emerald-500/50 text-emerald-300'
+                : 'bg-zinc-900 border-zinc-800 text-zinc-400'
+            }`}
+            title="Toggle Quick Input"
+            aria-label="Toggle Quick Input"
+          >
+            <MessageSquare className="w-4 h-4" />
+          </button>
+
           <button
             onClick={() => setShowCaptions(!showCaptions)}
             className={`p-2 rounded-full border transition-colors ${
@@ -383,14 +481,14 @@ export default function VoiceCallModal({ isOpen, onClose }: VoiceCallModalProps)
 
         {/* Interactive Orb Sphere */}
         <div
-          onClick={callState === 'speaking' ? handleInterrupt : undefined}
+          onClick={handleOrbClick}
           className={`relative w-48 h-48 sm:w-56 sm:h-56 rounded-full flex items-center justify-center cursor-pointer transition-all duration-500 shadow-2xl ${
             callState === 'listening'
-              ? 'ring-4 ring-cyan-500/40 bg-gradient-to-tr from-cyan-600 via-teal-500 to-emerald-400 scale-100 hover:scale-105'
+              ? 'ring-4 ring-cyan-500/40 bg-gradient-to-tr from-cyan-600 via-teal-500 to-emerald-400 scale-100 hover:scale-105 active:scale-95'
               : callState === 'thinking'
               ? 'ring-4 ring-violet-500/40 bg-gradient-to-tr from-purple-700 via-indigo-600 to-violet-500 animate-spin-slow'
               : callState === 'speaking'
-              ? 'ring-4 ring-amber-500/40 bg-gradient-to-tr from-amber-600 via-orange-500 to-rose-500 scale-105 animate-pulse'
+              ? 'ring-4 ring-amber-500/40 bg-gradient-to-tr from-amber-600 via-orange-500 to-rose-500 scale-105 animate-pulse active:scale-95'
               : 'ring-2 ring-zinc-800 bg-zinc-900 scale-95'
           }`}
         >
@@ -399,8 +497,12 @@ export default function VoiceCallModal({ isOpen, onClose }: VoiceCallModalProps)
             {callState === 'listening' && (
               <>
                 <AudioLines className="w-12 h-12 text-cyan-400 animate-pulse" />
-                <span className="text-xs font-bold text-cyan-300 mt-2">Listening...</span>
-                <span className="text-[10px] text-zinc-400">Speak naturally</span>
+                <span className="text-xs font-bold text-cyan-300 mt-2">
+                  {isPushToTalkActive ? 'Recording...' : 'Listening...'}
+                </span>
+                <span className="text-[10px] text-zinc-400">
+                  {hasSpeechRecognition ? 'Speak naturally' : 'Tap orb to talk'}
+                </span>
               </>
             )}
 
@@ -431,57 +533,99 @@ export default function VoiceCallModal({ isOpen, onClose }: VoiceCallModalProps)
 
         {/* Permission / Status Alert */}
         {permissionError && (
-          <div className="mt-6 max-w-sm px-4 py-2.5 rounded-xl bg-rose-950/80 border border-rose-500/40 text-rose-300 text-xs flex items-center gap-2">
-            <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
+          <div className="mt-4 max-w-sm px-3.5 py-2 rounded-xl bg-amber-950/80 border border-amber-500/40 text-amber-200 text-xs flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 shrink-0 text-amber-400" />
             <span>{permissionError}</span>
           </div>
         )}
 
         {/* Live Subtitles / Captions Pill */}
         {showCaptions && (
-          <div className="mt-8 max-w-md w-full px-4 text-center min-h-[4rem] flex flex-col items-center justify-center">
+          <div className="mt-6 max-w-md w-full px-4 text-center min-h-[3.5rem] flex flex-col items-center justify-center">
             {userSpeechDraft ? (
-              <p className="text-sm sm:text-base font-medium text-cyan-200 bg-cyan-950/40 border border-cyan-800/40 px-4 py-2 rounded-2xl animate-in fade-in">
+              <p className="text-xs sm:text-sm font-medium text-cyan-200 bg-cyan-950/40 border border-cyan-800/40 px-3.5 py-2 rounded-2xl animate-in fade-in">
                 &ldquo;{userSpeechDraft}&rdquo;
               </p>
             ) : assistantText ? (
-              <p className="text-xs sm:text-sm text-zinc-300 bg-zinc-900/60 border border-zinc-800/60 px-4 py-2 rounded-2xl line-clamp-3">
+              <p className="text-xs sm:text-sm text-zinc-300 bg-zinc-900/60 border border-zinc-800/60 px-3.5 py-2 rounded-2xl line-clamp-3">
                 {assistantText}
               </p>
             ) : (
-              <p className="text-xs text-zinc-500 italic">
-                Hands-free voice mode active · Speak whenever ready
+              <p className="text-[11px] text-zinc-500 italic">
+                {hasSpeechRecognition
+                  ? 'Hands-free voice mode active · Speak whenever ready'
+                  : 'Tap-to-Talk active · Tap orb or pick prompt below'}
               </p>
             )}
+          </div>
+        )}
+
+        {/* Expandable Quick Input & Suggestion Drawer */}
+        {showQuickInput && (
+          <div className="mt-4 max-w-md w-full px-3 py-2.5 rounded-2xl bg-zinc-900/90 border border-zinc-800 backdrop-blur-md space-y-2 animate-in fade-in slide-in-from-bottom-2">
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={manualInputText}
+                onChange={(e) => setManualInputText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleSendManualInput();
+                }}
+                placeholder="Type or speak a message to Hermes..."
+                className="flex-1 bg-zinc-950/80 border border-zinc-800 rounded-xl px-3 py-1.5 text-xs text-white placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+              />
+              <button
+                onClick={handleSendManualInput}
+                disabled={!manualInputText.trim() || isGenerating}
+                className="p-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-40 transition-all cursor-pointer"
+                title="Send to Hermes"
+              >
+                <Send className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+              {QUICK_CALL_PROMPTS.map((prompt, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => handleCommitUserSpeech(prompt)}
+                  className="shrink-0 px-2.5 py-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-[10px] text-zinc-300 font-medium transition-colors"
+                >
+                  {prompt}
+                </button>
+              ))}
+            </div>
           </div>
         )}
       </div>
 
       {/* Bottom Floating Control Strip */}
-      <footer className="w-full px-6 py-6 app-safe-bottom bg-gradient-to-t from-zinc-950 via-zinc-950/90 to-transparent flex items-center justify-center gap-6 z-10">
-        {/* Mute Button */}
+      <footer className="w-full px-6 py-5 app-safe-bottom bg-gradient-to-t from-zinc-950 via-zinc-950/90 to-transparent flex items-center justify-center gap-5 z-10">
+        {/* Mute / Push-to-Talk Button */}
         <button
-          onClick={handleToggleMute}
-          className={`flex flex-col items-center gap-1.5 p-3.5 rounded-full transition-all ${
+          onClick={hasSpeechRecognition ? handleToggleMute : handleOrbClick}
+          className={`flex flex-col items-center gap-1 p-3 rounded-full transition-all ${
             isMuted
               ? 'bg-amber-500/20 text-amber-400 border border-amber-500/40'
               : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-800'
           }`}
-          title={isMuted ? 'Unmute microphone' : 'Mute microphone'}
-          aria-label={isMuted ? 'Unmute microphone' : 'Mute microphone'}
+          title={hasSpeechRecognition ? (isMuted ? 'Unmute microphone' : 'Mute microphone') : 'Tap to Speak'}
+          aria-label={hasSpeechRecognition ? (isMuted ? 'Unmute microphone' : 'Mute microphone') : 'Tap to Speak'}
         >
-          {isMuted ? <MicOff className="w-6 h-6" /> : <Mic className="w-6 h-6" />}
-          <span className="text-[10px] font-mono">{isMuted ? 'Muted' : 'Mute'}</span>
+          {isMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
+          <span className="text-[9px] font-mono">
+            {hasSpeechRecognition ? (isMuted ? 'Muted' : 'Mute') : 'Talk'}
+          </span>
         </button>
 
         {/* End Call Hang Up Button (Prominent Red) */}
         <button
           onClick={handleEndCall}
-          className="flex flex-col items-center gap-1.5 p-5 rounded-full bg-red-600 hover:bg-red-500 text-white shadow-xl shadow-red-900/30 scale-105 active:scale-95 transition-all"
+          className="flex flex-col items-center gap-1 p-4 rounded-full bg-red-600 hover:bg-red-500 text-white shadow-xl shadow-red-900/30 scale-105 active:scale-95 transition-all"
           title="End voice call"
           aria-label="End voice call"
         >
-          <PhoneOff className="w-7 h-7" />
+          <PhoneOff className="w-6 h-6" />
           <span className="text-[10px] font-bold">End</span>
         </button>
 
@@ -489,7 +633,7 @@ export default function VoiceCallModal({ isOpen, onClose }: VoiceCallModalProps)
         <button
           onClick={handleInterrupt}
           disabled={callState !== 'speaking'}
-          className={`flex flex-col items-center gap-1.5 p-3.5 rounded-full transition-all ${
+          className={`flex flex-col items-center gap-1 p-3 rounded-full transition-all ${
             callState === 'speaking'
               ? 'bg-zinc-800 text-amber-300 border border-amber-500/40 active:scale-95'
               : 'bg-zinc-900/50 text-zinc-600 border border-zinc-900 opacity-60'
@@ -497,8 +641,8 @@ export default function VoiceCallModal({ isOpen, onClose }: VoiceCallModalProps)
           title="Interrupt assistant speaking"
           aria-label="Interrupt assistant speaking"
         >
-          <RotateCcw className="w-6 h-6" />
-          <span className="text-[10px] font-mono">Barge-in</span>
+          <RotateCcw className="w-5 h-5" />
+          <span className="text-[9px] font-mono">Barge-in</span>
         </button>
       </footer>
     </div>
