@@ -25,10 +25,12 @@ import {
   Share2,
   FileCheck,
   Eye,
+  StopCircle,
 } from 'lucide-react';
 import { useAppStore } from '@/appStore';
 import { AVAILABLE_MODELS } from '@/models';
 import { generateOnDeviceAIImage } from '@/inferenceEngine';
+import { isLowMemory } from '@/utils/memoryGuard';
 
 interface StylePreset {
   id: string;
@@ -93,6 +95,10 @@ export default function ImageStudio() {
   const [fullscreenImage, setFullscreenImage] = useState<string | null>(null);
   const [copiedPrompt, setCopiedPrompt] = useState(false);
   const [history, setHistory] = useState<GeneratedHistoryItem[]>([]);
+  const [localGenerating, setLocalGenerating] = useState(false);
+  const [generationError, setGenerationError] = useState<string | null>(null);
+  const [lowMemoryMode, setLowMemoryMode] = useState<boolean>(false);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   // Privacy Scrubber State
   const [scrubImage, setScrubImage] = useState<string | null>(null);
@@ -110,6 +116,7 @@ export default function ImageStudio() {
       // to shed heavy base64 strings and canvas contexts when memory pressure spikes.
       setHistory((prev) => prev.slice(0, 1));
       setScrubImage(null);
+      setLowMemoryMode(true);
     };
     window.addEventListener('hermes:memory-cleanup', handleMemoryCleanup);
     return () => {
@@ -117,8 +124,20 @@ export default function ImageStudio() {
     };
   }, []);
 
-  const handleGenerate = async () => {
-    if (!prompt.trim() || isGenerating) return;
+  const handleGenerate = async (retryLowMem?: boolean) => {
+    if (!prompt.trim() || localGenerating || isGenerating) return;
+
+    triggerHaptic('selection');
+    setLocalGenerating(true);
+    setGenerationError(null);
+
+    if (retryLowMem || isLowMemory()) {
+      setLowMemoryMode(true);
+      setHistory((prev) => prev.slice(0, 1));
+    }
+
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
 
     try {
       setProgressPct(15);
@@ -136,7 +155,8 @@ export default function ImageStudio() {
         (text: string, pct: number) => {
           setProgressStatus(text);
           setProgressPct(pct);
-        }
+        },
+        controller.signal
       );
 
       setProgressPct(100);
@@ -154,17 +174,34 @@ export default function ImageStudio() {
       };
 
       setHistory((prev) => [newItem, ...prev].slice(0, MAX_HISTORY_ITEMS));
+      triggerHaptic('success');
     } catch (err: unknown) {
-      // Name the failure instead of a generic "issue": the generation
-      // pipeline's own error (Pollinations fetch, canvas render) is the
-      // actionable reason.
-      setProgressStatus(`Generation failed: ${(err as Error)?.message || 'diffusion engine error'}. No image was created.`);
+      const msg = (err as Error)?.message || 'diffusion engine error';
+      if (msg.includes('cancelled') || msg.includes('stopped')) {
+        setProgressStatus('Generation cancelled.');
+      } else {
+        setGenerationError(msg);
+        setProgressStatus(`Generation failed: ${msg}`);
+        triggerHaptic('warning');
+      }
     } finally {
+      setLocalGenerating(false);
+      abortControllerRef.current = null;
       setTimeout(() => {
         setProgressPct(0);
         setProgressStatus('');
       }, 1500);
     }
+  };
+
+  const handleCancelGeneration = () => {
+    triggerHaptic('warning');
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    setLocalGenerating(false);
+    setProgressStatus('Generation cancelled.');
+    setProgressPct(0);
   };
 
   const handleRandomPrompt = () => {
@@ -361,28 +398,70 @@ export default function ImageStudio() {
                 )}
               </div>
 
-              {/* Generate Action Button */}
-              <button
-                onClick={handleGenerate}
-                disabled={!prompt.trim() || isGenerating}
-                className={`w-full py-2.5 rounded-xl font-black text-xs flex items-center justify-center gap-2 transition-all cursor-pointer shadow-lg ${
-                  !prompt.trim() || isGenerating
-                    ? 'bg-zinc-800 text-zinc-500 cursor-not-allowed'
-                    : 'bg-gradient-to-r from-fuchsia-600 to-pink-500 hover:from-fuchsia-500 hover:to-pink-400 text-white shadow-fuchsia-600/25 active:scale-[0.99]'
-                }`}
-              >
-                {isGenerating ? (
-                  <>
-                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                    <span>{progressStatus || 'Generating pixels...'}</span>
-                  </>
-                ) : (
-                  <>
-                    <Sparkles className="w-3.5 h-3.5" />
-                    <span>Synthesize with FLUX ({qualityMode === 'quality' ? '8 Steps' : '4 Steps'})</span>
-                  </>
+              {/* Generate & Cancel Action Row */}
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => handleGenerate()}
+                  disabled={!prompt.trim() || localGenerating || isGenerating}
+                  className={`flex-1 py-2.5 rounded-xl font-black text-xs flex items-center justify-center gap-2 transition-all cursor-pointer shadow-lg ${
+                    !prompt.trim() || localGenerating || isGenerating
+                      ? 'bg-zinc-800 text-zinc-500 cursor-not-allowed'
+                      : 'bg-gradient-to-r from-fuchsia-600 to-pink-500 hover:from-fuchsia-500 hover:to-pink-400 text-white shadow-fuchsia-600/25 active:scale-[0.99]'
+                  }`}
+                >
+                  {localGenerating || isGenerating ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span className="truncate">{progressStatus || 'Generating pixels...'}</span>
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-3.5 h-3.5" />
+                      <span>Synthesize with {currentModel?.name?.split(' ')[0] || 'FLUX'} ({qualityMode === 'quality' ? '8 Steps' : '4 Steps'})</span>
+                    </>
+                  )}
+                </button>
+
+                {(localGenerating || isGenerating) && (
+                  <button
+                    type="button"
+                    onClick={handleCancelGeneration}
+                    className="px-3 py-2.5 rounded-xl bg-rose-600/20 hover:bg-rose-600/30 border border-rose-500/40 text-rose-300 font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer shrink-0"
+                    title="Cancel generation immediately"
+                  >
+                    <StopCircle className="w-4 h-4 text-rose-400" />
+                    <span>Cancel</span>
+                  </button>
                 )}
-              </button>
+              </div>
+
+              {/* Actionable Error Recovery Card */}
+              {generationError && (
+                <div className="p-3 rounded-xl bg-rose-950/50 border border-rose-500/40 text-rose-200 text-xs space-y-2 animate-in fade-in">
+                  <div className="flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                    <div className="flex-1">
+                      <span className="font-bold block text-rose-300">Image Generation Stalled</span>
+                      <span className="text-[11px] text-rose-200/80 leading-relaxed block">{generationError}</span>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2 pt-1">
+                    <button
+                      onClick={() => handleGenerate(true)}
+                      className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer shadow-md"
+                    >
+                      <RefreshCw className="w-3 h-3" />
+                      <span>Retry with Low-Memory Safe Mode</span>
+                    </button>
+                    <button
+                      onClick={() => setGenerationError(null)}
+                      className="px-2.5 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white text-xs font-medium cursor-pointer"
+                    >
+                      Dismiss
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Canvas Result Preview */}
