@@ -33,10 +33,18 @@ import {
   Lock,
   Unlock,
   Trash2,
+  ArrowRightLeft,
+  RotateCcw,
 } from 'lucide-react';
 import { useAppStore } from '@/appStore';
 import { AVAILABLE_MODELS } from '@/models';
 import { startVisibleInterval } from '@/utils/visibleInterval';
+import {
+  getAllActiveCooldowns,
+  clearEndpointCooldown,
+  clearAllEndpointCooldowns,
+  type EndpointCooldown,
+} from '@/utils/modelFallback';
 import {
   setThermalGovernor,
   updateThermalTelemetry,
@@ -111,6 +119,34 @@ export default function DeviceDiagnostics() {
       triggerHaptic([30, 40]);
       setTimeout(() => setSyncVaultSuccess(false), 2500);
     }, 350);
+  };
+
+  // Active Inference Endpoint Cooldowns State
+  const [activeCooldowns, setActiveCooldowns] = useState<EndpointCooldown[]>(() => getAllActiveCooldowns());
+  const [cooldownClearedNotice, setCooldownClearedNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const active = getAllActiveCooldowns();
+      setActiveCooldowns(active);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const handleClearCooldown = (cd: EndpointCooldown) => {
+    clearEndpointCooldown(cd.endpoint, cd.model);
+    setActiveCooldowns(getAllActiveCooldowns());
+    triggerHaptic(20);
+    setCooldownClearedNotice(`Cooldown cleared for ${cd.model || cd.endpoint}`);
+    setTimeout(() => setCooldownClearedNotice(null), 3000);
+  };
+
+  const handleClearAllCooldowns = () => {
+    clearAllEndpointCooldowns();
+    setActiveCooldowns([]);
+    triggerHaptic([30, 40]);
+    setCooldownClearedNotice('All endpoint cooldowns cleared.');
+    setTimeout(() => setCooldownClearedNotice(null), 3000);
   };
 
   // Chromium WebView Heap & Memory Pressure State
@@ -735,6 +771,85 @@ export default function DeviceDiagnostics() {
             </div>
           </div>
         </div>
+      </div>
+
+      {/* Model Fallback & Cooldown Health Card */}
+      <div className="rounded-2xl bg-zinc-900/70 border border-zinc-800/80 p-4 mb-4">
+        <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
+          <div className="flex items-center gap-2">
+            <div className="p-1.5 rounded-lg bg-amber-500/20 text-amber-400">
+              <ArrowRightLeft className="w-4 h-4" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="text-sm font-bold text-white">
+                  Model Fallback & Endpoint Cooldown Health
+                </h2>
+                <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold border ${
+                  activeCooldowns.length > 0
+                    ? 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+                    : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                }`}>
+                  {activeCooldowns.length > 0 ? `${activeCooldowns.length} In Cooldown` : 'All Endpoints Ready'}
+                </span>
+              </div>
+              <p className="text-[11px] text-zinc-400">
+                Monitors temporary rate-limit, timeout, or route-failure cooldowns on remote inference endpoints
+              </p>
+            </div>
+          </div>
+          {activeCooldowns.length > 0 && (
+            <button
+              onClick={handleClearAllCooldowns}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-600/80 hover:bg-amber-500 text-white font-medium text-xs cursor-pointer shadow-sm active:scale-95 transition-all"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span>Reset All Cooldowns</span>
+            </button>
+          )}
+        </div>
+
+        {cooldownClearedNotice && (
+          <div className="mb-2 p-2 rounded-lg bg-emerald-950/60 border border-emerald-500/40 text-emerald-300 text-xs flex items-center gap-2 animate-in fade-in">
+            <Check className="w-3.5 h-3.5 shrink-0" />
+            <span>{cooldownClearedNotice}</span>
+          </div>
+        )}
+
+        {activeCooldowns.length > 0 ? (
+          <div className="space-y-2">
+            {activeCooldowns.map((cd, idx) => {
+              const remainingSec = Math.max(0, Math.ceil((cd.until - Date.now()) / 1000));
+              return (
+                <div key={idx} className="p-3 rounded-xl bg-zinc-950/80 border border-amber-500/30 flex items-center justify-between gap-3 text-xs">
+                  <div className="min-w-0">
+                    <div className="font-bold text-amber-300 truncate">
+                      {cd.model || cd.endpoint}
+                    </div>
+                    <div className="text-[10px] text-zinc-400 flex items-center gap-2 mt-0.5 flex-wrap">
+                      <span>Reason: {cd.reason}</span>
+                      <span>•</span>
+                      <span className="font-mono text-amber-400 font-semibold">{remainingSec}s remaining</span>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => handleClearCooldown(cd)}
+                    className="px-2.5 py-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-[10px] font-semibold text-zinc-200 cursor-pointer shrink-0"
+                  >
+                    Clear
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="p-3 rounded-xl bg-zinc-950/60 border border-zinc-800/80 flex items-center justify-between text-xs text-zinc-400">
+            <div className="flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+              <span>No endpoints currently in cooldown. Primary and free fallback presets are operational.</span>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* WebView JS Heap & Memory Pressure Defense Card */}
