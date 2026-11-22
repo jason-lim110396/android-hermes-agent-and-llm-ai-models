@@ -100,6 +100,7 @@ import {
 import { useBackButtonClose } from '@/utils/backButton';
 import MarkdownNotepadModal from './MarkdownNotepadModal';
 import QRCodeStudioModal from './QRCodeStudioModal';
+import VoiceCallModal from './VoiceCallModal';
 import { isLowMemory, isCriticalMemoryPressure } from '@/utils/memoryGuard';
 import { flushPersistNow } from '@/utils/sessionPersistence';
 import { subscribeThermalTelemetry, getThermalTelemetry, type ThermalTelemetry } from '@/utils/thermalGuard';
@@ -457,6 +458,7 @@ export default function ChatView() {
   const [isNetworkSpeedOpen, setIsNetworkSpeedOpen] = useState(false);
   const [isNotepadOpen, setIsNotepadOpen] = useState(false);
   const [isQRCodeStudioOpen, setIsQRCodeStudioOpen] = useState(false);
+  const [isVoiceCallOpen, setIsVoiceCallOpen] = useState(false);
   const [chatFontSize] = useState<ChatFontSize>(() => getChatFontSize());
   const activeFontSizeOption = CHAT_FONT_SIZE_OPTIONS.find((o) => o.id === chatFontSize) || CHAT_FONT_SIZE_OPTIONS[1];
 
@@ -2177,8 +2179,24 @@ export default function ChatView() {
             )}
           </div>
 
-          {/* Thermal Indicator */}
-          {thermalTelemetry.state !== 'nominal' && (
+          {/* ChatGPT-style Hands-Free Voice Call Button */}
+          <div className="flex items-center gap-1.5 ml-auto shrink-0">
+            <button
+              type="button"
+              onClick={() => {
+                triggerHaptic('success');
+                setIsVoiceCallOpen(true);
+              }}
+              aria-label="Start Real-time Voice Call"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:from-emerald-500 hover:to-cyan-500 text-white text-[11px] font-bold shadow-md shadow-emerald-950/40 border border-emerald-400/40 active:scale-95 transition-all cursor-pointer"
+              title="Real-time Hands-Free Voice Call (ChatGPT Voice Mode)"
+            >
+              <PhoneCall className="w-3.5 h-3.5 animate-pulse" />
+              <span className="hidden xs:inline sm:inline">Voice Call</span>
+            </button>
+
+            {/* Thermal Indicator */}
+            {thermalTelemetry.state !== 'nominal' && (
             <button
               type="button"
               onClick={() => {
@@ -2197,6 +2215,7 @@ export default function ChatView() {
               <span>{thermalTelemetry.temperatureC}°C</span>
             </button>
           )}
+          </div>
         </div>
 
         {/* Row 2: Action buttons - the five primary actions stay visible;
@@ -4471,6 +4490,12 @@ export default function ChatView() {
         onClose={() => setIsQRCodeStudioOpen(false)}
         onInsertIntoChat={(text) => setInputVal((prev) => (prev ? prev + '\n\n' + text : text))}
         onAuditWithAgent={(prompt) => dispatchPromptSafely(prompt)}
+      />
+
+      {/* Real-time Hands-Free ChatGPT Voice Call Modal */}
+      <VoiceCallModal
+        isOpen={isVoiceCallOpen}
+        onClose={() => setIsVoiceCallOpen(false)}
       />
     </div>
   );
