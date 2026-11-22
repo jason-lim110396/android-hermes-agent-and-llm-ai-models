@@ -364,6 +364,7 @@ export default function ChatView() {
   const justReconnected = useAppStore((s) => s.justReconnected);
   const setJustReconnected = useAppStore((s) => s.setJustReconnected);
   const fallbackNotice = useAppStore((s) => s.fallbackNotice);
+  const setFallbackNotice = useAppStore((s) => s.setFallbackNotice);
   const clearFallbackNotice = useAppStore((s) => s.clearFallbackNotice);
   const downloads = useAppStore((s) => s.downloads);
   const startDownloadModel = useAppStore((s) => s.startDownloadModel);
@@ -713,7 +714,7 @@ export default function ChatView() {
   const handleExecuteSnippetNow = (directive: string) => {
     setShowSnippetsDrawer(false);
     triggerHaptic(30);
-    sendMessage(directive);
+    dispatchPromptSafely(directive);
   };
 
   const toggleStarMessage = (msgId: string) => {
@@ -1546,7 +1547,7 @@ export default function ChatView() {
 
     // Trigger instant message dispatch to LLM!
     setTimeout(() => {
-      sendMessage(transcribedPrompt);
+      dispatchPromptSafely(transcribedPrompt);
     }, 50);
   };
 
@@ -1590,6 +1591,33 @@ export default function ChatView() {
     });
   };
 
+  const dispatchPromptSafely = (promptText: string): boolean => {
+    if ((!promptText.trim() && pendingAttachments.length === 0) || isGenerating) return false;
+    if (!isOnline && !downloads[selectedModelId]?.isReady) {
+      if (readyModels.length > 0) {
+        const targetModel = readyModels[0];
+        triggerHaptic(20);
+        setSelectedModelId(targetModel.id);
+        if (targetModel.category === 'image') {
+          setOperatingMode('image-gen');
+        } else if (targetModel.category === 'voice') {
+          setOperatingMode('voice');
+        } else {
+          setOperatingMode('chat');
+        }
+        setFallbackNotice(`Offline: automatically switched to on-device ${targetModel.name.split(' ')[0]} model.`);
+        setUploadError(null);
+        sendMessage(promptText);
+        return true;
+      }
+      setUploadError('You are currently offline with no local models downloaded. Download an on-device model to chat offline.');
+      return false;
+    }
+    setUploadError(null);
+    sendMessage(promptText);
+    return true;
+  };
+
   const handleRetryMessage = (failedMsgId: string) => {
     const session = operatingMode === 'agent'
       ? agentSessions[activeAgentSessionId]
@@ -1606,6 +1634,28 @@ export default function ChatView() {
       }
     }
     if (!userMsgToRetry) return;
+
+    // Check offline readiness before destructive message removal
+    if (!isOnline && !downloads[selectedModelId]?.isReady) {
+      if (readyModels.length > 0) {
+        const targetModel = readyModels[0];
+        triggerHaptic(20);
+        setSelectedModelId(targetModel.id);
+        if (targetModel.category === 'image') {
+          setOperatingMode('image-gen');
+        } else if (targetModel.category === 'voice') {
+          setOperatingMode('voice');
+        } else {
+          setOperatingMode('chat');
+        }
+        setFallbackNotice(`Offline retry: automatically switched to on-device ${targetModel.name.split(' ')[0]} model.`);
+        setUploadError(null);
+      } else {
+        setUploadError('You are currently offline with no local models downloaded. Download an on-device model to retry offline.');
+        return;
+      }
+    }
+
     // Strip both the failed/target assistant response and the prior user prompt
     // so retry/regenerate never duplicates user messages in chat history or LLM context.
     const updatedMessages = msgs.filter((m) => m.id !== failedMsgId && m.id !== userMsgToRetry!.id);
@@ -1634,40 +1684,15 @@ export default function ChatView() {
 
   const handleSend = () => {
     if ((!inputVal.trim() && pendingAttachments.length === 0) || isGenerating) return;
-    if (!isOnline && !downloads[selectedModelId]?.isReady) {
-      if (readyModels.length > 0) {
-        const targetModel = readyModels[0];
-        triggerHaptic(20);
-        setSelectedModelId(targetModel.id);
-        if (targetModel.category === 'image') {
-          setOperatingMode('image-gen');
-        } else if (targetModel.category === 'voice') {
-          setOperatingMode('voice');
-        } else {
-          setOperatingMode('chat');
-        }
-        setUploadError(null);
-        let textToSend = inputVal;
-        if (quotedMessage) {
-          const cleanSnippet = quotedMessage.snippet.replace(/\n+/g, ' ');
-          textToSend = `> **${quotedMessage.senderName}**: "${cleanSnippet}"\n\n${textToSend}`;
-          setQuotedMessage(null);
-        }
-        setInputVal('');
-        sendMessage(textToSend);
-        return;
-      }
-      setUploadError('You are currently offline with no local models downloaded. Download an on-device model to chat offline.');
-      return;
-    }
-    let text = inputVal;
+    let textToSend = inputVal;
     if (quotedMessage) {
       const cleanSnippet = quotedMessage.snippet.replace(/\n+/g, ' ');
-      text = `> **${quotedMessage.senderName}**: "${cleanSnippet}"\n\n${text}`;
+      textToSend = `> **${quotedMessage.senderName}**: "${cleanSnippet}"\n\n${textToSend}`;
       setQuotedMessage(null);
     }
-    setInputVal('');
-    sendMessage(text);
+    if (dispatchPromptSafely(textToSend)) {
+      setInputVal('');
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -2557,8 +2582,9 @@ export default function ChatView() {
                           // Send straight from the chip: the prompt is already
                           // visible in the sent bubble, and leaving it in the
                           // composer invited a one-tap double-send.
-                          setInputVal('');
-                          sendMessage(qp.prompt);
+                          if (dispatchPromptSafely(qp.prompt)) {
+                            setInputVal('');
+                          }
                         }}
                         className="text-left p-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-850 border border-zinc-800 hover:border-cyan-500/50 text-xs transition-all group cursor-pointer"
                       >
@@ -3589,8 +3615,9 @@ export default function ChatView() {
                 <button
                   onClick={() => {
                     const prompt = 'Remind me in 30 minutes to review on-device AI logs and battery status';
-                    setInputVal(prompt);
-                    sendMessage(prompt);
+                    if (dispatchPromptSafely(prompt)) {
+                      setInputVal('');
+                    }
                     setShowQuickActions(false);
                   }}
                   title="Create phone task reminder"
@@ -3603,8 +3630,9 @@ export default function ChatView() {
                 <button
                   onClick={() => {
                     const prompt = 'Audit phone battery, thermal load, and WebGPU tensor speeds';
-                    setInputVal(prompt);
-                    sendMessage(prompt);
+                    if (dispatchPromptSafely(prompt)) {
+                      setInputVal('');
+                    }
                     setShowQuickActions(false);
                   }}
                   title="Audit phone system diagnostics"
@@ -4405,7 +4433,7 @@ export default function ChatView() {
         isOpen={isSensorModalOpen}
         onClose={() => setIsSensorModalOpen(false)}
         onInsertTelemetry={(telemetryText) => setInputVal((prev) => (prev ? prev + '\n\n' + telemetryText : telemetryText))}
-        onAuditWithAgent={(prompt) => sendMessage(prompt)}
+        onAuditWithAgent={(prompt) => dispatchPromptSafely(prompt)}
       />
 
       {/* Smart Clipboard Vault Modal */}
@@ -4413,7 +4441,7 @@ export default function ChatView() {
         isOpen={isClipboardVaultOpen}
         onClose={() => setIsClipboardVaultOpen(false)}
         onInsert={(text) => setInputVal((prev) => (prev ? prev + '\n\n' + text : text))}
-        onAuditWithAgent={(prompt) => sendMessage(prompt)}
+        onAuditWithAgent={(prompt) => dispatchPromptSafely(prompt)}
       />
 
       {/* Offline Travel Phrase Book Modal */}
@@ -4426,7 +4454,7 @@ export default function ChatView() {
       <NetworkSpeedModal
         isOpen={isNetworkSpeedOpen}
         onClose={() => setIsNetworkSpeedOpen(false)}
-        onAuditWithAgent={(prompt) => sendMessage(prompt)}
+        onAuditWithAgent={(prompt) => dispatchPromptSafely(prompt)}
       />
 
       {/* Markdown Notepad & Document Vault Modal */}
@@ -4434,7 +4462,7 @@ export default function ChatView() {
         isOpen={isNotepadOpen}
         onClose={() => setIsNotepadOpen(false)}
         onInsertIntoChat={(text) => setInputVal((prev) => (prev ? prev + '\n\n' + text : text))}
-        onAuditWithAgent={(prompt) => sendMessage(prompt)}
+        onAuditWithAgent={(prompt) => dispatchPromptSafely(prompt)}
       />
 
       {/* QR Code & Barcode Studio Modal */}
@@ -4442,7 +4470,7 @@ export default function ChatView() {
         isOpen={isQRCodeStudioOpen}
         onClose={() => setIsQRCodeStudioOpen(false)}
         onInsertIntoChat={(text) => setInputVal((prev) => (prev ? prev + '\n\n' + text : text))}
-        onAuditWithAgent={(prompt) => sendMessage(prompt)}
+        onAuditWithAgent={(prompt) => dispatchPromptSafely(prompt)}
       />
     </div>
   );
