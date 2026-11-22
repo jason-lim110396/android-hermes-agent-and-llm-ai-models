@@ -1,16 +1,88 @@
-// Speech-synthesis guard helpers for mobile WebViews.
+// Speech-synthesis guard helpers for mobile WebViews and native Android.
 //
-// Android WebViews are inconsistent with `speechSynthesis`: a request can be
-// accepted with no available TTS engine (onstart never fires), or `onend` can
-// be dropped after playback finishes. Both cases leave the UI's speaking flag
-// wrong - stuck false (user thinks nothing happened) or stuck true (the user
-// cannot trigger speech again). A single guarded session keeps that flag
-// honest for every call site.
+// Android WebViews are inconsistent with `speechSynthesis`:
+// 1. In some WebViews, `SpeechSynthesisUtterance` is completely omitted, throwing ReferenceError.
+// 2. In other WebViews, `speechSynthesis` exists but has no voice engine connected (silent no-op).
+// 3. Native Android apps running Capacitor can speak directly via `HermesTTS` (android.speech.tts.TextToSpeech).
+// 4. Acoustic Web Audio fallback is used when no synthesis is available or when speech errors.
+
+import { Capacitor, registerPlugin } from '@capacitor/core';
+
+// --- Global Polyfill for SpeechSynthesisUtterance ---
+if (typeof window !== 'undefined') {
+  if (typeof (window as any).SpeechSynthesisUtterance === 'undefined') {
+    class MockSpeechSynthesisUtterance extends EventTarget {
+      text: string;
+      lang: string = 'en-US';
+      pitch: number = 1.0;
+      rate: number = 1.0;
+      volume: number = 1.0;
+      voice: any = null;
+      onstart: ((this: SpeechSynthesisUtterance, ev: SpeechSynthesisEvent) => any) | null = null;
+      onend: ((this: SpeechSynthesisUtterance, ev: SpeechSynthesisEvent) => any) | null = null;
+      onerror: ((this: SpeechSynthesisUtterance, ev: SpeechSynthesisErrorEvent) => any) | null = null;
+      onpause: ((this: SpeechSynthesisUtterance, ev: SpeechSynthesisEvent) => any) | null = null;
+      onresume: ((this: SpeechSynthesisUtterance, ev: SpeechSynthesisEvent) => any) | null = null;
+      onmark: ((this: SpeechSynthesisUtterance, ev: SpeechSynthesisEvent) => any) | null = null;
+      onboundary: ((this: SpeechSynthesisUtterance, ev: SpeechSynthesisEvent) => any) | null = null;
+
+      constructor(text?: string) {
+        super();
+        this.text = text || '';
+      }
+    }
+    (window as any).SpeechSynthesisUtterance = MockSpeechSynthesisUtterance;
+    if (typeof (globalThis as any) !== 'undefined') {
+      (globalThis as any).SpeechSynthesisUtterance = MockSpeechSynthesisUtterance;
+    }
+  }
+}
+
+export interface HermesTTSPlugin {
+  isAvailable(): Promise<{ available: boolean }>;
+  speak(options: { text: string; rate?: number; pitch?: number; lang?: string }): Promise<{ success: boolean; utteranceId?: string }>;
+  stop(): Promise<{ stopped: boolean }>;
+}
+
+let hermesTTSInstance: HermesTTSPlugin | null = null;
+function getHermesTTS(): HermesTTSPlugin | null {
+  if (hermesTTSInstance) return hermesTTSInstance;
+  try {
+    if (typeof window !== 'undefined' && Capacitor.isNativePlatform()) {
+      hermesTTSInstance = registerPlugin<HermesTTSPlugin>('HermesTTS');
+      return hermesTTSInstance;
+    }
+  } catch (_) {}
+  return null;
+}
 
 /** True when the window can actually attempt speech synthesis. */
 export function hasSpeechSynthesis(): boolean {
   if (typeof window === 'undefined') return false;
-  return 'speechSynthesis' in window && typeof window.SpeechSynthesisUtterance === 'function';
+  if (Capacitor.isNativePlatform()) return true;
+  try {
+    return (
+      'speechSynthesis' in window &&
+      typeof (window as any).SpeechSynthesisUtterance !== 'undefined' &&
+      typeof (window as any).SpeechSynthesisUtterance === 'function'
+    );
+  } catch (_) {
+    return false;
+  }
+}
+
+/**
+ * Safe utterance factory that never throws ReferenceError on barebones Android WebViews.
+ * Returns null if SpeechSynthesisUtterance is not supported.
+ */
+export function createSpeechUtterance(text: string): SpeechSynthesisUtterance | null {
+  try {
+    const UtteranceClass = typeof window !== 'undefined' ? (window as any).SpeechSynthesisUtterance : null;
+    if (!UtteranceClass) return null;
+    return new UtteranceClass(text);
+  } catch (_) {
+    return null;
+  }
 }
 
 /**
@@ -58,18 +130,7 @@ export function playWebAudioSpeechChime(text?: string): void {
   } catch (_) {}
 }
 
-/**
- * Milliseconds to wait for onstart before assuming the request silently
- * failed. Low-end Android WebViews can be slow to start TTS, so this is
- * deliberately generous; we additionally check that the engine is not
- * speaking before clearing a slow-but-working request.
- */
 const START_WATCHDOG_MS = 3000;
-/**
- * Hard cap for a single utterance. Call sites truncate text to mobile-friendly
- * chunks (<=500 chars), so a normal utterance is far shorter than this. It only
- * exists to clear a stuck flag when a WebView drops `onend`.
- */
 const MAX_SPEECH_MS = 60_000;
 
 type SpeakingListener = (active: boolean) => void;
@@ -118,119 +179,151 @@ export function isSpeakingActive(): boolean {
 }
 
 /**
- * Speak an utterance with watchdogs. Sets the active flag immediately (so the
- * stop control appears even before onstart) and clears it on end, error,
- * cancel, a missed onstart, or a dropped onend. Returns true when the request
- * was handed to the engine.
+ * Speak an utterance or text with watchdogs and native Android TTS support.
  */
-export function speakGuarded(utterance: SpeechSynthesisUtterance): boolean {
-  if (!hasSpeechSynthesis()) {
-    playWebAudioSpeechChime(utterance.text);
-    setActive(true);
-    setTimeout(() => setActive(false), 1200);
-    return true;
-  }
+export function speakGuarded(
+  utterance: SpeechSynthesisUtterance | null,
+  fallbackText?: string,
+  options?: { rate?: number; pitch?: number; lang?: string }
+): boolean {
+  const textToSpeak = utterance?.text || fallbackText || '';
+  if (!textToSpeak.trim()) return false;
+
   clearTimers();
-
-  // Ensure language and volume are explicitly defined for Android TTS engine
-  if (!utterance.lang) {
-    utterance.lang = 'en-US';
-  }
-  if (utterance.volume === undefined || utterance.volume === null || utterance.volume <= 0) {
-    utterance.volume = 1.0;
-  }
-
-  try {
-    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      if (window.speechSynthesis.paused) {
-        window.speechSynthesis.resume();
-      }
-      // Only cancel if speech synthesis is currently actively speaking or pending.
-      // Calling cancel() unconditionally while idle causes asynchronous cancel IPC
-      // in Chromium to drop the subsequent speak() request!
-      if (window.speechSynthesis.speaking || window.speechSynthesis.pending) {
-        window.speechSynthesis.cancel();
-      }
-    }
-  } catch (_) {}
-
   const my = ++sessionId;
   const finishIfCurrent = () => {
     if (my === sessionId) finish();
   };
 
   setActive(true);
-  let started = false;
 
-  const prevStart = utterance.onstart;
-  utterance.onstart = (event) => {
-    started = true;
-    if (my === sessionId && startTimer) {
-      clearTimeout(startTimer);
-      startTimer = null;
-    }
-    try {
-      prevStart?.call(utterance, event);
-    } catch (_) {}
-  };
-  const prevEnd = utterance.onend;
-  utterance.onend = (event) => {
-    finishIfCurrent();
-    try {
-      prevEnd?.call(utterance, event);
-    } catch (_) {}
-  };
-  const prevError = utterance.onerror;
-  utterance.onerror = (event) => {
-    // Android WebView without TTS voice pack: play acoustic fallback chime
-    playWebAudioSpeechChime(utterance.text);
-    finishIfCurrent();
-    try {
-      prevError?.call(utterance, event);
-    } catch (_) {}
-  };
+  // 1. Try Native Android TextToSpeech via Capacitor Plugin if running on native app
+  if (Capacitor.isNativePlatform()) {
+    const nativeTTS = getHermesTTS();
+    if (nativeTTS) {
+      const rate = options?.rate ?? (utterance?.rate || 1.0);
+      const pitch = options?.pitch ?? (utterance?.pitch || 1.0);
+      const lang = options?.lang ?? (utterance?.lang || 'en-US');
 
-  try {
-    if (typeof window !== 'undefined' && 'speechSynthesis' in window && window.speechSynthesis.paused) {
-      window.speechSynthesis.resume();
+      nativeTTS
+        .speak({ text: textToSpeak, rate, pitch, lang })
+        .then(() => {
+          // Estimate duration roughly at ~150wpm (2.5 words/sec) with minimum 1.5s
+          const wordCount = textToSpeak.split(/\s+/).length;
+          const durationMs = Math.max(1500, Math.min(30000, (wordCount / 2.5) * 1000));
+          setTimeout(finishIfCurrent, durationMs);
+        })
+        .catch(() => {
+          // Native TTS failed, fall back to Web Audio Chime
+          playWebAudioSpeechChime(textToSpeak);
+          setTimeout(finishIfCurrent, 1200);
+        });
+      return true;
     }
-    window.speechSynthesis.speak(utterance);
-  } catch (_) {
-    playWebAudioSpeechChime(utterance.text);
-    if (my === sessionId) finish();
-    return false;
   }
 
-  startTimer = setTimeout(() => {
-    if (my !== sessionId) return;
-    startTimer = null;
-    // A slow engine may not have fired onstart yet but is already speaking;
-    // do not clear the flag in that case. Only clear when nothing is active.
-    let engineSpeaking = false;
-    try {
-      engineSpeaking = window.speechSynthesis.speaking || window.speechSynthesis.pending;
-    } catch (_) {}
-    if (!started && !engineSpeaking) {
-      // If speech synthesis accepted but never produced output, provide audible fallback
-      playWebAudioSpeechChime(utterance.text);
-      finishIfCurrent();
+  // 2. Browser speechSynthesis
+  if (
+    typeof window !== 'undefined' &&
+    'speechSynthesis' in window &&
+    typeof window.speechSynthesis.speak === 'function' &&
+    utterance
+  ) {
+    if (!utterance.lang) utterance.lang = options?.lang || 'en-US';
+    if (utterance.volume === undefined || utterance.volume === null || utterance.volume <= 0) {
+      utterance.volume = 1.0;
     }
-  }, START_WATCHDOG_MS);
-  maxTimer = setTimeout(() => {
-    if (my !== sessionId) return;
-    maxTimer = null;
-    finishIfCurrent();
-  }, MAX_SPEECH_MS);
+
+    try {
+      if (window.speechSynthesis.paused) {
+        window.speechSynthesis.resume();
+      }
+      if (window.speechSynthesis.speaking || window.speechSynthesis.pending) {
+        window.speechSynthesis.cancel();
+      }
+    } catch (_) {}
+
+    let started = false;
+    const prevStart = utterance.onstart;
+    utterance.onstart = (event) => {
+      started = true;
+      if (my === sessionId && startTimer) {
+        clearTimeout(startTimer);
+        startTimer = null;
+      }
+      try {
+        prevStart?.call(utterance, event);
+      } catch (_) {}
+    };
+
+    const prevEnd = utterance.onend;
+    utterance.onend = (event) => {
+      finishIfCurrent();
+      try {
+        prevEnd?.call(utterance, event);
+      } catch (_) {}
+    };
+
+    const prevError = utterance.onerror;
+    utterance.onerror = (event) => {
+      playWebAudioSpeechChime(textToSpeak);
+      finishIfCurrent();
+      try {
+        prevError?.call(utterance, event);
+      } catch (_) {}
+    };
+
+    try {
+      if (window.speechSynthesis.paused) {
+        window.speechSynthesis.resume();
+      }
+      window.speechSynthesis.speak(utterance);
+    } catch (_) {
+      playWebAudioSpeechChime(textToSpeak);
+      if (my === sessionId) finish();
+      return false;
+    }
+
+    startTimer = setTimeout(() => {
+      if (my !== sessionId) return;
+      startTimer = null;
+      let engineSpeaking = false;
+      try {
+        engineSpeaking = window.speechSynthesis.speaking || window.speechSynthesis.pending;
+      } catch (_) {}
+      if (!started && !engineSpeaking) {
+        playWebAudioSpeechChime(textToSpeak);
+        finishIfCurrent();
+      }
+    }, START_WATCHDOG_MS);
+
+    maxTimer = setTimeout(() => {
+      if (my !== sessionId) return;
+      maxTimer = null;
+      finishIfCurrent();
+    }, MAX_SPEECH_MS);
+
+    return true;
+  }
+
+  // 3. Fallback: Web Audio Chime
+  playWebAudioSpeechChime(textToSpeak);
+  setTimeout(finishIfCurrent, 1200);
   return true;
 }
 
 /** Cancel any active utterance and clear all watchdogs/flags. */
 export function cancelSpeech(): void {
-  // Invalidate the in-flight session FIRST so the cancelled utterance's
-  // late end/error events cannot touch the cleared state afterwards.
   sessionId++;
+  if (Capacitor.isNativePlatform()) {
+    try {
+      getHermesTTS()?.stop().catch(() => {});
+    } catch (_) {}
+  }
   try {
-    if (hasSpeechSynthesis()) window.speechSynthesis.cancel();
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+    }
   } catch (_) {}
   finish();
 }

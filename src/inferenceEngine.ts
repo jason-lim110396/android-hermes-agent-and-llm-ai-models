@@ -9,7 +9,7 @@ import {
   clearEndpointCooldown,
   FallbackHop,
 } from './utils/modelFallback';
-import { speakGuarded } from './utils/speechGuard';
+import { speakGuarded, createSpeechUtterance } from './utils/speechGuard';
 import { redactSensitiveMessages } from './utils/sensitiveContent';
 import { getThermalYieldDelay } from './utils/thermalGuard';
 import { triggerMemoryCleanupHint } from './utils/memoryGuard';
@@ -925,19 +925,23 @@ export async function callRealLLMInference({
       // Trigger immediate on-device browser/Android speech utterance with best acoustic voice
       if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
         try {
-          const utterance = new SpeechSynthesisUtterance(cleanSpoken);
-          utterance.rate = 1.0;
-          utterance.pitch = modelSpec.id.includes('kokoro') ? 1.0 : 1.05;
+          const utterance = createSpeechUtterance(cleanSpoken);
+          if (utterance) {
+            utterance.rate = 1.0;
+            utterance.pitch = modelSpec.id.includes('kokoro') ? 1.0 : 1.05;
 
-          const voices = window.speechSynthesis.getVoices();
-          if (voices && voices.length > 0) {
-            const bestVoice = voices.find(
-              (v) => (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('Neural') || v.name.includes('Premium')) && v.lang.startsWith('en')
-            ) || voices.find((v) => v.lang.startsWith('en')) || voices[0];
-            if (bestVoice) utterance.voice = bestVoice;
+            const voices = window.speechSynthesis.getVoices();
+            if (voices && voices.length > 0) {
+              const bestVoice = voices.find(
+                (v) => (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('Neural') || v.name.includes('Premium')) && v.lang.startsWith('en')
+              ) || voices.find((v) => v.lang.startsWith('en')) || voices[0];
+              if (bestVoice) utterance.voice = bestVoice;
+            }
+
+            speakGuarded(utterance, cleanSpoken);
+          } else {
+            speakGuarded(null, cleanSpoken);
           }
-
-          speakGuarded(utterance);
         } catch (_) {}
       }
 

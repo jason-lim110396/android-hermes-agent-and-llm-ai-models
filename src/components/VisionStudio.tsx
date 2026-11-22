@@ -41,7 +41,7 @@ import {
 import { useAppStore, Attachment } from '@/appStore';
 import { downsampleImageFile } from '@/utils/imageOptimizer';
 import { AVAILABLE_MODELS } from '@/models';
-import { speakGuarded } from '@/utils/speechGuard';
+import { speakGuarded, createSpeechUtterance } from '@/utils/speechGuard';
 import CameraModal from './CameraModal';
 
 type VisionTaskMode = 'ocr' | 'diagram' | 'audit' | 'chat';
@@ -182,13 +182,18 @@ export default function VisionStudio() {
     triggerHaptic(30);
 
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      const utterance = new SpeechSynthesisUtterance(ocrTranslatedResult);
-      const targetObj = OCR_LANGUAGES.find((l) => l.name === ocrTranslateLang);
-      if (targetObj) utterance.lang = targetObj.code;
-      utterance.rate = 1.0;
-      utterance.onend = () => setIsSpeakingOcrTranslation(false);
-      utterance.onerror = () => setIsSpeakingOcrTranslation(false);
-      speakGuarded(utterance);
+      const utterance = createSpeechUtterance(ocrTranslatedResult);
+      if (utterance) {
+        const targetObj = OCR_LANGUAGES.find((l) => l.name === ocrTranslateLang);
+        if (targetObj) utterance.lang = targetObj.code;
+        utterance.rate = 1.0;
+        utterance.onend = () => setIsSpeakingOcrTranslation(false);
+        utterance.onerror = () => setIsSpeakingOcrTranslation(false);
+        speakGuarded(utterance, ocrTranslatedResult);
+      } else {
+        speakGuarded(null, ocrTranslatedResult);
+        setTimeout(() => setIsSpeakingOcrTranslation(false), 1200);
+      }
     } else {
       await new Promise((r) => setTimeout(r, 1500));
       setIsSpeakingOcrTranslation(false);
