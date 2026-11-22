@@ -392,14 +392,26 @@ async function executeRemoteFallbackChain(
     return { success: false, lastFailure: new Error('No valid endpoints configured') };
   }
 
-  // Check cooldown status. If some candidates are in cooldown, prioritize healthy candidates.
-  // If all are in cooldown, use all candidates so we don't permanently stall.
-  const activeCandidates = uniqueCandidates.filter((c) => {
-    const cd = isEndpointInCooldown(c.endpoint, c.model);
-    return !cd.inCooldown;
-  });
+  // Check cooldown status. Prioritize healthy active candidates first.
+  // Cooling candidates are sorted by lowest remaining cooldown so the one
+  // closest to recovering is tried next if active candidates fail.
+  const activeCandidates: FallbackEndpoint[] = [];
+  const coolingCandidates: { candidate: FallbackEndpoint; remaining: number }[] = [];
 
-  const orderedCandidates = activeCandidates.length > 0 ? activeCandidates : uniqueCandidates;
+  for (const c of uniqueCandidates) {
+    const cd = isEndpointInCooldown(c.endpoint, c.model);
+    if (!cd.inCooldown) {
+      activeCandidates.push(c);
+    } else {
+      coolingCandidates.push({ candidate: c, remaining: cd.remainingSeconds ?? 60 });
+    }
+  }
+
+  coolingCandidates.sort((a, b) => a.remaining - b.remaining);
+  const orderedCandidates = [
+    ...activeCandidates,
+    ...coolingCandidates.map((c) => c.candidate),
+  ];
 
   const hops: FallbackHop[] = [];
   let effectiveInitialReason = initialSwitchReason;
