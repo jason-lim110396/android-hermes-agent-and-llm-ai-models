@@ -19,7 +19,7 @@ import {
   ChevronDown,
   ChevronUp,
 } from 'lucide-react';
-import { useAppStore } from '@/appStore';
+import { useAppStore, type Attachment } from '@/appStore';
 import { triggerHaptic } from '@/utils/haptics';
 import { useBackButtonClose } from '@/utils/backButton';
 import {
@@ -33,6 +33,7 @@ import {
   cancelSpeech,
   onSpeakingChange,
   hasSpeechSynthesis,
+  playWebAudioSpeechChime,
 } from '@/utils/speechGuard';
 import { isSpeechRecognitionPermissionDenied } from '@/utils/nativeAppSettings';
 
@@ -70,6 +71,8 @@ export default function VoiceCallModal({ isOpen, onClose }: VoiceCallModalProps)
   const [manualInputText, setManualInputText] = useState('');
 
   const recognitionRef = useRef<any>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
   const sessionTokenRef = useRef(0);
   const silenceDetectorRef = useRef<SilenceDetector | null>(null);
   const isMutedRef = useRef(isMuted);
@@ -145,9 +148,11 @@ export default function VoiceCallModal({ isOpen, onClose }: VoiceCallModalProps)
         if (lastMsg && lastMsg.role === 'assistant') {
           const spoken = cleanTextForTts(lastMsg.content);
           setAssistantText(spoken);
-          if (spoken.length > 0 && hasSpeechSynthesis()) {
+          if (spoken.length > 0) {
             setCallState('speaking');
             const utterance = new SpeechSynthesisUtterance(spoken.slice(0, 500));
+            utterance.lang = 'en-US';
+            utterance.volume = 1.0;
             speakGuarded(utterance);
           } else {
             setCallState('listening');
@@ -279,10 +284,16 @@ export default function VoiceCallModal({ isOpen, onClose }: VoiceCallModalProps)
           window.speechSynthesis.resume();
         }
         const utterance = new SpeechSynthesisUtterance(greeting);
+        utterance.lang = 'en-US';
+        utterance.volume = 1.0;
         utterance.rate = 1.0;
         utterance.pitch = 1.05;
         speakGuarded(utterance);
-      } catch (_) {}
+      } catch (_) {
+        playWebAudioSpeechChime(greeting);
+      }
+    } else {
+      playWebAudioSpeechChime(greeting);
     }
 
     const startTimeout = setTimeout(() => {
@@ -297,6 +308,12 @@ export default function VoiceCallModal({ isOpen, onClose }: VoiceCallModalProps)
       if (recognitionRef.current) {
         try {
           recognitionRef.current.abort();
+        } catch (_) {}
+      }
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        try {
+          mediaRecorderRef.current.stream.getTracks().forEach((t) => t.stop());
+          mediaRecorderRef.current.stop();
         } catch (_) {}
       }
       silenceDetectorRef.current?.clear();
@@ -364,13 +381,19 @@ export default function VoiceCallModal({ isOpen, onClose }: VoiceCallModalProps)
         recognitionRef.current.abort();
       } catch (_) {}
     }
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      try {
+        mediaRecorderRef.current.stream.getTracks().forEach((t) => t.stop());
+        mediaRecorderRef.current.stop();
+      } catch (_) {}
+    }
     silenceDetectorRef.current?.clear();
     cancelSpeech();
     onClose();
   };
 
   // Push-to-Talk or Orb Tap Interaction
-  const handleOrbClick = () => {
+  const handleOrbClick = async () => {
     if (callState === 'speaking') {
       handleInterrupt();
       return;
@@ -378,16 +401,71 @@ export default function VoiceCallModal({ isOpen, onClose }: VoiceCallModalProps)
 
     if (callState === 'listening') {
       if (!hasSpeechRecognition) {
-        // Toggle Push-to-Talk simulation or prompt
         if (!isPushToTalkActive) {
-          setIsPushToTalkActive(true);
-          triggerHaptic('selection');
-          setUserSpeechDraft('Listening to voice input...');
-          setTimeout(() => {
-            setIsPushToTalkActive(false);
-            setUserSpeechDraft('');
-            handleCommitUserSpeech('Hello Hermes, can you help me summarize my tasks?');
-          }, 2400);
+          // Real voice microphone capture via MediaRecorder
+          if (typeof navigator !== 'undefined' && navigator.mediaDevices?.getUserMedia) {
+            try {
+              const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+              const recorder = new MediaRecorder(stream);
+              mediaRecorderRef.current = recorder;
+              audioChunksRef.current = [];
+              recorder.ondataavailable = (e) => {
+                if (e.data && e.data.size > 0) audioChunksRef.current.push(e.data);
+              };
+              recorder.start(100);
+              setIsPushToTalkActive(true);
+              triggerHaptic('selection');
+              setUserSpeechDraft('Recording your voice... Tap orb when finished');
+            } catch (_) {
+              setPermissionError('Microphone access denied. Tap a quick prompt or type below.');
+              setShowQuickInput(true);
+            }
+          } else {
+            setShowQuickInput(true);
+          }
+        } else {
+          // Stop real voice recording and commit
+          setIsPushToTalkActive(false);
+          triggerHaptic('success');
+          setUserSpeechDraft('Processing voice message...');
+          const recorder = mediaRecorderRef.current;
+          if (recorder && recorder.state !== 'inactive') {
+            recorder.onstop = () => {
+              try {
+                recorder.stream.getTracks().forEach((t) => t.stop());
+              } catch (_) {}
+              const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+              audioChunksRef.current = [];
+              mediaRecorderRef.current = null;
+              if (blob.size > 0) {
+                const reader = new FileReader();
+                reader.onloadend = () => {
+                  const dataUrl = reader.result as string;
+                  const att: Attachment = {
+                    id: `voice-call-${Date.now()}`,
+                    type: 'audio',
+                    name: 'Voice Call Audio Note',
+                    dataUrl,
+                    mimeType: 'audio/webm',
+                    sizeBytes: blob.size,
+                    durationSec: 3,
+                  };
+                  useAppStore.getState().addAttachment(att);
+                  handleCommitUserSpeech('Voice call question (audio attached)');
+                };
+                reader.readAsDataURL(blob);
+              } else {
+                handleCommitUserSpeech('Voice call inquiry');
+              }
+            };
+            try {
+              recorder.stop();
+            } catch (_) {
+              handleCommitUserSpeech('Voice call inquiry');
+            }
+          } else {
+            handleCommitUserSpeech('Voice call inquiry');
+          }
         }
       } else {
         // Re-arm speech recognition

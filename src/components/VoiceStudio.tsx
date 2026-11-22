@@ -564,13 +564,18 @@ export default function VoiceStudio() {
         const utterance = new SpeechSynthesisUtterance(text);
         utterance.rate = voiceRate;
         utterance.pitch = voicePitch;
+        utterance.lang = 'en-US';
+        utterance.volume = 1.0;
 
         const voices = window.speechSynthesis.getVoices();
         if (voices && voices.length > 0) {
           const naturalVoice = voices.find(
             (v) => (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('Neural')) && v.lang.startsWith('en')
           ) || voices.find((v) => v.lang.startsWith('en')) || voices[0];
-          if (naturalVoice) utterance.voice = naturalVoice;
+          if (naturalVoice) {
+            utterance.voice = naturalVoice;
+            if (naturalVoice.lang) utterance.lang = naturalVoice.lang;
+          }
         }
 
         utterance.onstart = () => {
@@ -578,6 +583,7 @@ export default function VoiceStudio() {
         };
         speakGuarded(utterance);
       } catch (_) {
+        handlePreviewTrimmedAudio();
         useAppStore.setState({ isSpeaking: false });
       }
     } else {

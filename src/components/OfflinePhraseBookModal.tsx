@@ -137,7 +137,8 @@ export default function OfflinePhraseBookModal({ isOpen, onClose }: OfflinePhras
     const requestId = ++speakRequestIdRef.current;
     const isCurrent = () => speakRequestIdRef.current === requestId;
     const utter = new SpeechSynthesisUtterance(text);
-    utter.lang = selectedLang.bcp47;
+    utter.lang = selectedLang.bcp47 || 'en-US';
+    utter.volume = 1.0;
     utter.rate = 0.9;
     utter.onstart = () => { if (isCurrent()) setSpeakingId(phrase.id); };
     utter.onend = () => { if (isCurrent()) setSpeakingId(null); };
