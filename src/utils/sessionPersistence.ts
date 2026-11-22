@@ -35,11 +35,23 @@ interface PersistedSessions {
   activeAgentSessionId: string;
 }
 
+export interface SessionVaultStats {
+  chatSessionCount: number;
+  agentSessionCount: number;
+  totalSessionCount: number;
+  totalMessagesCount: number;
+  estimatedBytes: number;
+  estimatedKB: number;
+  lastPersistedTimestamp: number | null;
+  hasPendingWrite: boolean;
+}
+
 export type { PersistedSessions };
 
 let persistTimer: ReturnType<typeof setTimeout> | null = null;
 let maxWaitTimer: ReturnType<typeof setTimeout> | null = null;
 let pendingSnapshot: PersistedSessions | null = null;
+let lastPersistedTime: number | null = null;
 
 function isValidMessage(m: unknown): m is ChatMessage {
   if (!m || typeof m !== 'object') return false;
@@ -137,6 +149,7 @@ function tryWrite(payload: PersistedSessions): boolean {
   for (const build of levels) {
     try {
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(build()));
+      lastPersistedTime = Date.now();
       return true;
     } catch (_) {
       // Quota exceeded: fall through to the next, smaller level.
@@ -188,6 +201,74 @@ export function clearPendingPersist(): void {
     maxWaitTimer = null;
   }
   pendingSnapshot = null;
+}
+
+/**
+ * Explicitly removes the persisted session vault from localStorage and discards
+ * any pending debounced writes. Prevents lingering or orphaned session trees.
+ */
+export function clearPersistedSessions(): void {
+  clearPendingPersist();
+  if (typeof window !== 'undefined') {
+    try {
+      window.localStorage.removeItem(STORAGE_KEY);
+      lastPersistedTime = null;
+    } catch (_) {}
+  }
+}
+
+/**
+ * Returns telemetry and diagnostic stats for the on-device session persistence vault.
+ */
+export function getSessionVaultStats(): SessionVaultStats {
+  if (typeof window === 'undefined') {
+    return {
+      chatSessionCount: 0,
+      agentSessionCount: 0,
+      totalSessionCount: 0,
+      totalMessagesCount: 0,
+      estimatedBytes: 0,
+      estimatedKB: 0,
+      lastPersistedTimestamp: lastPersistedTime,
+      hasPendingWrite: pendingSnapshot !== null,
+    };
+  }
+
+  let chatSessionCount = 0;
+  let agentSessionCount = 0;
+  let totalMessagesCount = 0;
+  let estimatedBytes = 0;
+
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      estimatedBytes = raw.length * 2; // Approximate UTF-16 in-memory size
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') {
+        if (parsed.chatSessions && typeof parsed.chatSessions === 'object') {
+          const cSessions = Object.values(parsed.chatSessions) as ChatSession[];
+          chatSessionCount = cSessions.length;
+          totalMessagesCount += cSessions.reduce((acc, s) => acc + (s.messages?.length || 0), 0);
+        }
+        if (parsed.agentSessions && typeof parsed.agentSessions === 'object') {
+          const aSessions = Object.values(parsed.agentSessions) as ChatSession[];
+          agentSessionCount = aSessions.length;
+          totalMessagesCount += aSessions.reduce((acc, s) => acc + (s.messages?.length || 0), 0);
+        }
+      }
+    }
+  } catch (_) {}
+
+  return {
+    chatSessionCount,
+    agentSessionCount,
+    totalSessionCount: chatSessionCount + agentSessionCount,
+    totalMessagesCount,
+    estimatedBytes,
+    estimatedKB: Math.round((estimatedBytes / 1024) * 10) / 10,
+    lastPersistedTimestamp: lastPersistedTime,
+    hasPendingWrite: pendingSnapshot !== null,
+  };
 }
 
 // The WebView suspends JS timers when backgrounded, so a debounced write that
