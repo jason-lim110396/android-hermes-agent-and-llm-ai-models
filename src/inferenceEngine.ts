@@ -489,6 +489,22 @@ interface RemoteChainExecutionResult {
   hops?: FallbackHop[];
 }
 
+function recordFallbackHop(
+  hops: FallbackHop[],
+  hop: FallbackHop,
+  onFallback?: (event: FallbackHop) => void
+): void {
+  const last = hops[hops.length - 1];
+  // Deduplicate consecutive hops between the same source and destination
+  if (last && last.from === hop.from && last.to === hop.to) {
+    return;
+  }
+  hops.push(hop);
+  try {
+    onFallback?.(hop);
+  } catch (_) {}
+}
+
 async function executeRemoteFallbackChain(
   candidates: FallbackEndpoint[],
   payload: {
@@ -555,12 +571,16 @@ async function executeRemoteFallbackChain(
   }
 
   if (effectiveInitialReason && orderedCandidates.length > 0) {
-    hops.push({
-      from: skippedPrimaryLabel || modelSpec?.name || 'primary endpoint',
-      to: orderedCandidates[0].label,
-      reason: effectiveInitialReason,
-      timestamp: Date.now(),
-    });
+    recordFallbackHop(
+      hops,
+      {
+        from: skippedPrimaryLabel || modelSpec?.name || 'primary endpoint',
+        to: orderedCandidates[0].label,
+        reason: effectiveInitialReason,
+        timestamp: Date.now(),
+      },
+      config?.onFallback
+    );
   }
 
   let lastFailure: RemoteEndpointError | Error | null = null;
@@ -574,19 +594,16 @@ async function executeRemoteFallbackChain(
         lastFailure instanceof RemoteEndpointError
           ? describeLimitFailure(lastFailure.status, lastFailure.detail)
           : (lastFailure.message || 'unavailable');
-      hops.push({
-        from: orderedCandidates[i - 1].label,
-        to: candidate.label,
-        reason: switchReason,
-        timestamp: Date.now(),
-      });
-      try {
-        config?.onFallback?.({
+      recordFallbackHop(
+        hops,
+        {
           from: orderedCandidates[i - 1].label,
           to: candidate.label,
           reason: switchReason,
-        });
-      } catch (_) {}
+          timestamp: Date.now(),
+        },
+        config?.onFallback
+      );
     } else if (i === 0 && effectiveInitialReason) {
       try {
         config?.onFallback?.({
@@ -660,20 +677,8 @@ async function executeRemoteFallbackChain(
 
         // If there are subsequent candidates in the fallback chain (e.g. free presets), continue
         // rather than failing the whole chain immediately, unless this was the last candidate.
+        // The transition hop will be recorded upon entering the next candidate.
         if (i < orderedCandidates.length - 1) {
-          hops.push({
-            from: candidate.label,
-            to: orderedCandidates[i + 1].label,
-            reason: switchReason,
-            timestamp: Date.now(),
-          });
-          try {
-            config?.onFallback?.({
-              from: candidate.label,
-              to: orderedCandidates[i + 1].label,
-              reason: switchReason,
-            });
-          } catch (_) {}
           continue;
         }
         break;
