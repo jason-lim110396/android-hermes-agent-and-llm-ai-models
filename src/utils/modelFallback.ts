@@ -286,6 +286,11 @@ const LIMIT_HINTS = [
   'no available provider',
   'no available model',
   'bandwidth limit exceeded',
+  'rate limit reached',
+  'rate_limit_reached',
+  'overloaded_error',
+  'temporarily_unavailable',
+  'error_code: 429',
 ];
 
 /**
@@ -309,8 +314,8 @@ export function isUsageLimitFailure(status: number, detail: string): boolean {
   // 500/502/503/504 are server/gateway failures: an internal server crash or gateway outage on one
   // provider should fail over to another healthy provider in the fallback chain.
   if (status === 500 || status === 502 || status === 503 || status === 504) return true;
-  // 520-526 are Cloudflare edge proxy / origin timeouts common on public free routers.
-  if (status >= 520 && status <= 526) return true;
+  // 520-530 are Cloudflare edge proxy / origin timeouts common on public free routers (530: origin DNS/network failure).
+  if (status >= 520 && status <= 530) return true;
   // 404 (model / route not found or deprecated) and 410 (gone) indicate that the specific model
   // or route is unavailable on this provider; other presets in the chain can serve the prompt.
   if (status === 404 || status === 410) return true;
@@ -356,7 +361,7 @@ export function describeLimitFailure(status: number, detail: string): string {
   if (status === 410) return 'model decommissioned (410)';
   if (status === 400) return 'bad request / format error (400)';
   if (status === 422) return 'unprocessable entity / prompt limit (422)';
-  if (status >= 520 && status <= 526) return `edge proxy error (${status})`;
+  if (status >= 520 && status <= 530) return `edge proxy error (${status})`;
   return `HTTP ${status}`;
 }
 

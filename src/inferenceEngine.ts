@@ -239,16 +239,30 @@ async function streamChatCompletion(
       // Read the body so a quota message is not mistaken for a network error.
       // Parse structured JSON error objects if present to get clean, honest details.
       let detail = '';
+      let retryAfterSec = parseRetryAfterHeader(res.headers);
       try {
         const rawText = await res.text();
         try {
           const parsed = JSON.parse(rawText);
           detail = parsed?.error?.message || parsed?.error?.detail || parsed?.message || rawText.slice(0, 500);
+
+          // If standard Retry-After header was absent, inspect parsed error payload for retry hints
+          if (!retryAfterSec && typeof parsed === 'object' && parsed !== null) {
+            const errObj = (parsed?.error && typeof parsed.error === 'object') ? parsed.error : parsed;
+            const rawRetry = errObj.retry_after ?? errObj.retryAfter ?? errObj.reset;
+            if (typeof rawRetry === 'number' && rawRetry > 0) {
+              retryAfterSec = Math.min(Math.max(Math.ceil(rawRetry), 10), 3600);
+            } else if (typeof rawRetry === 'string') {
+              const p = parseInt(rawRetry.trim(), 10);
+              if (!Number.isNaN(p) && p > 0) {
+                retryAfterSec = Math.min(Math.max(p, 10), 3600);
+              }
+            }
+          }
         } catch {
           detail = rawText.slice(0, 500);
         }
       } catch (_) {}
-      const retryAfterSec = parseRetryAfterHeader(res.headers);
       throw new RemoteEndpointError(
         `${candidate.label}: HTTP ${res.status} ${res.statusText}`,
         res.status,
