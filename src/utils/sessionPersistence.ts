@@ -288,6 +288,11 @@ if (typeof window !== 'undefined') {
   });
   window.addEventListener('pagehide', onBackgroundOrUnload);
   window.addEventListener('beforeunload', onBackgroundOrUnload);
+  // Chromium Page Lifecycle API: Android WebViews fire 'freeze' before freezing execution
+  if (typeof document !== 'undefined') {
+    document.addEventListener('freeze', onBackgroundOrUnload);
+  }
+  window.addEventListener('freeze', onBackgroundOrUnload);
 
   try {
     CapApp.addListener('appStateChange', (state) => {

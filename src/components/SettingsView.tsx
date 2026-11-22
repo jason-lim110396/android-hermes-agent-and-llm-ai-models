@@ -211,13 +211,14 @@ export default function SettingsView() {
   const [cooldownTick, setCooldownTick] = useState(0);
 
   useEffect(() => {
-    const active = getAllActiveCooldowns();
-    if (active.length === 0) return;
     const interval = setInterval(() => {
-      setCooldownTick((t) => t + 1);
+      const active = getAllActiveCooldowns();
+      if (active.length > 0) {
+        setCooldownTick((t) => t + 1);
+      }
     }, 1000);
     return () => clearInterval(interval);
-  }, [cooldownTick]);
+  }, []);
 
   const refreshStorage = async () => {
     try {
