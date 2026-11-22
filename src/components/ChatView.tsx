@@ -2734,12 +2734,12 @@ export default function ChatView() {
                                 <span>Transition Chain ({msg.fallbackHops.length} hop{msg.fallbackHops.length === 1 ? '' : 's'}):</span>
                               </div>
                               {msg.fallbackHops.map((hop, idx) => (
-                                <div key={idx} className="bg-zinc-950/60 p-1 rounded border border-zinc-800/80 text-[9px]">
-                                  <div className="flex items-center gap-1 text-zinc-300">
-                                    <span className="text-amber-400 font-mono text-[8px] font-bold">#{idx + 1}</span>
-                                    <span className="text-zinc-200 font-medium truncate max-w-[90px]">{hop.from}</span>
+                                <div key={idx} className="bg-zinc-950/60 p-1.5 rounded border border-zinc-800/80 text-[9px]">
+                                  <div className="flex items-center gap-1.5 text-zinc-300">
+                                    <span className="text-amber-400 font-mono text-[8px] font-bold shrink-0">#{idx + 1}</span>
+                                    <span className="text-zinc-200 font-medium truncate max-w-[120px]" title={hop.from}>{hop.from}</span>
                                     <ArrowRightLeft className="w-2.5 h-2.5 text-zinc-500 shrink-0" />
-                                    <span className="text-amber-300 font-medium truncate max-w-[90px]">{hop.to}</span>
+                                    <span className="text-amber-300 font-medium truncate max-w-[120px]" title={hop.to}>{hop.to}</span>
                                   </div>
                                   <div className="text-[8px] text-zinc-400 mt-0.5 italic">
                                     Reason: {hop.reason}
