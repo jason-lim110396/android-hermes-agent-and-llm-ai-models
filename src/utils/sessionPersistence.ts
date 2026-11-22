@@ -493,17 +493,39 @@ export function reconcileSessionWithIdb(
     if (m && m.id) currentMsgIds.add(m.id);
   }
 
-  // 1. Check for messages in current that had attachments stripped by localStorage quota
+  // 1. Check for messages in current that had attachments, agentSteps, or fallbackHops stripped by localStorage quota
   const reconciledCurrent = currentMessages.map((cm) => {
     const idbMsg = idbMsgMap.get(cm.id);
+    if (!idbMsg) return cm;
+    let msgChanged = false;
+    let updated = cm;
     if (
-      idbMsg &&
       idbMsg.attachments &&
       idbMsg.attachments.length > 0 &&
       (!cm.attachments || cm.attachments.length === 0)
     ) {
+      updated = { ...updated, attachments: idbMsg.attachments };
+      msgChanged = true;
+    }
+    if (
+      idbMsg.agentSteps &&
+      idbMsg.agentSteps.length > 0 &&
+      (!cm.agentSteps || cm.agentSteps.length === 0)
+    ) {
+      updated = { ...updated, agentSteps: idbMsg.agentSteps };
+      msgChanged = true;
+    }
+    if (
+      idbMsg.fallbackHops &&
+      idbMsg.fallbackHops.length > 0 &&
+      (!cm.fallbackHops || cm.fallbackHops.length === 0)
+    ) {
+      updated = { ...updated, fallbackHops: idbMsg.fallbackHops };
+      msgChanged = true;
+    }
+    if (msgChanged) {
       changed = true;
-      return { ...cm, attachments: idbMsg.attachments };
+      return updated;
     }
     return cm;
   });
