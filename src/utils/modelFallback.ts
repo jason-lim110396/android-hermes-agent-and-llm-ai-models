@@ -13,6 +13,13 @@ export interface FallbackModelEntry {
   model?: string;
 }
 
+export interface FallbackHop {
+  from: string;
+  to: string;
+  reason: string;
+  timestamp?: number;
+}
+
 export interface FallbackSettings {
   enabled: boolean;
   chain: FallbackModelEntry[];

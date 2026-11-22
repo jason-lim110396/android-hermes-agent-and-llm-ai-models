@@ -20,6 +20,7 @@ import {
   schedulePersistSessions,
 } from './utils/sessionPersistence';
 import {
+  FallbackHop,
   FallbackModelEntry,
   loadFallbackSettings,
   saveFallbackSettings,
@@ -54,6 +55,7 @@ export interface ChatMessage {
   modelUsed?: string;
   isFallback?: boolean;
   fallbackReason?: string;
+  fallbackHops?: FallbackHop[];
   mode?: 'chat' | 'agent' | 'image-gen' | 'vision' | 'voice' | 'embedding';
   attachments?: Attachment[];
   agentSteps?: AgentStep[];
@@ -324,7 +326,8 @@ function setMsgModelUsed(
   set: any,
   get: any,
   isFallback?: boolean,
-  fallbackReason?: string
+  fallbackReason?: string,
+  fallbackHops?: FallbackHop[]
 ) {
   if (mode === 'agent') {
     const sess = get().agentSessions[sessionId];
@@ -335,7 +338,7 @@ function setMsgModelUsed(
         [sessionId]: {
           ...sess,
           messages: sess.messages.map((m: ChatMessage) =>
-            m.id === id ? { ...m, modelUsed, isFallback: !!isFallback, fallbackReason } : m
+            m.id === id ? { ...m, modelUsed, isFallback: !!isFallback, fallbackReason, fallbackHops } : m
           ),
         },
       },
@@ -349,7 +352,7 @@ function setMsgModelUsed(
         [sessionId]: {
           ...sess,
           messages: sess.messages.map((m: ChatMessage) =>
-            m.id === id ? { ...m, modelUsed, isFallback: !!isFallback, fallbackReason } : m
+            m.id === id ? { ...m, modelUsed, isFallback: !!isFallback, fallbackReason, fallbackHops } : m
           ),
         },
       },
@@ -1769,7 +1772,8 @@ async function executeHermesAgent(
       set,
       get,
       resolvedAnsweredAgent.isFallback,
-      resolvedAnsweredAgent.reason
+      resolvedAnsweredAgent.reason,
+      resolvedAnsweredAgent.hops
     );
   }
 
@@ -1926,7 +1930,8 @@ async function executeDirectChat(
       set,
       get,
       resolvedAnsweredChat.isFallback,
-      resolvedAnsweredChat.reason
+      resolvedAnsweredChat.reason,
+      resolvedAnsweredChat.hops
     );
   }
 
