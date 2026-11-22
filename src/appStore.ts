@@ -26,6 +26,7 @@ import {
   SessionVaultStats,
 } from './utils/sessionPersistence';
 import {
+  clearEndpointCooldown,
   FallbackHop,
   FallbackModelEntry,
   loadFallbackSettings,
@@ -406,11 +407,23 @@ export const useAppStore = create<AppStore>((set, get) => {
         localStorage.setItem('androidllm_api_endpoint', ep);
       } catch (_) {}
     }
+    // Clear any active rate-limit or error cooldowns on the new endpoint
+    if (ep) {
+      clearEndpointCooldown(ep);
+    }
     set({ apiEndpoint: ep });
   },
   apiKey: '',
   // Session-only by design, matching the fallback chain key policy.
-  setApiKey: (k) => set({ apiKey: k }),
+  // When the user updates or corrects their API key, clear any 401 or route cooldown
+  // on their configured primary endpoint so the corrected key is tested immediately.
+  setApiKey: (k) => {
+    const ep = get().apiEndpoint;
+    if (ep) {
+      clearEndpointCooldown(ep);
+    }
+    set({ apiKey: k });
+  },
   customModelName: persistedRemoteConfig.customModelName,
   setCustomModelName: (m) => {
     if (typeof window !== 'undefined') {

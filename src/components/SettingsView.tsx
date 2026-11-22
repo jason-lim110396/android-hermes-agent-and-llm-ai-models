@@ -416,6 +416,8 @@ export default function SettingsView() {
       const latency = Math.round(performance.now() - start);
 
       if (res.ok) {
+        clearEndpointCooldown(apiEndpoint);
+        setCooldownTick((t) => t + 1);
         setTestResult({ ok: true, message: `Connected! HTTP 200 • Latency: ${latency}ms • Endpoint ready` });
       } else {
         setTestResult({ ok: false, message: `Server replied with HTTP ${res.status} (${latency}ms)` });
@@ -1284,6 +1286,32 @@ export default function SettingsView() {
               onChange={(e) => setApiKey(e.target.value)}
               className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-cyan-500/50 font-mono"
             />
+
+            {(() => {
+              const primaryCooldown = apiEndpoint ? isEndpointInCooldown(apiEndpoint, customModelName) : { inCooldown: false };
+              if (!primaryCooldown.inCooldown) return null;
+              return (
+                <div className="flex items-center justify-between gap-2 bg-amber-950/60 border border-amber-500/40 rounded-xl px-2.5 py-1.5">
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <Clock className="w-3 h-3 text-amber-400 shrink-0 animate-spin" />
+                    <span className="text-[9px] font-mono text-amber-200 truncate">
+                      Primary Cooldown: {primaryCooldown.reason || 'rate-limited'} ({primaryCooldown.remainingSeconds}s left{primaryCooldown.isRetryAfterHeader ? ' · Retry-After' : ''})
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => {
+                      triggerHaptic(5);
+                      clearEndpointCooldown(apiEndpoint);
+                      setCooldownTick((t) => t + 1);
+                    }}
+                    className="text-[9px] font-bold text-amber-300 hover:text-amber-100 underline shrink-0 cursor-pointer"
+                    title="Clear cooldown immediately"
+                  >
+                    Reset
+                  </button>
+                </div>
+              );
+            })()}
 
             <div className="flex items-center justify-between pt-1">
               <button
