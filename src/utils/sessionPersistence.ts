@@ -152,7 +152,8 @@ function tryWrite(payload: PersistedSessions): boolean {
       lastPersistedTime = Date.now();
       return true;
     } catch (_) {
-      // Quota exceeded: fall through to the next, smaller level.
+      // Quota exceeded: signal cooperative memory cleanup and fall through to the next, smaller level.
+      triggerMemoryCleanupHint();
     }
   }
   return false;

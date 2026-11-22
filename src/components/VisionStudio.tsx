@@ -1,7 +1,7 @@
 'use client';
 
 import { triggerHaptic } from '@/utils/haptics';
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   Camera,
   Upload,
@@ -282,6 +282,19 @@ export default function VisionStudio() {
 
   const currentPage = scannedPages[selectedPageIndex] || scannedPages[0];
   const [imgDims, setImgDims] = useState<{ width: number; height: number } | null>(null);
+
+  useEffect(() => {
+    const handleMemoryCleanup = () => {
+      // On cooperative memory cleanup (e.g. backgrounding or memory pressure),
+      // trim cached scanned pages down to the 3 most recent pages to free base64 buffers.
+      setScannedPages((prev) => (prev.length > 3 ? prev.slice(-3) : prev));
+      setSelectedPageIndex(0);
+    };
+    window.addEventListener('hermes:memory-cleanup', handleMemoryCleanup);
+    return () => {
+      window.removeEventListener('hermes:memory-cleanup', handleMemoryCleanup);
+    };
+  }, []);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
