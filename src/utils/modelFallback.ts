@@ -269,6 +269,23 @@ const LIMIT_HINTS = [
   'thinking_budget_exceeded',
   'reasoning_tokens_limit',
   'reasoning budget exceeded',
+  'model is currently loading',
+  'model is loading',
+  'loading model',
+  'is loading',
+  'model not ready',
+  'model is not ready',
+  'queue is full',
+  'request queued too long',
+  'queue timeout',
+  'context length exceeded',
+  'token limit exceeded',
+  'max_tokens reached',
+  'temporarily disabled',
+  'endpoint disabled',
+  'no available provider',
+  'no available model',
+  'bandwidth limit exceeded',
 ];
 
 /**
@@ -276,8 +293,17 @@ const LIMIT_HINTS = [
  * so a different endpoint is likely to succeed.
  */
 export function isUsageLimitFailure(status: number, detail: string): boolean {
-  // 429 (rate limit), 402 (payment required), 408 (request timeout), and 413 (payload too large) are unambiguous.
-  if (status === 429 || status === 402 || status === 408 || status === 413) return true;
+  // 429 (rate limit), 402 (payment required), 408 (request timeout), 413 (payload too large),
+  // 499 (client/edge timeout), 507 (insufficient storage), and 509 (bandwidth limit exceeded).
+  if (
+    status === 429 ||
+    status === 402 ||
+    status === 408 ||
+    status === 413 ||
+    status === 499 ||
+    status === 507 ||
+    status === 509
+  ) return true;
   // 529 (Site is overloaded) is returned by Anthropic, OpenRouter, and other LLM gateways.
   if (status === 529) return true;
   // 500/502/503/504 are server/gateway failures: an internal server crash or gateway outage on one
@@ -318,6 +344,10 @@ export function describeLimitFailure(status: number, detail: string): string {
   if (status === 529) return 'provider overloaded (529)';
   if (status === 402) return 'payment required';
   if (status === 408) return 'request timeout (408)';
+  if (status === 499) return 'client/edge request cancelled (499)';
+  if (status === 507) return 'insufficient server storage (507)';
+  if (status === 509) return 'bandwidth limit exceeded (509)';
+  if (status === 403) return 'quota / tier blocked (403)';
   if (status === 403) return 'quota / tier blocked (403)';
   if (status === 500) return 'internal server error (500)';
   if (status === 502) return 'bad gateway (502)';
