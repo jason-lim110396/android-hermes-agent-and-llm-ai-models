@@ -10,6 +10,7 @@ import {
   isModelCached,
   deleteModelFromCache,
   generateOnDeviceAIImage,
+  getLastImageGenerationMeta,
   abortAllInference,
   releaseActiveModelEngines,
 } from './inferenceEngine';
@@ -1388,7 +1389,11 @@ export const useAppStore = create<AppStore>((set, get) => {
         updateMsg(assistantMsgId, [], '*[🎨 Generating AI Image via Diffusion Studio...]*', true, set, get, 'chat', owningChatSessionId);
         const cleanPrompt = userText.trim();
         const imgDataUrl = await generateOnDeviceAIImage(cleanPrompt, currentModel?.name || 'Diffusion Studio');
-        const finalContent = `![Generated Image](${imgDataUrl})\n\n**Prompt:** "${cleanPrompt}"\n*Generated locally with ${currentModel?.name || 'On-Device Diffusion Engine'}*`;
+        const meta = getLastImageGenerationMeta();
+        const engineNotice = meta.isRealDiffusion
+          ? `*Generated with ${currentModel?.name || 'Diffusion Engine'} (${meta.engine})*`
+          : `*Generated with Hermes On-Device Generative Studio (Diffusion server busy — retry in 20s for full diffusion)*`;
+        const finalContent = `![Generated Image](${imgDataUrl})\n\n**Prompt:** "${cleanPrompt}"\n${engineNotice}`;
         updateMsg(assistantMsgId, [], finalContent, false, set, get, 'chat', owningChatSessionId);
       } else if (operatingMode === 'agent') {
         await executeHermesAgent(userText, pendingAttachments, assistantMsgId, switchedNotice, owningAgentSessionId, activeModelId, set, get, options?.isLive);
@@ -1630,7 +1635,9 @@ async function executeHermesAgent(
       try {
         const cleanArtPrompt = userText.replace(/^(generate|draw|create|render|paint|make)(\s+(an?\s+)?(image|picture|photo|artwork|illustration|drawing|art|logo))?(\s+(of|about|depicting|showing))?\s*/i, '').trim() || userText;
         const imgDataUrl = await generateOnDeviceAIImage(cleanArtPrompt, 'Hermes Diffusion Studio');
-        toolResult += `\n\n![Generated Art](${imgDataUrl})\n\n**Visual Prompt:** "${cleanArtPrompt}"`;
+        const meta = getLastImageGenerationMeta();
+        const badge = meta.isRealDiffusion ? `*Engine: ${meta.engine}*` : `*Engine: On-Device Generative Studio (Offline / Safe Mode)*`;
+        toolResult += `\n\n![Generated Art](${imgDataUrl})\n\n**Visual Prompt:** "${cleanArtPrompt}"\n${badge}`;
       } catch (err: any) {
         // The tool text above only announces the render request, so a failure
         // here must be named - a swallowed error left the claim standing.

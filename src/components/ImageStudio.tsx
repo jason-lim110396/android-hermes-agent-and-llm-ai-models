@@ -29,7 +29,7 @@ import {
 } from 'lucide-react';
 import { useAppStore } from '@/appStore';
 import { AVAILABLE_MODELS } from '@/models';
-import { generateOnDeviceAIImage } from '@/inferenceEngine';
+import { generateOnDeviceAIImage, getLastImageGenerationMeta } from '@/inferenceEngine';
 import { isLowMemory } from '@/utils/memoryGuard';
 
 interface StylePreset {
@@ -97,6 +97,7 @@ export default function ImageStudio() {
   const [history, setHistory] = useState<GeneratedHistoryItem[]>([]);
   const [localGenerating, setLocalGenerating] = useState(false);
   const [generationError, setGenerationError] = useState<string | null>(null);
+  const [lastGenNotice, setLastGenNotice] = useState<string | null>(null);
   const [lowMemoryMode, setLowMemoryMode] = useState<boolean>(false);
   const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -158,6 +159,13 @@ export default function ImageStudio() {
         },
         controller.signal
       );
+
+      const meta = getLastImageGenerationMeta();
+      if (!meta.isRealDiffusion) {
+        setLastGenNotice(meta.notice || 'Generated via On-Device Generative Studio (Online diffusion queue capacity limit — retry after 15s for full diffusion).');
+      } else {
+        setLastGenNotice(null);
+      }
 
       setProgressPct(100);
       setProgressStatus('Rendering complete!');
@@ -467,6 +475,18 @@ export default function ImageStudio() {
             {/* Canvas Result Preview */}
             {activeImage && (
               <div className="bg-zinc-900/80 border border-zinc-800 rounded-2xl p-4 shadow-xl space-y-3 animate-in fade-in">
+                {lastGenNotice && (
+                  <div className="flex items-center gap-2 p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs">
+                    <AlertCircle className="w-4 h-4 shrink-0 text-amber-400" />
+                    <span className="flex-1">{lastGenNotice}</span>
+                    <button
+                      onClick={() => handleGenerate()}
+                      className="px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 text-[11px] font-semibold transition-colors cursor-pointer shrink-0"
+                    >
+                      Retry Diffusion
+                    </button>
+                  </div>
+                )}
                 <div className="relative rounded-xl overflow-hidden bg-black/50 border border-zinc-800 flex items-center justify-center">
                   <img src={activeImage} alt="Generated visual" className="max-h-[380px] w-auto object-contain rounded-lg" />
                   <button

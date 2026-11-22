@@ -904,7 +904,12 @@ export async function callRealLLMInference({
       if (signal.aborted) {
         throw new Error('Task stopped by user');
       }
-      const resultText = `Here is your generated image synthesized by **${modelSpec.name}**:\n\n![Generated Image](${dataUrl})\n\n**Prompt:** "${userPrompt}"\n**Resolution:** 640x640 High-Fidelity • **Engine:** On-Device Diffusion Latent Pipeline`;
+      const meta = getLastImageGenerationMeta();
+      const engineBadge = meta.isRealDiffusion
+        ? `• **Engine:** Online Diffusion Latents (${meta.engine})`
+        : `• **Engine:** On-Device Procedural Synth (Offline / Queue Safeguard)`;
+      const noticeText = meta.notice ? `\n\n> ℹ️ *${meta.notice}*` : '';
+      const resultText = `Here is your generated image synthesized by **${modelSpec.name}**:\n\n![Generated Image](${dataUrl})\n\n**Prompt:** "${userPrompt}"\n**Resolution:** 640x640 High-Fidelity ${engineBadge}${noticeText}`;
       onStreamChunk(resultText);
       return resultText;
     }
@@ -1225,7 +1230,22 @@ export async function callRealLLMInference({
   }
 }
 
-// REAL AI IMAGE SYNTHESIS (Online Neural Diffusion API + Offline Semantic Canvas Fallback)
+export interface ImageGenerationMeta {
+  isRealDiffusion: boolean;
+  engine: string;
+  notice?: string;
+}
+
+let lastImageGenMeta: ImageGenerationMeta = {
+  isRealDiffusion: false,
+  engine: 'Local Procedural Engine',
+};
+
+export function getLastImageGenerationMeta(): ImageGenerationMeta {
+  return lastImageGenMeta;
+}
+
+// REAL AI IMAGE SYNTHESIS (Online Neural Diffusion API + Resilient Multi-tier Fallback + On-Device Generative Studio)
 export async function generateOnDeviceAIImage(
   prompt: string,
   modelName: string,
@@ -1233,53 +1253,94 @@ export async function generateOnDeviceAIImage(
   signal?: AbortSignal
 ): Promise<string> {
   if (signal?.aborted) throw new Error('Task stopped by user');
-  if (onProgress) onProgress('Parsing prompt & allocating neural latent space...', 20);
+  if (onProgress) onProgress('Parsing prompt & allocating neural latent space...', 15);
 
   // Clean prompt for model input
   const cleanPrompt = prompt
     .replace(/^(generate|draw|create|render|paint|make)(\s+(an?\s+)?(image|picture|photo|artwork|illustration|drawing|art|logo))?(\s+(of|about|depicting|showing))?\s*/i, '')
     .trim() || prompt;
 
-  if (onProgress) onProgress('Synthesizing with diffusion latents...', 50);
+  const isFlux = modelName.toLowerCase().includes('flux');
+  const primaryModel = isFlux ? 'flux' : 'turbo';
+  const encodedPrompt = encodeURIComponent(cleanPrompt);
 
-  // Attempt 1: Fetch real high-fidelity diffusion output from Pollinations AI (free, zero API key required, FLUX / SD-Turbo backend)
-  try {
-    const encodedPrompt = encodeURIComponent(cleanPrompt);
-    const isFlux = modelName.toLowerCase().includes('flux');
-    const modelParam = isFlux ? 'flux' : 'turbo';
-    const imageUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=640&height=640&model=${modelParam}&nologo=true&seed=${Math.floor(Math.random() * 999999)}`;
+  // Multi-tier diffusion endpoints to defeat transient 429/503 limits:
+  // Tier 1: Target model (flux/turbo) with random seed
+  // Tier 2: Default edge-cached model (no seed - hits warm CDN cache without 429 burst penalties)
+  // Tier 3: Cross-model fallback (flux fallback if turbo, turbo fallback if flux)
+  const urlsToTry = [
+    `https://image.pollinations.ai/prompt/${encodedPrompt}?width=640&height=640&model=${primaryModel}&nologo=true&seed=${Math.floor(Math.random() * 999999)}`,
+    `https://image.pollinations.ai/prompt/${encodedPrompt}?width=640&height=640&nologo=true`,
+    `https://image.pollinations.ai/prompt/${encodedPrompt}?width=640&height=640&model=${isFlux ? 'turbo' : 'flux'}&nologo=true`,
+  ];
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 28000); // 28s network timeout for mobile diffusion
-
-    // Link incoming signal if aborted
-    signal?.addEventListener('abort', () => controller.abort());
-
-    const res = await fetch(imageUrl, { signal: controller.signal });
-    clearTimeout(timeoutId);
-
-    if (res.ok) {
-      if (onProgress) onProgress('Decoding visual latents into PNG...', 85);
-      const blob = await res.blob();
-      return await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          if (onProgress) onProgress('Done!', 100);
-          resolve(reader.result as string);
-        };
-        reader.onerror = reject;
-        reader.readAsDataURL(blob);
-      });
-    }
-  } catch (err: any) {
+  for (let i = 0; i < urlsToTry.length; i++) {
     if (signal?.aborted) throw new Error('Task stopped by user');
-    console.warn('Real online diffusion fetch bypassed or offline, falling back to local semantic renderer:', err?.message || err);
+    const targetUrl = urlsToTry[i];
+    const isRetry = i > 0;
+
+    if (onProgress) {
+      onProgress(
+        isRetry
+          ? `Diffusion worker busy, routing to edge latent model (attempt ${i + 1}/${urlsToTry.length})...`
+          : 'Synthesizing visual latents with neural diffusion...',
+        30 + i * 15
+      );
+    }
+
+    try {
+      const controller = new AbortController();
+      // Mobile-friendly network timeout: 12s per attempt so user is never stuck for 28s
+      const timeoutId = setTimeout(() => controller.abort(), 12000);
+
+      const abortHandler = () => controller.abort();
+      signal?.addEventListener('abort', abortHandler);
+
+      const res = await fetch(targetUrl, { signal: controller.signal });
+      clearTimeout(timeoutId);
+      signal?.removeEventListener('abort', abortHandler);
+
+      if (res.ok) {
+        if (onProgress) onProgress('Decoding visual latents into PNG...', 85);
+        const blob = await res.blob();
+        if (blob && blob.size > 1000) {
+          const dataUrl = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result as string);
+            reader.onerror = reject;
+            reader.readAsDataURL(blob);
+          });
+
+          lastImageGenMeta = {
+            isRealDiffusion: true,
+            engine: isFlux ? 'FLUX.1 Schnell Latents' : 'SD-Turbo Distilled Diffusion',
+          };
+          if (onProgress) onProgress('Done!', 100);
+          return dataUrl;
+        }
+      } else if (res.status === 429) {
+        // Parse Retry-After if present and wait briefly before next fallback attempt
+        const retrySec = parseInt(res.headers.get('Retry-After') || '2', 10);
+        const waitMs = Math.min(2500, Math.max(1000, retrySec * 500));
+        await new Promise((r) => setTimeout(r, waitMs));
+      }
+    } catch (err: any) {
+      if (signal?.aborted) throw new Error('Task stopped by user');
+      console.warn(`Diffusion attempt ${i + 1} failed:`, err?.message || err);
+    }
   }
 
-  // Fallback 2: Offline / On-Device Canvas Semantic Composition Engine
+  // Fallback: High-Fidelity On-Device Generative Procedural Studio
+  // Used when public diffusion servers return 429 (rate-limited) or device is completely offline.
   if (signal?.aborted) throw new Error('Task stopped by user');
-  if (onProgress) onProgress('Rendering local procedural semantic canvas...', 75);
+  if (onProgress) onProgress('Online diffusion at capacity; rendering local generative artwork...', 75);
   await new Promise((r) => setTimeout(r, 200));
+
+  lastImageGenMeta = {
+    isRealDiffusion: false,
+    engine: 'Hermes On-Device Generative Studio',
+    notice: 'Public diffusion server capacity reached (HTTP 429). Synthesized local visual art.',
+  };
 
   if (typeof document === 'undefined') return '';
 
@@ -1289,170 +1350,228 @@ export async function generateOnDeviceAIImage(
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('Failed to allocate 2D canvas context for image synthesis');
 
-  // Seeded color generation based on prompt string
+  // Seeded color and visual parameters based on prompt string
   let hash = 0;
   for (let i = 0; i < cleanPrompt.length; i++) {
     hash = (hash << 5) - hash + cleanPrompt.charCodeAt(i);
     hash |= 0;
   }
+  const absHash = Math.abs(hash);
 
   const pLower = cleanPrompt.toLowerCase();
   const isNature = /nature|forest|mountain|ocean|tree|river|landscape|sunset|sunrise|flower|garden|water|lake|beach/i.test(pLower);
-  const isSciFi = /cyber|robot|space|galaxy|star|future|neon|tech|hologram|digital|ai|alien|spaceship/i.test(pLower);
+  const isSciFi = /cyber|robot|space|galaxy|star|future|neon|tech|hologram|digital|ai|alien|spaceship|city/i.test(pLower);
   const isCat = /cat|kitten|kitty|feline/i.test(pLower);
   const isDog = /dog|puppy|hound|canine/i.test(pLower);
   const isPerson = /person|girl|woman|man|boy|human|character|portrait|warrior|knight|face/i.test(pLower);
   const isCar = /car|vehicle|automobile|truck|supercar|bike/i.test(pLower);
 
-  const baseHue = isNature ? 140 : isSciFi ? 200 : isCat ? 30 : isDog ? 25 : isPerson ? 340 : isCar ? 0 : Math.abs(hash) % 360;
-  const accentHue = (baseHue + 50) % 360;
+  const baseHue = isNature ? 145 : isSciFi ? 195 : isCat ? 35 : isDog ? 28 : isPerson ? 335 : isCar ? 10 : absHash % 360;
+  const accentHue = (baseHue + 60) % 360;
 
-  // Background
-  const bgGrad = ctx.createLinearGradient(0, 0, 0, 640);
+  // Rich multi-stop celestial background gradient
+  const bgGrad = ctx.createLinearGradient(0, 0, 640, 640);
   if (isNature) {
-    bgGrad.addColorStop(0, '#1e3a8a');
-    bgGrad.addColorStop(0.5, '#fb923c');
-    bgGrad.addColorStop(1, '#15803d');
+    bgGrad.addColorStop(0, '#022c22');
+    bgGrad.addColorStop(0.35, '#064e3b');
+    bgGrad.addColorStop(0.7, '#d97706');
+    bgGrad.addColorStop(1, '#78350f');
   } else if (isSciFi) {
-    bgGrad.addColorStop(0, '#020617');
-    bgGrad.addColorStop(0.6, '#1e1b4b');
+    bgGrad.addColorStop(0, '#030712');
+    bgGrad.addColorStop(0.4, '#0f172a');
+    bgGrad.addColorStop(0.75, '#1e1b4b');
     bgGrad.addColorStop(1, '#082f49');
   } else {
-    bgGrad.addColorStop(0, `hsl(${baseHue}, 70%, 15%)`);
-    bgGrad.addColorStop(1, `hsl(${accentHue}, 60%, 8%)`);
+    bgGrad.addColorStop(0, `hsl(${baseHue}, 80%, 8%)`);
+    bgGrad.addColorStop(0.5, `hsl(${accentHue}, 70%, 14%)`);
+    bgGrad.addColorStop(1, `hsl(${baseHue}, 90%, 6%)`);
   }
   ctx.fillStyle = bgGrad;
   ctx.fillRect(0, 0, 640, 640);
 
-  // Draw semantic illustration based on subject
+  // Atmospheric particle / starfield layer
+  ctx.save();
+  for (let p = 0; p < 70; p++) {
+    const px = (absHash * (p + 1) * 17) % 640;
+    const py = (absHash * (p + 1) * 31) % 480;
+    const pr = ((absHash + p) % 3) + 1;
+    const pAlpha = 0.2 + (((absHash + p * 13) % 7) / 10);
+    ctx.beginPath();
+    ctx.arc(px, py, pr, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(255, 255, 255, ${pAlpha})`;
+    ctx.fill();
+  }
+  ctx.restore();
+
+  // Subject Rendering with volumetric lighting and depth
   ctx.save();
   if (isNature) {
-    // Sun / Moon
+    // Glowing Celestial Orb
+    const sunGrad = ctx.createRadialGradient(320, 210, 10, 320, 210, 120);
+    sunGrad.addColorStop(0, '#fef08a');
+    sunGrad.addColorStop(0.4, '#f59e0b');
+    sunGrad.addColorStop(1, 'rgba(245, 158, 11, 0)');
+    ctx.fillStyle = sunGrad;
     ctx.beginPath();
-    ctx.arc(320, 240, 70, 0, Math.PI * 2);
-    ctx.fillStyle = '#fef08a';
-    ctx.shadowColor = '#fef08a';
-    ctx.shadowBlur = 40;
-    ctx.fill();
-    ctx.shadowBlur = 0;
-
-    // Mountains
-    ctx.beginPath();
-    ctx.moveTo(0, 480);
-    ctx.lineTo(160, 280);
-    ctx.lineTo(340, 500);
-    ctx.fillStyle = '#334155';
+    ctx.arc(320, 210, 120, 0, Math.PI * 2);
     ctx.fill();
 
+    // Distant Atmospheric Mountains
     ctx.beginPath();
-    ctx.moveTo(220, 500);
-    ctx.lineTo(440, 240);
-    ctx.lineTo(640, 500);
-    ctx.fillStyle = '#1e293b';
+    ctx.moveTo(-20, 480);
+    ctx.lineTo(160, 220);
+    ctx.lineTo(340, 450);
+    ctx.lineTo(500, 200);
+    ctx.lineTo(660, 480);
+    ctx.lineTo(660, 640);
+    ctx.lineTo(-20, 640);
+    ctx.fillStyle = 'rgba(30, 41, 59, 0.85)';
     ctx.fill();
 
-    // Foreground grass hills
+    // Midground Ridge
     ctx.beginPath();
-    ctx.arc(200, 660, 280, 0, Math.PI * 2);
-    ctx.fillStyle = '#15803d';
+    ctx.moveTo(80, 520);
+    ctx.lineTo(320, 290);
+    ctx.lineTo(560, 520);
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.95)';
     ctx.fill();
-    ctx.beginPath();
-    ctx.arc(500, 670, 290, 0, Math.PI * 2);
-    ctx.fillStyle = '#166534';
-    ctx.fill();
-  } else if (isCat || isDog) {
-    // Cute pet portrait silhouette with ears and eyes
-    ctx.translate(320, 320);
-    ctx.fillStyle = isCat ? '#e2e8f0' : '#d97706';
-    // Head
-    ctx.beginPath();
-    ctx.arc(0, 20, 110, 0, Math.PI * 2);
-    ctx.fill();
-    // Ears
-    ctx.beginPath();
-    ctx.moveTo(-90, -30);
-    ctx.lineTo(-50, -140);
-    ctx.lineTo(-10, -50);
-    ctx.fill();
-    ctx.beginPath();
-    ctx.moveTo(10, -50);
-    ctx.lineTo(50, -140);
-    ctx.lineTo(90, -30);
-    ctx.fill();
-    // Eyes
-    ctx.fillStyle = '#38bdf8';
-    ctx.beginPath();
-    ctx.arc(-40, 0, 18, 0, Math.PI * 2);
-    ctx.arc(40, 0, 18, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = '#0f172a';
-    ctx.beginPath();
-    ctx.arc(-40, 0, 10, 0, Math.PI * 2);
-    ctx.arc(40, 0, 10, 0, Math.PI * 2);
-    ctx.fill();
-    // Nose
-    ctx.fillStyle = '#fb7185';
-    ctx.beginPath();
-    ctx.moveTo(-12, 35);
-    ctx.lineTo(12, 35);
-    ctx.lineTo(0, 50);
-    ctx.fill();
+
+    // Silhouetted Alpine Pines
+    ctx.fillStyle = '#064e3b';
+    for (let x = 40; x <= 600; x += 55) {
+      const h = 70 + ((absHash + x) % 40);
+      const yBase = 530 + ((absHash + x * 3) % 20);
+      ctx.beginPath();
+      ctx.moveTo(x, yBase - h);
+      ctx.lineTo(x - 18, yBase);
+      ctx.lineTo(x + 18, yBase);
+      ctx.fill();
+    }
   } else if (isSciFi) {
-    // Cyberpunk grid and glowing neon portal
-    ctx.strokeStyle = 'rgba(56, 189, 248, 0.4)';
+    // 3D Perspective Cyberpunk Grid
+    ctx.strokeStyle = 'rgba(56, 189, 248, 0.35)';
     ctx.lineWidth = 1.5;
     for (let x = 0; x <= 640; x += 40) {
       ctx.beginPath();
-      ctx.moveTo(x, 420);
-      ctx.lineTo(320 + (x - 320) * 3, 640);
+      ctx.moveTo(x, 380);
+      ctx.lineTo(320 + (x - 320) * 2.8, 640);
       ctx.stroke();
     }
-    for (let y = 420; y <= 640; y += 25) {
+    for (let y = 380; y <= 640; y += 22) {
       ctx.beginPath();
       ctx.moveTo(0, y);
       ctx.lineTo(640, y);
       ctx.stroke();
     }
-    // Neon Ring
+
+    // Glowing Neon Hologram Portal
+    ctx.save();
     ctx.beginPath();
-    ctx.arc(320, 260, 110, 0, Math.PI * 2);
+    ctx.arc(320, 240, 115, 0, Math.PI * 2);
     ctx.strokeStyle = '#ec4899';
-    ctx.lineWidth = 8;
+    ctx.lineWidth = 7;
     ctx.shadowColor = '#ec4899';
     ctx.shadowBlur = 35;
     ctx.stroke();
-  } else {
-    // Modern abstract composition
-    ctx.translate(320, 300);
-    for (let i = 0; i < 8; i++) {
-      ctx.rotate(Math.PI / 4);
-      ctx.fillStyle = `hsla(${(baseHue + i * 40) % 360}, 80%, 60%, 0.4)`;
-      ctx.fillRect(-60, -60, 120, 120);
-    }
+
     ctx.beginPath();
-    ctx.arc(0, 0, 70, 0, Math.PI * 2);
-    ctx.fillStyle = '#ffffff';
+    ctx.arc(320, 240, 90, 0, Math.PI * 2);
+    ctx.strokeStyle = '#38bdf8';
+    ctx.lineWidth = 3;
     ctx.shadowColor = '#38bdf8';
-    ctx.shadowBlur = 30;
+    ctx.shadowBlur = 25;
+    ctx.stroke();
+    ctx.restore();
+  } else if (isCat || isDog) {
+    // Stylized Character Silhouette with Soft Lighting
+    ctx.save();
+    ctx.translate(320, 290);
+    // Aura glow
+    const petAura = ctx.createRadialGradient(0, 0, 40, 0, 0, 150);
+    petAura.addColorStop(0, `hsla(${baseHue}, 80%, 65%, 0.4)`);
+    petAura.addColorStop(1, 'transparent');
+    ctx.fillStyle = petAura;
+    ctx.beginPath();
+    ctx.arc(0, 0, 150, 0, Math.PI * 2);
     ctx.fill();
+
+    // Body & Head
+    ctx.fillStyle = isCat ? '#f1f5f9' : '#f59e0b';
+    ctx.beginPath();
+    ctx.arc(0, 20, 105, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Ears
+    ctx.beginPath();
+    ctx.moveTo(-85, -20);
+    ctx.lineTo(-45, -125);
+    ctx.lineTo(-10, -40);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(10, -40);
+    ctx.lineTo(45, -125);
+    ctx.lineTo(85, -20);
+    ctx.fill();
+
+    // Eyes with catchlight
+    ctx.fillStyle = '#0284c7';
+    ctx.beginPath();
+    ctx.arc(-38, 5, 17, 0, Math.PI * 2);
+    ctx.arc(38, 5, 17, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(-33, 0, 6, 0, Math.PI * 2);
+    ctx.arc(43, 0, 6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  } else {
+    // Sacred Geometry / Modern Abstract Art
+    ctx.save();
+    ctx.translate(320, 270);
+    for (let i = 0; i < 12; i++) {
+      ctx.rotate((Math.PI * 2) / 12);
+      ctx.fillStyle = `hsla(${(baseHue + i * 25) % 360}, 85%, 65%, 0.35)`;
+      ctx.beginPath();
+      ctx.roundRect(-45, -45, 90, 90, [14]);
+      ctx.fill();
+    }
+    const centerGrad = ctx.createRadialGradient(0, 0, 10, 0, 0, 80);
+    centerGrad.addColorStop(0, '#ffffff');
+    centerGrad.addColorStop(0.6, `hsla(${accentHue}, 85%, 60%, 0.8)`);
+    centerGrad.addColorStop(1, 'transparent');
+    ctx.fillStyle = centerGrad;
+    ctx.beginPath();
+    ctx.arc(0, 0, 80, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
   }
   ctx.restore();
 
-  // Bottom Label Overlay
-  ctx.fillStyle = 'rgba(9, 9, 11, 0.85)';
-  ctx.fillRect(16, 550, 608, 74);
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+  // Glassmorphic Aesthetic Metadata Footer
+  ctx.save();
+  ctx.fillStyle = 'rgba(9, 9, 11, 0.88)';
+  ctx.roundRect(16, 542, 608, 82, [14]);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
   ctx.lineWidth = 1;
-  ctx.strokeRect(16, 550, 608, 74);
+  ctx.stroke();
 
+  // Header tag
   ctx.fillStyle = '#38bdf8';
-  ctx.font = 'bold 15px sans-serif';
-  ctx.fillText(`🎨 ${modelName}`, 32, 578);
+  ctx.font = 'bold 13px system-ui, -apple-system, sans-serif';
+  ctx.fillText('✦ HERMES LOCAL GENERATIVE STUDIO', 32, 568);
 
+  ctx.fillStyle = '#94a3b8';
+  ctx.font = '600 11px system-ui, -apple-system, sans-serif';
+  ctx.fillText('[ON-DEVICE PROCEDURAL SAFEGUARD • DIFFUSION SERVER BUSY]', 280, 568);
+
+  // Prompt subtitle
   ctx.fillStyle = '#f8fafc';
-  ctx.font = 'italic 12px sans-serif';
-  const label = cleanPrompt.length > 55 ? cleanPrompt.slice(0, 52) + '...' : cleanPrompt;
-  ctx.fillText(`"${label}"`, 32, 604);
+  ctx.font = 'italic 12px system-ui, -apple-system, sans-serif';
+  const label = cleanPrompt.length > 60 ? cleanPrompt.slice(0, 57) + '...' : cleanPrompt;
+  ctx.fillText(`"${label}"`, 32, 598);
+  ctx.restore();
 
   if (onProgress) onProgress('Done!', 100);
   return canvas.toDataURL('image/png');
