@@ -333,7 +333,19 @@ async function streamChatCompletion(
               if (isLimitFailureText(msg)) sawLimitError = true;
             }
           }
-          const delta = parsed.choices?.[0]?.delta?.content || '';
+          let delta = '';
+          const rawContent = parsed.choices?.[0]?.delta?.content;
+          if (typeof rawContent === 'string') {
+            delta = rawContent;
+          } else if (Array.isArray(rawContent)) {
+            delta = rawContent
+              .map((part: any) => (typeof part === 'string' ? part : part?.text || part?.content || ''))
+              .join('');
+          } else if (typeof parsed.choices?.[0]?.delta?.text === 'string') {
+            delta = parsed.choices[0].delta.text;
+          } else if (typeof parsed.choices?.[0]?.text === 'string') {
+            delta = parsed.choices[0].text;
+          }
           if (delta) {
             fullText += delta;
             onStreamChunk(fullText);
@@ -541,10 +553,29 @@ async function executeRemoteFallbackChain(
         !isUsageLimitFailure(lastFailure.status, lastFailure.detail);
       if (isTerminalHttpError) {
         console.warn(`Inference endpoint "${candidate.label}" failed with a non-quota HTTP error:`, err);
-        if (i === 0 && !initialSwitchReason) {
-          break;
+        // If there are subsequent candidates in the fallback chain (e.g. free presets), continue
+        // rather than failing the whole chain immediately, unless this was the last candidate.
+        if (i < orderedCandidates.length - 1) {
+          const switchReason =
+            lastFailure instanceof RemoteEndpointError
+              ? `HTTP ${lastFailure.status} error`
+              : (lastFailure.message || 'endpoint error');
+          hops.push({
+            from: candidate.label,
+            to: orderedCandidates[i + 1].label,
+            reason: switchReason,
+            timestamp: Date.now(),
+          });
+          try {
+            config?.onFallback?.({
+              from: candidate.label,
+              to: orderedCandidates[i + 1].label,
+              reason: switchReason,
+            });
+          } catch (_) {}
+          continue;
         }
-        continue;
+        break;
       }
 
       const errMessage = (lastFailure?.message || '').toLowerCase();

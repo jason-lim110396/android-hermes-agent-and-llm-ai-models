@@ -227,6 +227,18 @@ const LIMIT_HINTS = [
   'daily limit',
   'temporarily unavailable',
   'upstream connect error',
+  'context length',
+  'context_length',
+  'max_tokens',
+  'maximum context length',
+  'prompt is too long',
+  'too many tokens',
+  'token limit',
+  'tokens limit',
+  'payload too large',
+  'request entity too large',
+  'string_above_max_length',
+  'reduce the length',
 ];
 
 /**
@@ -234,8 +246,8 @@ const LIMIT_HINTS = [
  * so a different endpoint is likely to succeed.
  */
 export function isUsageLimitFailure(status: number, detail: string): boolean {
-  // 429 (rate limit), 402 (payment required), and 408 (request timeout) are unambiguous.
-  if (status === 429 || status === 402 || status === 408) return true;
+  // 429 (rate limit), 402 (payment required), 408 (request timeout), and 413 (payload too large) are unambiguous.
+  if (status === 429 || status === 402 || status === 408 || status === 413) return true;
   // 529 (Site is overloaded) is returned by Anthropic, OpenRouter, and other LLM gateways.
   if (status === 529) return true;
   // 500/502/503/504 are server/gateway failures: an internal server crash or gateway outage on one
@@ -248,7 +260,7 @@ export function isUsageLimitFailure(status: number, detail: string): boolean {
   if (status === 404 || status === 410) return true;
   // 401 is an invalid API key; status outside 400-599 is unexpected.
   if (status === 401 || status < 400 || status >= 600) return false;
-  // 403 / other 4xx only count when the provider actually says quota, limit, or model availability.
+  // 403 / 400 / 422 / other 4xx count when the provider actually says quota, context length, or model availability.
   return isLimitFailureText(detail);
 }
 
@@ -272,6 +284,7 @@ export function describeLimitFailure(status: number, detail: string): string {
   const hint = LIMIT_HINTS.find((h) => body.includes(h));
   if (hint) return `limit: ${hint}`;
   if (status === 429) return 'rate limit';
+  if (status === 413) return 'payload too large (413)';
   if (status === 529) return 'provider overloaded (529)';
   if (status === 402) return 'payment required';
   if (status === 408) return 'request timeout (408)';
