@@ -517,7 +517,8 @@ async function executeRemoteFallbackChain(
   signal: AbortSignal,
   onStreamChunk: (chunk: string) => void,
   modelSpec?: ModelSpec,
-  initialSwitchReason?: string
+  initialSwitchReason?: string,
+  existingHops?: FallbackHop[]
 ): Promise<RemoteChainExecutionResult> {
   const sanitizedRemotePrompt = redactSensitiveMessages(payload.messages, payload.systemPrompt);
   if (sanitizedRemotePrompt.redactionCount > 0) {
@@ -561,7 +562,7 @@ async function executeRemoteFallbackChain(
     ...coolingCandidates.map((c) => c.candidate),
   ];
 
-  const hops: FallbackHop[] = [];
+  const hops: FallbackHop[] = existingHops ? [...existingHops] : [];
   let effectiveInitialReason = initialSwitchReason;
   let skippedPrimaryLabel: string | null = null;
   if (!effectiveInitialReason && uniqueCandidates.length > 0 && orderedCandidates[0] !== uniqueCandidates[0]) {
@@ -604,14 +605,6 @@ async function executeRemoteFallbackChain(
         },
         config?.onFallback
       );
-    } else if (i === 0 && effectiveInitialReason) {
-      try {
-        config?.onFallback?.({
-          from: skippedPrimaryLabel || modelSpec?.name || 'primary endpoint',
-          to: candidate.label,
-          reason: effectiveInitialReason,
-        });
-      } catch (_) {}
     }
 
     try {
@@ -1105,16 +1098,20 @@ export async function callRealLLMInference({
         // be described as a WebGPU/WebLLM download.
         const to = isCpuWasmModel(modelSpec) ? 'on-device CPU model' : 'on-device model';
         const lastCandidateLabel =
-          candidates.length > 0 ? candidates[candidates.length - 1].label : 'remote endpoints';
-        remoteCumulativeHops = [
-          ...(remoteResult.hops || []),
+          remoteResult.hops && remoteResult.hops.length > 0
+            ? remoteResult.hops[remoteResult.hops.length - 1].to
+            : (candidates[0]?.label || 'remote endpoints');
+        remoteCumulativeHops = [...(remoteResult.hops || [])];
+        recordFallbackHop(
+          remoteCumulativeHops,
           {
             from: lastCandidateLabel,
             to,
             reason,
             timestamp: Date.now(),
           },
-        ];
+          config?.onFallback
+        );
         console.warn(`All configured inference endpoints failed, transitioning to ${to}:`, lastFailure);
         // On a phone the on-device fallback can download hundreds of MB and
         // crash a low-memory WebView. Tell the user why it is happening before
@@ -1172,7 +1169,8 @@ export async function callRealLLMInference({
               signal,
               onStreamChunk,
               modelSpec,
-              `On-device CPU model (${modelSpec?.name || modelId}) unavailable: ${errorMsg.slice(0, 100)}`
+              `On-device CPU model (${modelSpec?.name || modelId}) unavailable: ${errorMsg.slice(0, 100)}`,
+              remoteCumulativeHops
             );
             if (fallbackResult.success && fallbackResult.text) {
               return fallbackResult.text;
@@ -1300,7 +1298,8 @@ export async function callRealLLMInference({
               signal,
               onStreamChunk,
               modelSpec,
-              `On-device model (${modelSpec?.name || modelId}) unavailable: ${errorMsg.slice(0, 100)}`
+              `On-device model (${modelSpec?.name || modelId}) unavailable: ${errorMsg.slice(0, 100)}`,
+              remoteCumulativeHops
             );
             if (fallbackResult.success && fallbackResult.text) {
               return fallbackResult.text;

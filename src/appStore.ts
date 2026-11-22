@@ -263,6 +263,10 @@ const PROMPT_NOTICE_PREFIXES = [
   '> Remote model unavailable:',
   '> All remote models unavailable:',
   '> Privacy guard redacted ',
+  '> Offline:',
+  '> On-device model unavailable',
+  '> CPU model unavailable',
+  '> On-Device LLM Inference Error',
 ];
 const STOPPED_MARKERS = ['*[Stopped by user]*', '*[Task stopped by user]*'];
 const FAILED_MARKER_RE = /^\*\[Generation failed: .*\]\*$/;
