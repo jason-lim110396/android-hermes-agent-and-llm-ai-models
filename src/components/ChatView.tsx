@@ -1257,7 +1257,7 @@ export default function ChatView() {
     let hasAudioStream = false;
     try {
       if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-        // Use Promise.race with a 4-second timeout to prevent any native audio driver deadlocks / ANR.
+        // Use Promise.race with a 20-second timeout to allow the user to read and grant the Android permission prompt.
         // The race settling (timeout) does NOT cancel getUserMedia: a late permission grant must still
         // have its track stopped. Attach a release handler to the raw promise before racing it.
         const mediaStreamPromise = navigator.mediaDevices.getUserMedia({ audio: true });
@@ -1267,7 +1267,7 @@ export default function ChatView() {
         }).catch(() => {});
         let timeoutId: ReturnType<typeof setTimeout> | undefined;
         const timeoutPromise = new Promise<null>((_, reject) => {
-          timeoutId = setTimeout(() => reject(new Error('Audio permission/hardware timeout')), 4000);
+          timeoutId = setTimeout(() => reject(new Error('Audio permission/hardware timeout')), 20000);
         });
 
         let stream: MediaStream | null;
@@ -1514,7 +1514,7 @@ export default function ChatView() {
       } catch (_) {}
     }
 
-    const transcribedPrompt = currentTranscriptRef.current.trim() || inputVal.trim() || 'Voice message';
+    const transcribedPrompt = currentTranscriptRef.current.trim() || inputVal.trim() || '🎙️ Voice note recorded for Hermes agent analysis';
 
     // If audio blob was recorded, attach as voice note
     if (audioDataUrl) {
