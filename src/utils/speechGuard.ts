@@ -91,6 +91,9 @@ export function speakGuarded(utterance: SpeechSynthesisUtterance): boolean {
   }
   clearTimers();
   try {
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window && window.speechSynthesis.paused) {
+      window.speechSynthesis.resume();
+    }
     window.speechSynthesis.cancel();
   } catch (_) {}
 
@@ -131,6 +134,9 @@ export function speakGuarded(utterance: SpeechSynthesisUtterance): boolean {
   };
 
   try {
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window && window.speechSynthesis.paused) {
+      window.speechSynthesis.resume();
+    }
     window.speechSynthesis.speak(utterance);
   } catch (_) {
     if (my === sessionId) finish();
