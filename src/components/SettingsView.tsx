@@ -104,7 +104,12 @@ import {
   setHapticAlertsPref,
   subscribeAlarms,
 } from '@/utils/alarmClock';
-import { sanitizeImportedBackup } from '@/utils/sessionPersistence';
+import {
+  clearPersistedSessions,
+  getSessionVaultStats,
+  sanitizeImportedBackup,
+  SessionVaultStats,
+} from '@/utils/sessionPersistence';
 
 const PROMPT_PRESETS = [
   {
@@ -190,6 +195,7 @@ export default function SettingsView() {
   const [clearCacheSuccess, setClearCacheSuccess] = useState(false);
   const [backupStatus, setBackupStatus] = useState<string | null>(null);
   const [storageReport, setStorageReport] = useState<StorageQuotaReport | null>(null);
+  const [vaultStats, setVaultStats] = useState<SessionVaultStats | null>(null);
   const [isPersistingStorage, setIsPersistingStorage] = useState(false);
   const [confirmingClearCache, setConfirmingClearCache] = useState(false);
   const [cacheAudit, setCacheAudit] = useState<CacheAuditResult | null>(null);
@@ -211,6 +217,7 @@ export default function SettingsView() {
     try {
       const rep = await getStorageQuotaReport();
       setStorageReport(rep);
+      setVaultStats(getSessionVaultStats());
     } catch (_) {}
   };
 
@@ -570,6 +577,7 @@ export default function SettingsView() {
              (k.startsWith('hermes_') && !KEPT_USER_KEYS.has(k)))
         );
         keysToRemove.forEach((k) => localStorage.removeItem(k));
+        clearPersistedSessions();
         // Drop the in-memory session tree too, or the next debounced persist
         // flush resurrects the just-cleared history under the same key.
         useAppStore.getState().resetAllSessions();
@@ -577,6 +585,7 @@ export default function SettingsView() {
         setConfirmingClearCache(false);
         triggerHaptic([30, 50]);
         await refreshStorage();
+        setVaultStats(getSessionVaultStats());
         setTimeout(() => setClearCacheSuccess(false), 2500);
       } catch (_) {}
     }
@@ -2237,6 +2246,17 @@ export default function SettingsView() {
             <div>
               <h5 className="text-[11px] font-bold text-zinc-300">Session & Scratchpad Cache</h5>
               <p className="text-[10px] text-zinc-500">Reset cached sessions and scratchpads while preserving user settings.</p>
+              {vaultStats && (
+                <div className="flex items-center gap-2 mt-1 text-[10px] text-zinc-400 font-mono">
+                  <span className="px-1.5 py-0.5 rounded bg-zinc-800/90 border border-zinc-700/60 text-zinc-300">
+                    Vault: {vaultStats.totalSessionCount} sessions ({vaultStats.totalMessagesCount} msgs)
+                  </span>
+                  <span className="text-zinc-500">~{vaultStats.estimatedKB} KB</span>
+                  {vaultStats.hasPendingWrite && (
+                    <span className="text-amber-400 font-sans">● write pending</span>
+                  )}
+                </div>
+              )}
             </div>
             {confirmingClearCache ? (
               <div className="flex items-center gap-1.5">

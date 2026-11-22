@@ -16,8 +16,11 @@ import {
 import { abortActiveCpuDownloads } from './wasmInferenceEngine';
 import {
   clearPendingPersist,
+  clearPersistedSessions,
+  getSessionVaultStats,
   loadPersistedSessions,
   schedulePersistSessions,
+  SessionVaultStats,
 } from './utils/sessionPersistence';
 import {
   FallbackHop,
@@ -850,7 +853,7 @@ export const useAppStore = create<AppStore>((set, get) => {
   // debounced persist flush, and land back on the fresh welcome sessions a
   // cold start would show.
   resetAllSessions: () => {
-    clearPendingPersist();
+    clearPersistedSessions();
     set({
       chatSessions: {
         'session-chat-default': {
