@@ -456,3 +456,90 @@ export function sanitizeImportedBackup(raw: unknown): PersistedSessions | null {
         : Object.keys(agentSessions || {})[0] || '',
   };
 }
+
+/**
+ * Reconciles an in-memory session (loaded quickly from localStorage or active)
+ * with the richer history loaded from IndexedDB.
+ *
+ * Guarantees:
+ * 1. Messages added in memory since mount are never lost or overwritten.
+ * 2. Older messages trimmed by localStorage quota degradation are prepended/restored from IDB.
+ * 3. Attachments stripped by localStorage quota degradation are restored to their matching messages by msg.id.
+ * 4. Pinned state, title changes, and metadata are preserved.
+ */
+export function reconcileSessionWithIdb(
+  current: ChatSession | undefined,
+  idbSess: ChatSession
+): { session: ChatSession; changed: boolean } {
+  if (!current) {
+    return { session: idbSess, changed: true };
+  }
+
+  let changed = false;
+  const currentMessages = current.messages || [];
+  const idbMessages = idbSess.messages || [];
+
+  if (idbMessages.length === 0) {
+    return { session: current, changed: false };
+  }
+
+  const idbMsgMap = new Map<string, ChatMessage>();
+  for (const m of idbMessages) {
+    if (m && m.id) idbMsgMap.set(m.id, m);
+  }
+
+  const currentMsgIds = new Set<string>();
+  for (const m of currentMessages) {
+    if (m && m.id) currentMsgIds.add(m.id);
+  }
+
+  // 1. Check for messages in current that had attachments stripped by localStorage quota
+  const reconciledCurrent = currentMessages.map((cm) => {
+    const idbMsg = idbMsgMap.get(cm.id);
+    if (
+      idbMsg &&
+      idbMsg.attachments &&
+      idbMsg.attachments.length > 0 &&
+      (!cm.attachments || cm.attachments.length === 0)
+    ) {
+      changed = true;
+      return { ...cm, attachments: idbMsg.attachments };
+    }
+    return cm;
+  });
+
+  // 2. Identify missing older messages in IDB that were trimmed from localStorage
+  const missingOlderMessages: ChatMessage[] = [];
+  for (const im of idbMessages) {
+    if (im && im.id && !currentMsgIds.has(im.id)) {
+      missingOlderMessages.push(im);
+    }
+  }
+
+  if (missingOlderMessages.length > 0) {
+    changed = true;
+  }
+
+  // Combine: missing older messages + reconciled current messages
+  let combinedMessages: ChatMessage[];
+  if (missingOlderMessages.length > 0) {
+    combinedMessages = [...missingOlderMessages, ...reconciledCurrent].sort(
+      (a, b) => (a.timestamp || 0) - (b.timestamp || 0)
+    );
+  } else {
+    combinedMessages = reconciledCurrent;
+  }
+
+  return {
+    session: {
+      ...current,
+      title: current.title || idbSess.title,
+      pinned: current.pinned ?? idbSess.pinned,
+      category: current.category || idbSess.category,
+      tags: current.tags?.length ? current.tags : idbSess.tags,
+      messages: combinedMessages,
+    },
+    changed,
+  };
+}
+
