@@ -276,6 +276,9 @@ async function streamChatCompletion(
     // Set when an SSE error object carries a quota/limit message, even if text
     // already streamed. Drives the chain advance at the end of the stream.
     let sawLimitError = false;
+    // Track reasoning state for models (DeepSeek R1, Qwen 2.5, Ollama, vLLM, OpenRouter)
+    // that stream thinking tokens in delta.reasoning_content or delta.reasoning.
+    let inReasoningPhase = false;
     while (true) {
       if (signal.aborted) {
         try { await reader.cancel(); } catch (_) {}
@@ -350,6 +353,18 @@ async function streamChatCompletion(
               if (isLimitFailureText(msg)) sawLimitError = true;
             }
           }
+          // Modern reasoning models (DeepSeek R1, Qwen 2.5, vLLM, Ollama, OpenRouter)
+          // emit thinking tokens in delta.reasoning_content or delta.reasoning.
+          let reasoningDelta = '';
+          const rawReasoning =
+            parsed.choices?.[0]?.delta?.reasoning_content ??
+            parsed.choices?.[0]?.delta?.reasoning ??
+            parsed.choices?.[0]?.message?.reasoning_content ??
+            parsed.choices?.[0]?.message?.reasoning;
+          if (typeof rawReasoning === 'string') {
+            reasoningDelta = rawReasoning;
+          }
+
           let delta = '';
           const rawContent = parsed.choices?.[0]?.delta?.content;
           if (typeof rawContent === 'string') {
@@ -365,12 +380,36 @@ async function streamChatCompletion(
           } else if (typeof parsed.choices?.[0]?.message?.content === 'string') {
             delta = parsed.choices[0].message.content;
           }
+
+          if (reasoningDelta) {
+            if (!inReasoningPhase) {
+              inReasoningPhase = true;
+              if (!fullText.includes('<think>')) {
+                fullText += (fullText ? '\n' : '') + '<think>\n';
+              }
+            }
+            fullText += reasoningDelta;
+            onStreamChunk(fullText);
+          }
+
           if (delta) {
+            if (inReasoningPhase) {
+              inReasoningPhase = false;
+              if (fullText.includes('<think>') && !fullText.includes('</think>')) {
+                fullText += '\n</think>\n\n';
+              }
+            }
             fullText += delta;
             onStreamChunk(fullText);
           }
         } catch (_) {}
       }
+    }
+    // If the stream ended while still in a thinking phase, close the thinking block cleanly
+    if (inReasoningPhase && fullText.includes('<think>') && !fullText.includes('</think>')) {
+      fullText += '\n</think>\n\n';
+      inReasoningPhase = false;
+      onStreamChunk(fullText);
     }
     // An error object delivered as a plain 200 body never produced a `data:`
     // line. Treat a limit/quota message as a 429 so the caller's chain loop

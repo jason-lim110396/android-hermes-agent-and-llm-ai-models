@@ -264,6 +264,11 @@ const LIMIT_HINTS = [
   'request entity too large',
   'string_above_max_length',
   'reduce the length',
+  'max_completion_tokens',
+  'thinking_budget',
+  'thinking_budget_exceeded',
+  'reasoning_tokens_limit',
+  'reasoning budget exceeded',
 ];
 
 /**
