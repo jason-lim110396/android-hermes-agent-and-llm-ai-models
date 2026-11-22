@@ -323,6 +323,11 @@ async function streamChatCompletion(
             (!parsed?.choices?.length && typeof parsed?.detail === 'string' ? parsed.detail : undefined) ??
             (!parsed?.choices?.length && typeof parsed?.message === 'string' ? parsed.message : undefined);
 
+          const finishReason = parsed?.choices?.[0]?.finish_reason;
+          if (finishReason === 'error') {
+            sawLimitError = true;
+          }
+
           if (rawErr) {
             let msg = '';
             if (typeof rawErr === 'string') {
@@ -347,10 +352,11 @@ async function streamChatCompletion(
             if (msg) {
               nonSseText += (nonSseText ? '\n' : '') + msg;
               if (nonSseText.length > 4000) nonSseText = nonSseText.slice(-4000);
-              // A limit error can arrive AFTER one or more tokens streamed
-              // (free routers meter by token). Remember it so we still advance
+              // A limit or provider error can arrive AFTER one or more tokens streamed
+              // (free routers meter by token or fail over mid-stream). Even if tokens streamed,
+              // an error event means the generation was interrupted. Remember it so we advance
               // the chain instead of returning the truncated text as success.
-              if (isLimitFailureText(msg)) sawLimitError = true;
+              sawLimitError = true;
             }
           }
           // Modern reasoning models (DeepSeek R1, Qwen 2.5, vLLM, Ollama, OpenRouter)
@@ -412,22 +418,24 @@ async function streamChatCompletion(
       onStreamChunk(fullText);
     }
     // An error object delivered as a plain 200 body never produced a `data:`
-    // line. Treat a limit/quota message as a 429 so the caller's chain loop
+    // line. Treat a limit/quota or explicit error message as a 429 so the caller's chain loop
     // advances to the next free endpoint (and shows the switch notice) instead
     // of reporting an empty answer and falling through to on-device inference.
     const leftover = buffer.trim();
     const errorBody = leftover ? `${nonSseText}\n${leftover}` : nonSseText;
     if (
       sawLimitError ||
-      (!fullText && errorBody && isLimitFailureText(errorBody))
+      (!fullText && errorBody) ||
+      (errorBody && isLimitFailureText(errorBody))
     ) {
-      // Discard any partial text: the endpoint hit a limit mid-generation, so
+      // Discard any partial text: the endpoint hit an error or limit mid-generation, so
       // the answer is not complete. Throwing advances the free chain (and the
       // caller clears the partial chunk before the next candidate).
+      const cleanReason = errorBody.slice(0, 400).trim() || 'in-body stream failure';
       throw new RemoteEndpointError(
-        `${candidate.label}: in-body usage-limit error`,
+        `${candidate.label}: ${cleanReason}`,
         429,
-        errorBody.slice(0, 400)
+        cleanReason
       );
     }
     return fullText;

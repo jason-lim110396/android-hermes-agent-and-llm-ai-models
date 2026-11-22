@@ -1773,7 +1773,13 @@ async function executeHermesAgent(
   const noticeIdBeforeAgent = get().fallbackNoticeId;
   // Set when a remote endpoint actually answers; the message header is
   // relabeled from it after the turn instead of the send-time selection.
-  let answeredBy: { label: string; model?: string; isFallback?: boolean; reason?: string } | null = null;
+  let answeredBy: {
+    label: string;
+    model?: string;
+    isFallback?: boolean;
+    reason?: string;
+    hops?: FallbackHop[];
+  } | null = null;
   const fullResult = await callRealLLMInference({
     messages: messagesToSend,
     modelId,
@@ -1787,7 +1793,13 @@ async function executeHermesAgent(
       apiKey,
       customModelName: get().customModelName || undefined,
       ...resolveFallbackConfig(get),
-      onAnsweredModel: (info: { label: string; model?: string; isFallback?: boolean; reason?: string }) => {
+      onAnsweredModel: (info: {
+        label: string;
+        model?: string;
+        isFallback?: boolean;
+        reason?: string;
+        hops?: FallbackHop[];
+      }) => {
         answeredBy = info;
       },
       onPrivacyRedaction: (count: number) => {
@@ -1925,7 +1937,13 @@ async function executeDirectChat(
   const noticeIdBeforeChat = get().fallbackNoticeId;
   // Set when a remote endpoint actually answers; the message header is
   // relabeled from it after the turn instead of the send-time selection.
-  let answeredBy: { label: string; model?: string; isFallback?: boolean; reason?: string } | null = null;
+  let answeredBy: {
+    label: string;
+    model?: string;
+    isFallback?: boolean;
+    reason?: string;
+    hops?: FallbackHop[];
+  } | null = null;
   const fullResult = await callRealLLMInference({
     messages: messagesToSend,
     modelId,
@@ -1939,7 +1957,13 @@ async function executeDirectChat(
       apiKey,
       customModelName: get().customModelName || undefined,
       ...resolveFallbackConfig(get),
-      onAnsweredModel: (info: { label: string; model?: string; isFallback?: boolean; reason?: string }) => {
+      onAnsweredModel: (info: {
+        label: string;
+        model?: string;
+        isFallback?: boolean;
+        reason?: string;
+        hops?: FallbackHop[];
+      }) => {
         answeredBy = info;
       },
       onPrivacyRedaction: (count: number) => {
