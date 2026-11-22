@@ -651,8 +651,8 @@ async function executeRemoteFallbackChain(
       // Key rejected (401)
       if (lastFailure instanceof RemoteEndpointError && lastFailure.status === 401) {
         console.warn(`Inference endpoint "${candidate.label}" rejected its API key (401), trying next:`, err);
-        // Cooldown the endpoint so subsequent turns skip it immediately without roundtrip lag
-        recordEndpointCooldown(candidate.endpoint, candidate.model, 'API key rejected (401)', 300_000);
+        // Cooldown the endpoint provider-wide so subsequent turns skip it immediately without roundtrip lag
+        recordEndpointCooldown(candidate.endpoint, candidate.model, 'API key rejected (401)', 300_000, false, true);
         continue;
       }
 
@@ -706,6 +706,10 @@ async function executeRemoteFallbackChain(
       const isModelNotFound =
         lastFailure instanceof RemoteEndpointError &&
         (lastFailure.status === 404 || lastFailure.status === 410);
+      const isProviderWide =
+        (lastFailure instanceof RemoteEndpointError &&
+          (lastFailure.status === 402 || lastFailure.status === 451 || lastFailure.status === 530)) ||
+        isFetchFailure;
       const durationMs = retryAfterSec
         ? retryAfterSec * 1000
         : isModelNotFound
@@ -715,7 +719,7 @@ async function executeRemoteFallbackChain(
         : 60_000;
 
       // Record rate limit / timeout / quota cooldown so next messages don't waste time on this dead endpoint
-      recordEndpointCooldown(candidate.endpoint, candidate.model, reason, durationMs, !!retryAfterSec);
+      recordEndpointCooldown(candidate.endpoint, candidate.model, reason, durationMs, !!retryAfterSec, isProviderWide);
 
       if (isFetchFailure || isTimeout) {
         console.warn(

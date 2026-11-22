@@ -441,15 +441,19 @@ function persistCooldowns(): void {
  * Record a temporary cooldown for an endpoint that experienced 429, quota exhaustion, or gateway timeouts.
  * Default cooldown is 60 seconds (or customized via durationMs).
  * Automatically applies exponential backoff for consecutive failures unless an explicit Retry-After header was parsed.
+ * Pass isProviderWide=true for account/location-level errors (401 invalid key, 402 insufficient balance, 451 geo-block)
+ * so all models under this endpoint skip immediately without repetitive network roundtrip failures.
  */
 export function recordEndpointCooldown(
   endpoint: string,
   model: string | undefined,
   reason: string,
   durationMs = 60_000,
-  isRetryAfterHeader = false
+  isRetryAfterHeader = false,
+  isProviderWide = false
 ): void {
-  const key = getCooldownKey(endpoint, model);
+  const targetModel = isProviderWide ? '*' : model;
+  const key = getCooldownKey(endpoint, targetModel);
   const existing = endpointCooldowns.get(key);
   const prevFailures = existing?.consecutiveFailures ?? 0;
   const consecutiveFailures = prevFailures + 1;
@@ -464,7 +468,7 @@ export function recordEndpointCooldown(
 
   endpointCooldowns.set(key, {
     endpoint,
-    model,
+    model: targetModel,
     until: Date.now() + effectiveDuration,
     reason,
     isRetryAfterHeader,
@@ -475,30 +479,84 @@ export function recordEndpointCooldown(
 
 /**
  * Checks whether an endpoint is currently cooling down from a recent rate limit or quota failure.
+ * Checks model-specific cooldown, endpoint-level wildcard ('*') cooldown, and bare endpoint cooldown.
  */
 export function isEndpointInCooldown(
   endpoint: string,
   model?: string
 ): { inCooldown: boolean; reason?: string; remainingSeconds?: number; isRetryAfterHeader?: boolean } {
-  const key = getCooldownKey(endpoint, model);
-  const entry = endpointCooldowns.get(key);
-  if (!entry) return { inCooldown: false };
-  const remainingMs = entry.until - Date.now();
-  if (remainingMs <= 0) {
-    endpointCooldowns.delete(key);
-    persistCooldowns();
-    return { inCooldown: false };
+  const now = Date.now();
+  // 1. Check model-specific key if provided and not wildcard
+  if (model && model !== '*') {
+    const specificKey = getCooldownKey(endpoint, model);
+    const specificEntry = endpointCooldowns.get(specificKey);
+    if (specificEntry) {
+      const remainingMs = specificEntry.until - now;
+      if (remainingMs <= 0) {
+        endpointCooldowns.delete(specificKey);
+        persistCooldowns();
+      } else {
+        return {
+          inCooldown: true,
+          reason: specificEntry.reason,
+          remainingSeconds: Math.ceil(remainingMs / 1000),
+          isRetryAfterHeader: specificEntry.isRetryAfterHeader,
+        };
+      }
+    }
   }
-  return {
-    inCooldown: true,
-    reason: entry.reason,
-    remainingSeconds: Math.ceil(remainingMs / 1000),
-    isRetryAfterHeader: entry.isRetryAfterHeader,
-  };
+
+  // 2. Check provider-wide wildcard '*' cooldown
+  const wildcardKey = getCooldownKey(endpoint, '*');
+  const wildcardEntry = endpointCooldowns.get(wildcardKey);
+  if (wildcardEntry) {
+    const remainingMs = wildcardEntry.until - now;
+    if (remainingMs <= 0) {
+      endpointCooldowns.delete(wildcardKey);
+      persistCooldowns();
+    } else {
+      return {
+        inCooldown: true,
+        reason: wildcardEntry.reason,
+        remainingSeconds: Math.ceil(remainingMs / 1000),
+        isRetryAfterHeader: wildcardEntry.isRetryAfterHeader,
+      };
+    }
+  }
+
+  // 3. Check bare endpoint key
+  const bareKey = getCooldownKey(endpoint);
+  const bareEntry = endpointCooldowns.get(bareKey);
+  if (bareEntry) {
+    const remainingMs = bareEntry.until - now;
+    if (remainingMs <= 0) {
+      endpointCooldowns.delete(bareKey);
+      persistCooldowns();
+    } else {
+      return {
+        inCooldown: true,
+        reason: bareEntry.reason,
+        remainingSeconds: Math.ceil(remainingMs / 1000),
+        isRetryAfterHeader: bareEntry.isRetryAfterHeader,
+      };
+    }
+  }
+
+  return { inCooldown: false };
 }
 
 export function clearEndpointCooldown(endpoint: string, model?: string): void {
-  endpointCooldowns.delete(getCooldownKey(endpoint, model));
+  if (model && model !== '*') {
+    endpointCooldowns.delete(getCooldownKey(endpoint, model));
+  } else {
+    // Clear wildcard, bare, and all specific model entries for this endpoint
+    const prefix = `${endpoint.trim().toLowerCase()}::`;
+    for (const key of Array.from(endpointCooldowns.keys())) {
+      if (key.startsWith(prefix) || key === endpoint.trim().toLowerCase()) {
+        endpointCooldowns.delete(key);
+      }
+    }
+  }
   persistCooldowns();
 }
 
