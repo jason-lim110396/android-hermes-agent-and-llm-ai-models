@@ -1956,7 +1956,7 @@ export default function ChatView() {
               type="button"
               onClick={() => setShowModelPicker((prev) => !prev)}
               aria-label="Select AI Model"
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-700/80 active:border-cyan-500 text-[11px] font-bold text-white transition-all cursor-pointer max-w-[240px] shadow-sm select-none"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 border border-zinc-700/80 active:border-cyan-500 text-[11px] font-bold text-white transition-all cursor-pointer max-w-[135px] xs:max-w-[190px] sm:max-w-[260px] shadow-sm select-none shrink min-w-0"
             >
               <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse shrink-0" />
               <span className="truncate">{currentModel?.name || 'Select Model'}</span>
@@ -2223,7 +2223,7 @@ export default function ChatView() {
             shows one compact row instead of fifteen always-visible buttons.
             No action was removed: each menu entry below is the exact former
             button with its original onClick and title. */}
-        <div className="px-2 pb-2 flex items-center gap-1.5">
+        <div className="px-2 pb-2 flex items-center gap-1.5 overflow-x-auto scrollbar-none flex-nowrap shrink-0">
           {/* New Session */}
           <button
             onClick={() => createNewSession()}
@@ -2988,7 +2988,7 @@ export default function ChatView() {
 
                 {/* Assistant Message Actions Toolbar */}
                 {!isUser && !msg.isStreaming && (
-                  <div className="flex items-center gap-1.5 mt-1.5 px-1">
+                  <div className="flex flex-wrap items-center gap-1.5 mt-1.5 px-1">
                     {/* Speak Button */}
                     <button
                       onClick={() => handleSpeakMessage(msg.id, msg.content)}
@@ -3199,7 +3199,7 @@ export default function ChatView() {
 
                 {/* User Message Quick Actions */}
                 {isUser && (
-                  <div className="flex items-center justify-end gap-1.5 mt-1 px-1">
+                  <div className="flex flex-wrap items-center justify-end gap-1.5 mt-1 px-1">
                     <button
                       type="button"
                       onClick={() => handleQuoteMessage(msg)}

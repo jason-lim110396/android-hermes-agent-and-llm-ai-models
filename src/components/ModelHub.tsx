@@ -778,7 +778,7 @@ export default function ModelHub() {
                         </div>
                       )}
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-1.5 shrink-0">
                       <button
                         onClick={() => deleteModel(model.id)}
                         className="p-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-rose-400 transition-all cursor-pointer"
@@ -846,7 +846,7 @@ export default function ModelHub() {
                       }
                       return null;
                     })()}
-                    <div className="flex items-center justify-between">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
                       <span className="text-[10px] text-zinc-500">
                         {dlState?.errorMessage ? 'Download Failed' : 'Not Downloaded'}
                       </span>
