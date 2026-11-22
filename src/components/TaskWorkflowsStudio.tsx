@@ -1465,7 +1465,7 @@ export default function TaskWorkflowsStudio() {
               <div className="text-xs text-zinc-200 whitespace-pre-wrap leading-relaxed mb-3">
                 {finalOutput}
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <button
                   onClick={handleShareResult}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs shadow-md transition-all cursor-pointer"

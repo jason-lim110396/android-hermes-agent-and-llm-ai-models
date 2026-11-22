@@ -635,7 +635,7 @@ export default function VisionStudio() {
                   <FileText className="w-3.5 h-3.5" />
                   <span>Document Pages ({scannedPages.length})</span>
                 </span>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-1.5">
                   <button
                     onClick={handleExportPrintPdf}
                     className="px-2 py-1 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-bold flex items-center gap-1 cursor-pointer transition-all border border-zinc-700"
