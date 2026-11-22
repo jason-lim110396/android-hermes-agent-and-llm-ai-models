@@ -308,22 +308,39 @@ async function streamChatCompletion(
           const parsed = JSON.parse(dataStr);
           // Some OpenAI-compatible free routers keep the text/event-stream
           // content type even for errors, sending e.g.
-          // data: {"error":{"message":"Rate limit reached"}}.
-          // Parsing only `choices[0].delta.content` discarded these entirely:
-          // fullText stayed empty, the #170 plain-body check never saw the
-          // quota text, and the turn fell through to an on-device download
-          // with a misleading "empty answer" notice. Feed SSE error objects
-          // into the same limit classifier so the free chain advances.
-          const sseErr = parsed?.error;
-          if (sseErr) {
-            const msg =
-              typeof sseErr === 'string'
-                ? sseErr
-                : typeof sseErr.message === 'string'
-                  ? sseErr.message
-                  : typeof sseErr.msg === 'string'
-                    ? sseErr.msg
-                    : '';
+          // data: {"error":{"message":"Rate limit reached"}} or
+          // data: {"detail":"Rate limit exceeded"} (FastAPI/vLLM/TGI) or
+          // data: {"message":"Rate limit exceeded"} or
+          // data: {"type":"error","error":{"message":"..."}} (Anthropic).
+          // Feed polymorphic SSE error objects into the limit classifier so the free chain advances.
+          const rawErr =
+            parsed?.error ??
+            parsed?.errors ??
+            (parsed?.type === 'error' ? parsed.error : undefined) ??
+            (!parsed?.choices?.length && typeof parsed?.detail === 'string' ? parsed.detail : undefined) ??
+            (!parsed?.choices?.length && typeof parsed?.message === 'string' ? parsed.message : undefined);
+
+          if (rawErr) {
+            let msg = '';
+            if (typeof rawErr === 'string') {
+              msg = rawErr;
+            } else if (Array.isArray(rawErr)) {
+              msg = rawErr
+                .map((e) => (typeof e === 'string' ? e : (e as any)?.message || (e as any)?.msg || JSON.stringify(e)))
+                .join('; ');
+            } else if (typeof rawErr === 'object' && rawErr !== null) {
+              const errObj = rawErr as Record<string, unknown>;
+              msg =
+                typeof errObj.message === 'string'
+                  ? errObj.message
+                  : typeof errObj.msg === 'string'
+                    ? errObj.msg
+                    : typeof errObj.detail === 'string'
+                      ? errObj.detail
+                      : typeof errObj.type === 'string'
+                        ? errObj.type
+                        : JSON.stringify(errObj);
+            }
             if (msg) {
               nonSseText += (nonSseText ? '\n' : '') + msg;
               if (nonSseText.length > 4000) nonSseText = nonSseText.slice(-4000);
@@ -345,6 +362,8 @@ async function streamChatCompletion(
             delta = parsed.choices[0].delta.text;
           } else if (typeof parsed.choices?.[0]?.text === 'string') {
             delta = parsed.choices[0].text;
+          } else if (typeof parsed.choices?.[0]?.message?.content === 'string') {
+            delta = parsed.choices[0].message.content;
           }
           if (delta) {
             fullText += delta;

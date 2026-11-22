@@ -199,11 +199,36 @@ const LIMIT_HINTS = [
   'unsupported model',
   'degraded',
   'resource_exhausted',
+  'resource has been exhausted',
+  'quota exceeded',
+  'quota_exceeded',
+  'exceeded your current quota',
+  'credit balance is too low',
+  'insufficient balance',
+  'insufficient_balance',
+  'rate_limit_exceeded',
+  'rate-limit',
+  'rate_limited',
+  'tokens per minute',
+  'requests per minute',
+  'tpm limit',
+  'rpm limit',
+  'model is overloaded',
+  'overloaded with other requests',
+  'upstream request timeout',
+  'free tier limit',
+  'free_tier',
+  'free-tier',
+  'account has been suspended',
+  'server_error',
+  'service unavailable',
+  'service_unavailable',
+  'connection reset',
+  'socket hang up',
+  'network connection lost',
   'billing',
   'tpm',
   'rpm',
-  'tokens per minute',
-  'requests per minute',
   'daily quota',
   'monthly limit',
   'free tier',
@@ -288,13 +313,15 @@ export function describeLimitFailure(status: number, detail: string): string {
   if (status === 529) return 'provider overloaded (529)';
   if (status === 402) return 'payment required';
   if (status === 408) return 'request timeout (408)';
-  if (status === 403) return 'quota / tier blocked';
+  if (status === 403) return 'quota / tier blocked (403)';
   if (status === 500) return 'internal server error (500)';
   if (status === 502) return 'bad gateway (502)';
   if (status === 503) return 'provider unavailable (503)';
   if (status === 504) return 'gateway timeout (504)';
   if (status === 404) return 'model / route not found (404)';
   if (status === 410) return 'model decommissioned (410)';
+  if (status === 400) return 'bad request / format error (400)';
+  if (status === 422) return 'unprocessable entity / prompt limit (422)';
   if (status >= 520 && status <= 526) return `edge proxy error (${status})`;
   return `HTTP ${status}`;
 }
