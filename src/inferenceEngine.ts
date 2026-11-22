@@ -1215,7 +1215,7 @@ export async function generateOnDeviceAIImage(
     const imageUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=640&height=640&model=${modelParam}&nologo=true&seed=${Math.floor(Math.random() * 999999)}`;
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 12000); // 12s timeout
+    const timeoutId = setTimeout(() => controller.abort(), 28000); // 28s network timeout for mobile diffusion
 
     // Link incoming signal if aborted
     signal?.addEventListener('abort', () => controller.abort());
@@ -1237,6 +1237,7 @@ export async function generateOnDeviceAIImage(
       });
     }
   } catch (err: any) {
+    if (signal?.aborted) throw new Error('Task stopped by user');
     console.warn('Real online diffusion fetch bypassed or offline, falling back to local semantic renderer:', err?.message || err);
   }
 
@@ -1251,7 +1252,7 @@ export async function generateOnDeviceAIImage(
   canvas.width = 640;
   canvas.height = 640;
   const ctx = canvas.getContext('2d');
-  if (!ctx) return '';
+  if (!ctx) throw new Error('Failed to allocate 2D canvas context for image synthesis');
 
   // Seeded color generation based on prompt string
   let hash = 0;
