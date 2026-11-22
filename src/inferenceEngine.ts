@@ -573,7 +573,16 @@ async function executeRemoteFallbackChain(
 
       const retryAfterSec =
         lastFailure instanceof RemoteEndpointError ? lastFailure.retryAfterSeconds : undefined;
-      const durationMs = retryAfterSec ? retryAfterSec * 1000 : (isTimeout ? 45_000 : 60_000);
+      const isModelNotFound =
+        lastFailure instanceof RemoteEndpointError &&
+        (lastFailure.status === 404 || lastFailure.status === 410);
+      const durationMs = retryAfterSec
+        ? retryAfterSec * 1000
+        : isModelNotFound
+        ? 300_000
+        : isTimeout
+        ? 45_000
+        : 60_000;
 
       // Record rate limit / timeout / quota cooldown so next messages don't waste time on this dead endpoint
       recordEndpointCooldown(candidate.endpoint, candidate.model, reason, durationMs, !!retryAfterSec);
