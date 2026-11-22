@@ -102,6 +102,24 @@ export function loadFallbackSettings(): FallbackSettings {
   }
 }
 
+/**
+ * Updates an entry in the fallback chain by id and returns a new updated chain array.
+ */
+export function updateFallbackChainEntry(
+  chain: FallbackModelEntry[],
+  id: string,
+  updates: Partial<FallbackModelEntry>
+): FallbackModelEntry[] {
+  return chain.map((entry) => {
+    if (entry.id !== id) return entry;
+    return {
+      ...entry,
+      ...updates,
+      id: entry.id,
+    };
+  });
+}
+
 /** Returns false when the write failed (storage full or blocked). */
 export function saveFallbackSettings(settings: FallbackSettings): boolean {
   if (typeof window === 'undefined') return false;

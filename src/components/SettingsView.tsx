@@ -63,6 +63,7 @@ import {
   Plus,
   Type,
   Clock,
+  Edit2,
 } from 'lucide-react';
 import {
   getChatFontSize,
@@ -78,6 +79,7 @@ import {
   clearEndpointCooldown,
   clearAllEndpointCooldowns,
   getAllActiveCooldowns,
+  updateFallbackChainEntry,
 } from '@/utils/modelFallback';
 
 export interface FirewallCustomRule {
@@ -155,6 +157,9 @@ export default function SettingsView() {
   const [newKey, setNewKey] = useState('');
   const [newModel, setNewModel] = useState('');
   const [newLabel, setNewLabel] = useState('');
+  const [editingFallbackId, setEditingFallbackId] = useState<string | null>(null);
+  const [editFallbackKey, setEditFallbackKey] = useState('');
+  const [editFallbackModel, setEditFallbackModel] = useState('');
   const performanceMode = useAppStore((s) => s.performanceMode);
   const setPerformanceMode = useAppStore((s) => s.setPerformanceMode);
   const hardwareProfile = useAppStore((s) => s.hardwareProfile);
@@ -1400,99 +1405,173 @@ export default function SettingsView() {
             )}
             {modelFallbackChain.map((entry: FallbackModelEntry, idx: number) => {
               const cooldownInfo = isEndpointInCooldown(entry.endpoint, entry.model);
+              const isEditing = editingFallbackId === (entry.id || String(idx));
+              const inheritsPrimaryKey = !entry.apiKey && !!apiEndpoint && (() => {
+                try {
+                  return new URL(entry.endpoint).origin === new URL(apiEndpoint).origin;
+                } catch (_) {
+                  return false;
+                }
+              })();
+
               return (
               <div
                 key={entry.id || idx}
-                className="flex items-center justify-between gap-2 bg-zinc-950/80 border border-zinc-800 rounded-xl px-2.5 py-1.5"
+                className="bg-zinc-950/80 border border-zinc-800 rounded-xl px-2.5 py-1.5 transition-all"
               >
-                <div className="min-w-0 flex-1">
-                  <p className="text-[11px] font-bold text-zinc-200 truncate">
-                    <span className="text-zinc-500 font-mono mr-1">{idx + 1}.</span>
-                    {entry.label}
-                  </p>
-                  <p className="text-[9px] text-zinc-500 truncate font-mono">
-                    {entry.endpoint}
-                    {entry.model ? ` - ${entry.model}` : ''}
-                    {entry.apiKey ? ' - key set' : ''}
-                  </p>
-                  {cooldownInfo.inCooldown && (
-                    <div className="flex items-center gap-1.5 mt-1 bg-amber-950/60 border border-amber-500/40 rounded px-1.5 py-0.5 w-fit">
-                      <Clock className="w-2.5 h-2.5 text-amber-400 shrink-0" />
-                      <span className="text-[8px] font-mono text-amber-200">
-                        Cooldown: {cooldownInfo.reason || 'rate-limited'} ({cooldownInfo.remainingSeconds}s left{cooldownInfo.isRetryAfterHeader ? ' · Retry-After' : ''})
+                <div className="flex items-center justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[11px] font-bold text-zinc-200 truncate">
+                      <span className="text-zinc-500 font-mono mr-1">{idx + 1}.</span>
+                      {entry.label}
+                    </p>
+                    <p className="text-[9px] text-zinc-500 truncate font-mono">
+                      {entry.endpoint}
+                      {entry.model ? ` - ${entry.model}` : ''}
+                      {entry.apiKey ? ' - key set' : inheritsPrimaryKey ? ' - inherits key' : ''}
+                    </p>
+                    {cooldownInfo.inCooldown && (
+                      <div className="flex items-center gap-1.5 mt-1 bg-amber-950/60 border border-amber-500/40 rounded px-1.5 py-0.5 w-fit">
+                        <Clock className="w-2.5 h-2.5 text-amber-400 shrink-0" />
+                        <span className="text-[8px] font-mono text-amber-200">
+                          Cooldown: {cooldownInfo.reason || 'rate-limited'} ({cooldownInfo.remainingSeconds}s left{cooldownInfo.isRetryAfterHeader ? ' · Retry-After' : ''})
+                        </span>
+                        <button
+                          onClick={() => {
+                            triggerHaptic(5);
+                            clearEndpointCooldown(entry.endpoint, entry.model);
+                            setCooldownTick((t) => t + 1);
+                          }}
+                          className="text-[8px] font-bold text-amber-300 hover:text-amber-100 underline ml-0.5 cursor-pointer"
+                          title="Clear cooldown immediately"
+                        >
+                          Reset
+                        </button>
+                      </div>
+                    )}
+                    {fallbackTestResults[entry.id || String(idx)] && (
+                      <span className={`text-[8px] font-mono px-1.5 py-0.2 rounded border inline-block mt-0.5 ${
+                        fallbackTestResults[entry.id || String(idx)].ok
+                          ? 'bg-emerald-950/60 border-emerald-500/40 text-emerald-300'
+                          : 'bg-rose-950/60 border-rose-500/40 text-rose-300'
+                      }`}>
+                        {fallbackTestResults[entry.id || String(idx)].message}
                       </span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      disabled={testingFallbackId === (entry.id || String(idx))}
+                      onClick={() => handleTestFallbackEndpoint(entry, idx)}
+                      className="p-1 rounded text-zinc-500 hover:text-cyan-400 transition-colors disabled:opacity-20 cursor-pointer"
+                      aria-label={`Test ${entry.label}`}
+                      title="Test connection"
+                    >
+                      <Wifi className={`w-3.5 h-3.5 ${testingFallbackId === (entry.id || String(idx)) ? 'animate-pulse text-cyan-400' : ''}`} />
+                    </button>
+                    <button
+                      onClick={() => {
+                        triggerHaptic(5);
+                        if (isEditing) {
+                          setEditingFallbackId(null);
+                        } else {
+                          setEditingFallbackId(entry.id || String(idx));
+                          setEditFallbackKey(entry.apiKey || '');
+                          setEditFallbackModel(entry.model || '');
+                        }
+                      }}
+                      className={`p-1 rounded transition-colors cursor-pointer ${
+                        isEditing ? 'text-emerald-400 bg-emerald-950/50' : 'text-zinc-500 hover:text-zinc-200'
+                      }`}
+                      aria-label={`Configure ${entry.label}`}
+                      title="Edit model or API key"
+                    >
+                      <Edit2 className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      disabled={idx === 0}
+                      onClick={() => {
+                        if (idx === 0) return;
+                        const next = [...modelFallbackChain];
+                        const [item] = next.splice(idx, 1);
+                        next.splice(idx - 1, 0, item);
+                        setModelFallbackChain(next);
+                      }}
+                      className="p-1 rounded text-zinc-500 hover:text-zinc-200 transition-colors disabled:opacity-20 cursor-pointer"
+                      aria-label={`Move ${entry.label} up`}
+                      title="Move up"
+                    >
+                      <ChevronUp className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      disabled={idx === modelFallbackChain.length - 1}
+                      onClick={() => {
+                        if (idx === modelFallbackChain.length - 1) return;
+                        const next = [...modelFallbackChain];
+                        const [item] = next.splice(idx, 1);
+                        next.splice(idx + 1, 0, item);
+                        setModelFallbackChain(next);
+                      }}
+                      className="p-1 rounded text-zinc-500 hover:text-zinc-200 transition-colors disabled:opacity-20 cursor-pointer"
+                      aria-label={`Move ${entry.label} down`}
+                      title="Move down"
+                    >
+                      <ChevronDown className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={() => setModelFallbackChain(modelFallbackChain.filter((_, i) => i !== idx))}
+                      className="p-1 rounded text-zinc-500 hover:text-rose-400 transition-colors cursor-pointer"
+                      aria-label={`Remove ${entry.label}`}
+                      title="Remove from chain"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+
+                {isEditing && (
+                  <div className="mt-2 pt-2 border-t border-zinc-800/80 space-y-1.5">
+                    <div className="flex gap-1.5">
+                      <input
+                        type="text"
+                        placeholder="Model ID (e.g. google/gemini-2.0-flash-exp:free)"
+                        value={editFallbackModel}
+                        onChange={(e) => setEditFallbackModel(e.target.value)}
+                        className="flex-1 bg-zinc-900 border border-zinc-800 rounded-lg px-2 py-1 text-[11px] text-zinc-200 font-mono placeholder-zinc-500 focus:outline-none focus:border-emerald-500/50"
+                      />
+                      <input
+                        type="password"
+                        placeholder="Session API Key"
+                        value={editFallbackKey}
+                        onChange={(e) => setEditFallbackKey(e.target.value)}
+                        className="flex-1 bg-zinc-900 border border-zinc-800 rounded-lg px-2 py-1 text-[11px] text-zinc-200 font-mono placeholder-zinc-500 focus:outline-none focus:border-emerald-500/50"
+                      />
+                    </div>
+                    <div className="flex justify-end gap-1.5">
+                      <button
+                        onClick={() => setEditingFallbackId(null)}
+                        className="px-2 py-0.5 rounded text-[10px] text-zinc-400 hover:text-zinc-200 cursor-pointer"
+                      >
+                        Cancel
+                      </button>
                       <button
                         onClick={() => {
-                          triggerHaptic(5);
-                          clearEndpointCooldown(entry.endpoint, entry.model);
-                          setCooldownTick((t) => t + 1);
+                          triggerHaptic(10);
+                          setModelFallbackChain(
+                            updateFallbackChainEntry(modelFallbackChain, entry.id, {
+                              model: editFallbackModel.trim() || undefined,
+                              apiKey: editFallbackKey.trim() || undefined,
+                            })
+                          );
+                          setEditingFallbackId(null);
                         }}
-                        className="text-[8px] font-bold text-amber-300 hover:text-amber-100 underline ml-0.5 cursor-pointer"
-                        title="Clear cooldown immediately"
+                        className="px-2.5 py-0.5 rounded bg-emerald-950/60 border border-emerald-500/40 text-emerald-300 text-[10px] font-bold hover:bg-emerald-900/50 cursor-pointer"
                       >
-                        Reset
+                        Save
                       </button>
                     </div>
-                  )}
-                  {fallbackTestResults[entry.id || String(idx)] && (
-                    <span className={`text-[8px] font-mono px-1.5 py-0.2 rounded border inline-block mt-0.5 ${
-                      fallbackTestResults[entry.id || String(idx)].ok
-                        ? 'bg-emerald-950/60 border-emerald-500/40 text-emerald-300'
-                        : 'bg-rose-950/60 border-rose-500/40 text-rose-300'
-                    }`}>
-                      {fallbackTestResults[entry.id || String(idx)].message}
-                    </span>
-                  )}
-                </div>
-                <div className="flex items-center gap-1 shrink-0">
-                  <button
-                    disabled={testingFallbackId === (entry.id || String(idx))}
-                    onClick={() => handleTestFallbackEndpoint(entry, idx)}
-                    className="p-1 rounded text-zinc-500 hover:text-cyan-400 transition-colors disabled:opacity-20 cursor-pointer"
-                    aria-label={`Test ${entry.label}`}
-                    title="Test connection"
-                  >
-                    <Wifi className={`w-3.5 h-3.5 ${testingFallbackId === (entry.id || String(idx)) ? 'animate-pulse text-cyan-400' : ''}`} />
-                  </button>
-                  <button
-                    disabled={idx === 0}
-                    onClick={() => {
-                      if (idx === 0) return;
-                      const next = [...modelFallbackChain];
-                      const [item] = next.splice(idx, 1);
-                      next.splice(idx - 1, 0, item);
-                      setModelFallbackChain(next);
-                    }}
-                    className="p-1 rounded text-zinc-500 hover:text-zinc-200 transition-colors disabled:opacity-20 cursor-pointer"
-                    aria-label={`Move ${entry.label} up`}
-                    title="Move up"
-                  >
-                    <ChevronUp className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    disabled={idx === modelFallbackChain.length - 1}
-                    onClick={() => {
-                      if (idx === modelFallbackChain.length - 1) return;
-                      const next = [...modelFallbackChain];
-                      const [item] = next.splice(idx, 1);
-                      next.splice(idx + 1, 0, item);
-                      setModelFallbackChain(next);
-                    }}
-                    className="p-1 rounded text-zinc-500 hover:text-zinc-200 transition-colors disabled:opacity-20 cursor-pointer"
-                    aria-label={`Move ${entry.label} down`}
-                    title="Move down"
-                  >
-                    <ChevronDown className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    onClick={() => setModelFallbackChain(modelFallbackChain.filter((_, i) => i !== idx))}
-                    className="p-1 rounded text-zinc-500 hover:text-rose-400 transition-colors cursor-pointer"
-                    aria-label={`Remove ${entry.label}`}
-                    title="Remove from chain"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                </div>
+                  </div>
+                )}
               </div>
             );
             })}
