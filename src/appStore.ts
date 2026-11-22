@@ -837,22 +837,38 @@ export const useAppStore = create<AppStore>((set, get) => {
       const hasChat = Object.keys(persisted.chatSessions).length > 0;
       const hasAgent = Object.keys(persisted.agentSessions).length > 0;
       if (hasChat || hasAgent) {
-        set((state) => ({
-          // Merge over whatever exists (rather than wholesale replace) so sessions
-          // created between store init and this restore are never discarded.
-          chatSessions: hasChat ? { ...state.chatSessions, ...persisted.chatSessions } : state.chatSessions,
-          agentSessions: hasAgent ? { ...state.agentSessions, ...persisted.agentSessions } : state.agentSessions,
-          activeChatSessionId: hasChat
-            ? persisted.chatSessions[persisted.activeChatSessionId]
-              ? persisted.activeChatSessionId
-              : Object.keys(persisted.chatSessions)[0]
-            : state.activeChatSessionId,
-          activeAgentSessionId: hasAgent
-            ? persisted.agentSessions[persisted.activeAgentSessionId]
-              ? persisted.activeAgentSessionId
-              : Object.keys(persisted.agentSessions)[0]
-            : state.activeAgentSessionId,
-        }));
+        set((state) => {
+          const isInitialChatDefault =
+            Object.keys(state.chatSessions).length === 1 &&
+            state.chatSessions['session-chat-default']?.messages.length === 1 &&
+            state.chatSessions['session-chat-default']?.messages[0]?.id === 'chat-welcome';
+          const isInitialAgentDefault =
+            Object.keys(state.agentSessions).length === 1 &&
+            state.agentSessions['session-agent-default']?.messages.length === 1 &&
+            state.agentSessions['session-agent-default']?.messages[0]?.id === 'agent-welcome';
+
+          const chatSessions = hasChat
+            ? (isInitialChatDefault ? persisted.chatSessions : { ...state.chatSessions, ...persisted.chatSessions })
+            : state.chatSessions;
+          const agentSessions = hasAgent
+            ? (isInitialAgentDefault ? persisted.agentSessions : { ...state.agentSessions, ...persisted.agentSessions })
+            : state.agentSessions;
+
+          return {
+            chatSessions,
+            agentSessions,
+            activeChatSessionId: hasChat
+              ? persisted.chatSessions[persisted.activeChatSessionId]
+                ? persisted.activeChatSessionId
+                : Object.keys(chatSessions)[0] || state.activeChatSessionId
+              : state.activeChatSessionId,
+            activeAgentSessionId: hasAgent
+              ? persisted.agentSessions[persisted.activeAgentSessionId]
+                ? persisted.activeAgentSessionId
+                : Object.keys(agentSessions)[0] || state.activeAgentSessionId
+              : state.activeAgentSessionId,
+          };
+        });
       }
     }
 
@@ -864,13 +880,26 @@ export const useAppStore = create<AppStore>((set, get) => {
         if (!idbPersisted) return;
         set((state) => {
           let updated = false;
-          const newChat = { ...state.chatSessions };
-          const newAgent = { ...state.agentSessions };
+          const isInitialChatDefault =
+            Object.keys(state.chatSessions).length === 1 &&
+            state.chatSessions['session-chat-default']?.messages.length === 1 &&
+            state.chatSessions['session-chat-default']?.messages[0]?.id === 'chat-welcome';
+          const isInitialAgentDefault =
+            Object.keys(state.agentSessions).length === 1 &&
+            state.agentSessions['session-agent-default']?.messages.length === 1 &&
+            state.agentSessions['session-agent-default']?.messages[0]?.id === 'agent-welcome';
+
+          const newChat = isInitialChatDefault && Object.keys(idbPersisted.chatSessions).length > 0
+            ? {}
+            : { ...state.chatSessions };
+          const newAgent = isInitialAgentDefault && Object.keys(idbPersisted.agentSessions).length > 0
+            ? {}
+            : { ...state.agentSessions };
 
           for (const [id, sess] of Object.entries(idbPersisted.chatSessions)) {
             const current = newChat[id];
             const { session: reconciled, changed } = reconcileSessionWithIdb(current, sess);
-            if (changed) {
+            if (changed || !current) {
               newChat[id] = reconciled;
               updated = true;
             }
@@ -879,16 +908,45 @@ export const useAppStore = create<AppStore>((set, get) => {
           for (const [id, sess] of Object.entries(idbPersisted.agentSessions)) {
             const current = newAgent[id];
             const { session: reconciled, changed } = reconcileSessionWithIdb(current, sess);
-            if (changed) {
+            if (changed || !current) {
               newAgent[id] = reconciled;
               updated = true;
             }
           }
 
-          if (!updated) return state;
+          if (!updated && !isInitialChatDefault && !isInitialAgentDefault) return state;
+
+          let activeChatSessionId = state.activeChatSessionId;
+          if (
+            (!newChat[activeChatSessionId] || activeChatSessionId === 'session-chat-default') &&
+            idbPersisted.activeChatSessionId &&
+            newChat[idbPersisted.activeChatSessionId]
+          ) {
+            activeChatSessionId = idbPersisted.activeChatSessionId;
+            updated = true;
+          } else if (!newChat[activeChatSessionId] && Object.keys(newChat).length > 0) {
+            activeChatSessionId = Object.keys(newChat)[0];
+            updated = true;
+          }
+
+          let activeAgentSessionId = state.activeAgentSessionId;
+          if (
+            (!newAgent[activeAgentSessionId] || activeAgentSessionId === 'session-agent-default') &&
+            idbPersisted.activeAgentSessionId &&
+            newAgent[idbPersisted.activeAgentSessionId]
+          ) {
+            activeAgentSessionId = idbPersisted.activeAgentSessionId;
+            updated = true;
+          } else if (!newAgent[activeAgentSessionId] && Object.keys(newAgent).length > 0) {
+            activeAgentSessionId = Object.keys(newAgent)[0];
+            updated = true;
+          }
+
           return {
             chatSessions: newChat,
             agentSessions: newAgent,
+            activeChatSessionId,
+            activeAgentSessionId,
           };
         });
       })
