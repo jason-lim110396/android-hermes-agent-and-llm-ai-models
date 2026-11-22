@@ -21,6 +21,7 @@ import {
   getSessionVaultStats,
   loadPersistedSessions,
   loadPersistedSessionsFromIdb,
+  reconcileSessionWithIdb,
   schedulePersistSessions,
   SessionVaultStats,
 } from './utils/sessionPersistence';
@@ -868,24 +869,18 @@ export const useAppStore = create<AppStore>((set, get) => {
 
           for (const [id, sess] of Object.entries(idbPersisted.chatSessions)) {
             const current = newChat[id];
-            const hasRicherAttachments =
-              current &&
-              sess.messages &&
-              sess.messages.some((m, idx) => m.attachments?.length && !current.messages?.[idx]?.attachments?.length);
-            if (!current || (sess.messages && sess.messages.length > current.messages.length) || hasRicherAttachments) {
-              newChat[id] = sess;
+            const { session: reconciled, changed } = reconcileSessionWithIdb(current, sess);
+            if (changed) {
+              newChat[id] = reconciled;
               updated = true;
             }
           }
 
           for (const [id, sess] of Object.entries(idbPersisted.agentSessions)) {
             const current = newAgent[id];
-            const hasRicherAttachments =
-              current &&
-              sess.messages &&
-              sess.messages.some((m, idx) => m.attachments?.length && !current.messages?.[idx]?.attachments?.length);
-            if (!current || (sess.messages && sess.messages.length > current.messages.length) || hasRicherAttachments) {
-              newAgent[id] = sess;
+            const { session: reconciled, changed } = reconcileSessionWithIdb(current, sess);
+            if (changed) {
+              newAgent[id] = reconciled;
               updated = true;
             }
           }
