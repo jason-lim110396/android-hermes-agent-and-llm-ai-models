@@ -523,6 +523,14 @@ export function reconcileSessionWithIdb(
       updated = { ...updated, fallbackHops: idbMsg.fallbackHops };
       msgChanged = true;
     }
+    if (idbMsg.isFallback && !cm.isFallback) {
+      updated = { ...updated, isFallback: true };
+      msgChanged = true;
+    }
+    if (idbMsg.fallbackReason && !cm.fallbackReason) {
+      updated = { ...updated, fallbackReason: idbMsg.fallbackReason };
+      msgChanged = true;
+    }
     if (msgChanged) {
       changed = true;
       return updated;
