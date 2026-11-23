@@ -36,6 +36,9 @@ import {
 // Global tracking for mock/fallback download timers
 const activeDownloadIntervals = new Map<string, NodeJS.Timeout>();
 
+// Claim each model synchronously so duplicate callers cannot pass the async preflight together.
+const modelDownloadsInFlight = new Set<string>();
+
 // Maximum frequency for streaming store writes. Batching per-token writes into
 // ~11fps UI refreshes removes the main source of chat lag on low-end Android:
 // each write previously cloned the whole session tree and re-rendered every
@@ -566,40 +569,11 @@ export const useAppStore = create<AppStore>((set, get) => {
 
   startDownloadModel: async (modelId: string) => {
     const spec = AVAILABLE_MODELS.find((m) => m.id === modelId);
-    if (!spec) return;
-    if (typeof navigator !== 'undefined' && !navigator.onLine) {
-      set((state) => ({
-        downloads: {
-          ...state.downloads,
-          [modelId]: {
-            modelId,
-            isDownloading: false,
-            progressPct: 0,
-            downloadedMB: 0,
-            totalMB: spec.sizeMB,
-            speedMBs: 0,
-            isReady: false,
-            errorMessage: 'Offline: connect to the internet to download model weights.',
-          },
-        },
-      }));
-      return;
-    }
+    if (!spec || modelDownloadsInFlight.has(modelId)) return;
 
-    // Honor the Model Hub's "Wi-Fi Only" toggle: the user explicitly opted out
-    // of downloading multi-GB weights over metered/cellular links. The Network
-    // Information API is Android-WebView/chromium-only; where it is missing we
-    // never block (same best-effort policy as the quota check below).
-    let isWifiOnly = false;
-    if (typeof window !== 'undefined') {
-      try {
-        isWifiOnly = window.localStorage.getItem('hermes_wifi_only') === 'true';
-      } catch (_) {}
-    }
-    if (isWifiOnly) {
-      const conn = (navigator as Navigator & { connection?: { type?: string; saveData?: boolean } }).connection;
-      const onMeteredLink = !!conn && (conn.type === 'cellular' || conn.saveData === true);
-      if (onMeteredLink) {
+    modelDownloadsInFlight.add(modelId);
+    try {
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
         set((state) => ({
           downloads: {
             ...state.downloads,
@@ -611,24 +585,27 @@ export const useAppStore = create<AppStore>((set, get) => {
               totalMB: spec.sizeMB,
               speedMBs: 0,
               isReady: false,
-              errorMessage: `Wi-Fi Only is enabled: ${spec.name} is ${spec.sizeMB >= 1024 ? (spec.sizeMB / 1024).toFixed(1) + ' GB' : spec.sizeMB + ' MB'} and cellular/metered data is in use. Turn off Wi-Fi Only in the Model Hub or reconnect to Wi-Fi to download.`,
+              errorMessage: 'Offline: connect to the internet to download model weights.',
             },
           },
         }));
         return;
       }
-    }
 
-    // Refuse a download that cannot fit inside this origin's storage quota.
-    // NOTE: quota is a share of total disk (Chrome/WebView report roughly 60%),
-    // NOT free disk space, so this only catches an exhausted quota. A full disk
-    // with an untouched quota still passes; true free-space needs a native bridge.
-    if (typeof navigator !== 'undefined' && navigator.storage?.estimate) {
-      try {
-        const { quota = 0, usage = 0 } = await navigator.storage.estimate();
-        const quotaRemainingMB = Math.round((quota - usage) / (1024 * 1024));
-        const requiredMB = Math.ceil(spec.sizeMB * 1.1);
-        if (quota > 0 && quotaRemainingMB < requiredMB) {
+      // Honor the Model Hub's "Wi-Fi Only" toggle: the user explicitly opted out
+      // of downloading multi-GB weights over metered/cellular links. The Network
+      // Information API is Android-WebView/chromium-only; where it is missing we
+      // never block (same best-effort policy as the quota check below).
+      let isWifiOnly = false;
+      if (typeof window !== 'undefined') {
+        try {
+          isWifiOnly = window.localStorage.getItem('hermes_wifi_only') === 'true';
+        } catch (_) {}
+      }
+      if (isWifiOnly) {
+        const conn = (navigator as Navigator & { connection?: { type?: string; saveData?: boolean } }).connection;
+        const onMeteredLink = !!conn && (conn.type === 'cellular' || conn.saveData === true);
+        if (onMeteredLink) {
           set((state) => ({
             downloads: {
               ...state.downloads,
@@ -640,113 +617,145 @@ export const useAppStore = create<AppStore>((set, get) => {
                 totalMB: spec.sizeMB,
                 speedMBs: 0,
                 isReady: false,
-                errorMessage: `Not enough app storage available: ${quotaRemainingMB} MB left in the browser quota, about ${requiredMB} MB needed. Delete an unused model or pick a smaller one.`,
+                errorMessage: `Wi-Fi Only is enabled: ${spec.name} is ${spec.sizeMB >= 1024 ? (spec.sizeMB / 1024).toFixed(1) + ' GB' : spec.sizeMB + ' MB'} and cellular/metered data is in use. Turn off Wi-Fi Only in the Model Hub or reconnect to Wi-Fi to download.`,
               },
             },
           }));
           return;
         }
-      } catch (_) {
-        // Storage estimate is best-effort; never block a download because it failed.
       }
-    }
 
-    set((state) => ({
-      downloads: {
-        ...state.downloads,
-        [modelId]: {
-          modelId,
-          isDownloading: true,
-          progressPct: state.downloads[modelId]?.progressPct || 0,
-          downloadedMB: state.downloads[modelId]?.downloadedMB || 0,
-          totalMB: spec.sizeMB,
-          speedMBs: 35.0,
-          isReady: false,
-          errorMessage: undefined,
+      // Refuse a download that cannot fit inside this origin's storage quota.
+      // NOTE: quota is a share of total disk (Chrome/WebView report roughly 60%),
+      // NOT free disk space, so this only catches an exhausted quota. A full disk
+      // with an untouched quota still passes; true free-space needs a native bridge.
+      if (typeof navigator !== 'undefined' && navigator.storage?.estimate) {
+        try {
+          const { quota = 0, usage = 0 } = await navigator.storage.estimate();
+          const quotaRemainingMB = Math.round((quota - usage) / (1024 * 1024));
+          const requiredMB = Math.ceil(spec.sizeMB * 1.1);
+          if (quota > 0 && quotaRemainingMB < requiredMB) {
+            set((state) => ({
+              downloads: {
+                ...state.downloads,
+                [modelId]: {
+                  modelId,
+                  isDownloading: false,
+                  progressPct: 0,
+                  downloadedMB: 0,
+                  totalMB: spec.sizeMB,
+                  speedMBs: 0,
+                  isReady: false,
+                  errorMessage: `Not enough app storage available: ${quotaRemainingMB} MB left in the browser quota, about ${requiredMB} MB needed. Delete an unused model or pick a smaller one.`,
+                },
+              },
+            }));
+            return;
+          }
+        } catch (_) {
+          // Storage estimate is best-effort; never block a download because it failed.
+        }
+      }
+
+      set((state) => ({
+        downloads: {
+          ...state.downloads,
+          [modelId]: {
+            modelId,
+            isDownloading: true,
+            progressPct: state.downloads[modelId]?.progressPct || 0,
+            downloadedMB: state.downloads[modelId]?.downloadedMB || 0,
+            totalMB: spec.sizeMB,
+            speedMBs: 35.0,
+            isReady: false,
+            errorMessage: undefined,
+          },
         },
-      },
-    }));
+      }));
 
-    try {
-      // Trigger real WebLLM download: caches weights without occupying the GPU engine
-      await downloadModelWeightsOnly(modelId, (report) => {
-        const pct = Math.min(99, Math.max(1, Math.round(report.progress * 100)));
-        const dlMB = Math.round((pct / 100) * spec.sizeMB);
+      try {
+        // Trigger real WebLLM download: caches weights without occupying the GPU engine
+        await downloadModelWeightsOnly(modelId, (report) => {
+          const pct = Math.min(99, Math.max(1, Math.round(report.progress * 100)));
+          const dlMB = Math.round((pct / 100) * spec.sizeMB);
+          set((state) => ({
+            downloads: {
+              ...state.downloads,
+              [modelId]: {
+                modelId,
+                isDownloading: true,
+                progressPct: pct,
+                downloadedMB: dlMB,
+                totalMB: spec.sizeMB,
+                speedMBs: +(28 + Math.random() * 15).toFixed(1),
+                isReady: false,
+              },
+            },
+          }));
+        });
+
+        // Once loaded/cached successfully
         set((state) => ({
           downloads: {
             ...state.downloads,
             [modelId]: {
               modelId,
-              isDownloading: true,
-              progressPct: pct,
-              downloadedMB: dlMB,
+              isDownloading: false,
+              progressPct: 100,
+              downloadedMB: spec.sizeMB,
               totalMB: spec.sizeMB,
-              speedMBs: +(28 + Math.random() * 15).toFixed(1),
-              isReady: false,
+              speedMBs: 0,
+              isReady: true,
             },
           },
         }));
-      });
-
-      // Once loaded/cached successfully
-      set((state) => ({
-        downloads: {
-          ...state.downloads,
-          [modelId]: {
-            modelId,
-            isDownloading: false,
-            progressPct: 100,
-            downloadedMB: spec.sizeMB,
-            totalMB: spec.sizeMB,
-            speedMBs: 0,
-            isReady: true,
-          },
-        },
-      }));
-    } catch (err: any) {
-      console.error(`WebLLM real weight download failed for ${modelId}:`, err);
-      // Clear any pending download intervals
-      if (activeDownloadIntervals.has(modelId)) {
-        clearInterval(activeDownloadIntervals.get(modelId)!);
-        activeDownloadIntervals.delete(modelId);
-      }
-      const rawMsg = err?.message || String(err) || 'Network or WebGPU error';
-      const friendlyMsg = /gpu|adapter|webgpu/i.test(rawMsg)
-        ? 'Your device/browser does not support WebGPU, which real on-device AI requires. Try updating Android System WebView from the Play Store, or use a WebGPU-capable device.'
-        : `Failed to download ${spec.name} weights: ${rawMsg}`;
-      // Drop any partial weights from a failed or interrupted download. The web
-      // platform cannot report true free disk space, so a mid-download write
-      // failure is the one reliable signal; cleaning up here is what stops a
-      // half-written multi-GB file from lingering and blocking a later retry.
-      let cleanedPartial = false;
-      if (!/stopped by user|aborted/i.test(rawMsg)) {
-        try {
-          await deleteModelFromCache(modelId);
-          // deleteModelFromCache swallows its own errors, so confirm rather than
-          // assume: only claim the partial data is gone when the cache says so.
-          cleanedPartial = !(await isModelCached(modelId));
-        } catch (_) {
-          // Best-effort: cache APIs can be unavailable in some WebViews.
+      } catch (err: any) {
+        console.error(`WebLLM real weight download failed for ${modelId}:`, err);
+        // Clear any pending download intervals
+        if (activeDownloadIntervals.has(modelId)) {
+          clearInterval(activeDownloadIntervals.get(modelId)!);
+          activeDownloadIntervals.delete(modelId);
         }
-      }
-      // Set download state to failed/not ready so the user knows real weights were not downloaded.
-      // NOTE: intentionally not re-thrown — ModelHub/ChatView call this fire-and-forget, so a thrown
-      // error here would become an unhandled promise rejection that never reaches the user.
-      set((state) => ({
-        downloads: {
-          ...state.downloads,
-          [modelId]: {
-            modelId,
-            isDownloading: false,
-            progressPct: 0,
-            downloadedMB: 0,
-            totalMB: spec.sizeMB,
-            speedMBs: 0,
-            isReady: false,
-            errorMessage: cleanedPartial ? `${friendlyMsg} Partial data was cleared; retry when you have space.` : friendlyMsg,
+        const rawMsg = err?.message || String(err) || 'Network or WebGPU error';
+        const friendlyMsg = /gpu|adapter|webgpu/i.test(rawMsg)
+          ? 'Your device/browser does not support WebGPU, which real on-device AI requires. Try updating Android System WebView from the Play Store, or use a WebGPU-capable device.'
+          : `Failed to download ${spec.name} weights: ${rawMsg}`;
+        // Drop any partial weights from a failed or interrupted download. The web
+        // platform cannot report true free disk space, so a mid-download write
+        // failure is the one reliable signal; cleaning up here is what stops a
+        // half-written multi-GB file from lingering and blocking a later retry.
+        let cleanedPartial = false;
+        if (!/stopped by user|aborted/i.test(rawMsg)) {
+          try {
+            await deleteModelFromCache(modelId);
+            // deleteModelFromCache swallows its own errors, so confirm rather than
+            // assume: only claim the partial data is gone when the cache says so.
+            cleanedPartial = !(await isModelCached(modelId));
+          } catch (_) {
+            // Best-effort: cache APIs can be unavailable in some WebViews.
+          }
+        }
+        // Set download state to failed/not ready so the user knows real weights were not downloaded.
+        // NOTE: intentionally not re-thrown — ModelHub/ChatView call this fire-and-forget, so a thrown
+        // error here would become an unhandled promise rejection that never reaches the user.
+        set((state) => ({
+          downloads: {
+            ...state.downloads,
+            [modelId]: {
+              modelId,
+              isDownloading: false,
+              progressPct: 0,
+              downloadedMB: 0,
+              totalMB: spec.sizeMB,
+              speedMBs: 0,
+              isReady: false,
+              errorMessage: cleanedPartial ? `${friendlyMsg} Partial data was cleared; retry when you have space.` : friendlyMsg,
+            },
           },
-        },
-      }));
+        }));
+      }
+    } finally {
+      modelDownloadsInFlight.delete(modelId);
     }
   },
 
