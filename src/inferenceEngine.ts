@@ -22,6 +22,20 @@ import {
   unloadWllamaEngine,
 } from './wasmInferenceEngine';
 
+/**
+ * True for a valid Server-Sent Events protocol line, not error text.
+ *
+ * Free routers and gateways commonly interleave keepalive comments (": ping")
+ * and field lines ("event:", "id:", "retry:") into a healthy stream. Treating
+ * those as part of the error body makes an empty answer - or even a valid reply
+ * whose comment happens to contain a limit-like word - look like a quota
+ * failure. That discards good output, advances the free chain unnecessarily,
+ * and shows the user a false "switched model" notice on a phone.
+ */
+function isSseProtocolLine(line: string): boolean {
+  return line.startsWith(':') || /^(event|id|retry)\s*:/i.test(line);
+}
+
 function isCpuWasmModel(spec: ModelSpec | undefined): boolean {
   return spec?.engine === 'cpu-wasm';
 }
@@ -314,7 +328,10 @@ async function streamChatCompletion(
         if (signal.aborted) throw new Error('Task stopped by user');
         const trimmed = line.trim();
         if (!trimmed.startsWith('data:')) {
-          if (trimmed) {
+          // SSE keepalive comments and field lines are protocol, not error
+          // payloads. Only keep genuine non-SSE text so the quota classifier
+          // below cannot mistake a healthy stream for a rate limit.
+          if (trimmed && !isSseProtocolLine(trimmed)) {
             nonSseText += (nonSseText ? '\n' : '') + trimmed;
             if (nonSseText.length > 4000) nonSseText = nonSseText.slice(-4000);
           }
@@ -450,7 +467,10 @@ async function streamChatCompletion(
     // line. Treat a limit/quota or explicit error message as a 429 so the caller's chain loop
     // advances to the next free endpoint (and shows the switch notice) instead
     // of reporting an empty answer and falling through to on-device inference.
-    const leftover = buffer.trim();
+    // The trailing, possibly incomplete line can itself be a keepalive comment;
+    // do not let it masquerade as an error body when the stream ends on it.
+    const leftoverRaw = buffer.trim();
+    const leftover = leftoverRaw && !isSseProtocolLine(leftoverRaw) ? leftoverRaw : '';
     const errorBody = leftover ? `${nonSseText}\n${leftover}` : nonSseText;
     if (
       sawLimitError ||
