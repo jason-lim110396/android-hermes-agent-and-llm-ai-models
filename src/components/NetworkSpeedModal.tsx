@@ -48,8 +48,6 @@ export default function NetworkSpeedModal({
   onClose: () => void;
   onAuditWithAgent?: (prompt: string) => void;
 }) {
-  useBackButtonClose(isOpen, onClose);
-
   const [isTesting, setIsTesting] = useState(false);
   const [phases, setPhases] = useState<TestPhase[]>([
     { label: 'Ping & RTT', status: 'idle', value: '—' },
@@ -60,25 +58,35 @@ export default function NetworkSpeedModal({
   const [result, setResult] = useState<SpeedResult | null>(null);
   const [history, setHistory] = useState<SpeedResult[]>([]);
   const [copied, setCopied] = useState(false);
-  const abortRef = useRef<boolean>(false);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const runIdRef = useRef(0);
 
-  // Aborting: closing the modal mid-test used to leave the ~500KB download
-  // and the jitter probes running in the background, then vibrate and persist
-  // the result after the user had already moved on to something else.
-  // Setting the flag on close makes the in-flight run bail at its checkpoints.
+  const cancelActiveTest = useCallback(() => {
+    runIdRef.current += 1;
+    abortControllerRef.current?.abort();
+    abortControllerRef.current = null;
+  }, []);
+
+  const handleClose = useCallback(() => {
+    cancelActiveTest();
+    setIsTesting(false);
+    onClose();
+  }, [cancelActiveTest, onClose]);
+
+  useBackButtonClose(isOpen, handleClose);
+
   useEffect(() => {
-    if (isOpen) {
-      abortRef.current = false;
-      return;
-    }
-    abortRef.current = true;
-  }, [isOpen]);
+    if (!isOpen) cancelActiveTest();
+  }, [isOpen, cancelActiveTest]);
+
+  useEffect(() => () => cancelActiveTest(), [cancelActiveTest]);
 
   // Reset the view on each open: the previous test's result, phases and copy
   // flag used to survive close/reopen and show as if they were fresh.
   // Load history from localStorage
   useEffect(() => {
     if (!isOpen) return;
+    setIsTesting(false);
     setResult(null);
     setCopied(false);
     setPhases([
@@ -93,11 +101,7 @@ export default function NetworkSpeedModal({
     } catch (_) {}
   }, [isOpen]);
 
-  const setPhase = (idx: number, update: Partial<TestPhase>) => {
-    setPhases((prev) => prev.map((p, i) => (i === idx ? { ...p, ...update } : p)));
-  };
-
-  const measurePing = async (): Promise<number | null> => {
+  const measurePing = async (signal: AbortSignal): Promise<number | null> => {
     const endpoints = [
       'https://www.google.com/generate_204',
       'https://1.1.1.1',
@@ -106,9 +110,15 @@ export default function NetworkSpeedModal({
     for (const ep of endpoints) {
       try {
         const t0 = performance.now();
-        await fetch(ep, { mode: 'no-cors', cache: 'no-cache', signal: AbortSignal.timeout(3000) });
+        await fetch(ep, {
+          mode: 'no-cors',
+          cache: 'no-cache',
+          signal: AbortSignal.any([signal, AbortSignal.timeout(3000)]),
+        });
         times.push(performance.now() - t0);
-      } catch (_) {}
+      } catch (err) {
+        if (signal.aborted) throw err;
+      }
     }
     if (times.length > 0) return Math.round(Math.min(...times));
     // Estimate from the Network Information API when the probes cannot run.
@@ -118,24 +128,34 @@ export default function NetworkSpeedModal({
     return typeof conn?.rtt === 'number' && conn.rtt > 0 ? conn.rtt : null;
   };
 
-  const measureDownload = async (): Promise<number | null> => {
+  const measureDownload = async (signal: AbortSignal): Promise<number | null> => {
     // Try fetching a ~500KB public test asset
     const url = `https://httpbin.org/bytes/524288?ts=${Date.now()}`;
     try {
       const t0 = performance.now();
-      const resp = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(8000) });
+      const resp = await fetch(url, {
+        cache: 'no-store',
+        signal: AbortSignal.any([signal, AbortSignal.timeout(8000)]),
+      });
       const buf = await resp.arrayBuffer();
       const elapsed = (performance.now() - t0) / 1000;
       return +(( buf.byteLength * 8 / 1_000_000) / elapsed).toFixed(2);
-    } catch (_) {}
+    } catch (err) {
+      if (signal.aborted) throw err;
+    }
     // Navigator Connection API fallback; null when it has no estimate either.
     const conn = (navigator as any).connection;
     return typeof conn?.downlink === 'number' && conn.downlink > 0 ? conn.downlink : null;
   };
 
   const runTest = useCallback(async () => {
+    abortControllerRef.current?.abort();
+    const controller = new AbortController();
+    const runId = ++runIdRef.current;
+    abortControllerRef.current = controller;
+    const isCurrentRun = () => runIdRef.current === runId && !controller.signal.aborted;
+
     setIsTesting(true);
-    abortRef.current = false;
     setResult(null);
     setPhases([
       { label: 'Ping & RTT', status: 'idle', value: '—' },
@@ -145,9 +165,15 @@ export default function NetworkSpeedModal({
     ]);
     triggerHaptic(30);
 
+    const setPhase = (idx: number, update: Partial<TestPhase>) => {
+      if (!isCurrentRun()) return;
+      setPhases((prev) => prev.map((p, i) => (i === idx ? { ...p, ...update } : p)));
+    };
+
     // Mark every phase from `fromIdx` as failed. Used when a probe could not
     // reach the network at all: no fabricated result, no history entry.
     const failRemaining = (fromIdx: number, label: string) => {
+      if (!isCurrentRun()) return;
       setPhases((prev) => prev.map((p, i) => (i >= fromIdx ? { ...p, status: 'error', value: label } : p)));
     };
 
@@ -166,42 +192,41 @@ export default function NetworkSpeedModal({
       // Phase 0: Ping
       setPhase(0, { status: 'running' });
       await new Promise((r) => setTimeout(r, 300));
-      const pingMs = await measurePing();
+      if (!isCurrentRun()) return;
+      const pingMs = await measurePing(controller.signal);
+      if (!isCurrentRun()) return;
       if (pingMs === null) {
         failRemaining(0, 'No connection');
         return;
       }
       setPhase(0, { status: 'done', value: `${pingMs} ms` });
 
-      if (abortRef.current) return;
-
       // Phase 1: Download
       setPhase(1, { status: 'running' });
-      const dlMbps = await measureDownload();
+      const dlMbps = await measureDownload(controller.signal);
+      if (!isCurrentRun()) return;
       if (dlMbps === null) {
         failRemaining(1, 'No connection');
         return;
       }
       setPhase(1, { status: 'done', value: `${dlMbps} Mbps` });
 
-      if (abortRef.current) return;
-
       // Phase 2: Upload — estimated from the measured download (a real upload
       // probe needs a server endpoint). Labeled so the estimate is never
       // presented as a measurement.
       setPhase(2, { status: 'running' });
       await new Promise((r) => setTimeout(r, 800));
+      if (!isCurrentRun()) return;
       const ulMbps = +(dlMbps * (0.4 + Math.random() * 0.3)).toFixed(2);
       setPhase(2, { status: 'done', value: `${ulMbps} Mbps (est.)` });
-
-      if (abortRef.current) return;
 
       // Phase 3: Jitter (5 pings, stdev)
       setPhase(3, { status: 'running' });
       const pings: number[] = [];
       for (let i = 0; i < 4; i++) {
-        if (abortRef.current) return;
-        const p = await measurePing();
+        if (!isCurrentRun()) return;
+        const p = await measurePing(controller.signal);
+        if (!isCurrentRun()) return;
         if (p === null) {
           failRemaining(3, 'No connection');
           return;
@@ -209,11 +234,10 @@ export default function NetworkSpeedModal({
         pings.push(p);
         await new Promise((r) => setTimeout(r, 100));
       }
+      if (!isCurrentRun()) return;
       const avg = pings.reduce((a, b) => a + b, 0) / pings.length;
       const jitter = Math.round(Math.sqrt(pings.reduce((acc, p) => acc + (p - avg) ** 2, 0) / pings.length));
       setPhase(3, { status: 'done', value: `${jitter} ms jitter` });
-
-      if (abortRef.current) return;
 
       const conn = (navigator as any).connection;
       const networkType = conn?.effectiveType?.toUpperCase() || (navigator.onLine ? '5G / WiFi' : 'Offline');
@@ -233,6 +257,7 @@ export default function NetworkSpeedModal({
         serverLocation: 'Edge CDN · Singapore (sg-sgp1)',
         timestamp: new Date().toLocaleTimeString(),
       };
+      if (!isCurrentRun()) return;
       setResult(r);
 
       const updated = [r, ...history].slice(0, 5);
@@ -240,9 +265,13 @@ export default function NetworkSpeedModal({
       localStorage.setItem('hermes_speed_history', JSON.stringify(updated));
       triggerHaptic([30, 20, 60]);
     } catch (err) {
+      if (!isCurrentRun() || (err instanceof Error && err.name === 'AbortError')) return;
       setPhases((prev) => prev.map((p) => p.status === 'running' ? { ...p, status: 'error', value: 'Error' } : p));
     } finally {
-      setIsTesting(false);
+      if (runIdRef.current === runId) {
+        abortControllerRef.current = null;
+        setIsTesting(false);
+      }
     }
   }, [history]);
 
@@ -269,7 +298,7 @@ export default function NetworkSpeedModal({
     if (!result || !onAuditWithAgent) return;
     onAuditWithAgent(`Please audit this mobile network speed test result and advise on connection quality for running on-device LLM inference:\n\nDownload: ${result.downloadMbps} Mbps\nUpload: ${result.uploadMbps} Mbps\nPing: ${result.pingMs} ms, Jitter: ${result.jitterMs} ms\nSignal: ${result.signalStrength}, Type: ${result.networkType}\n\nIs this bandwidth sufficient for model downloads and real-time web search? Any recommendations?`);
     triggerHaptic([30, 20, 50]);
-    onClose();
+    handleClose();
   };
 
   const signalColor = result
@@ -281,7 +310,7 @@ export default function NetworkSpeedModal({
   if (!isOpen) return null;
 
   return (
-    <div onClick={onClose} className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
+    <div onClick={handleClose} className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
       <div onClick={(e) => e.stopPropagation()} className="relative w-full max-w-lg max-h-[92vh] flex flex-col bg-zinc-950 border border-zinc-800 rounded-3xl shadow-2xl overflow-hidden font-sans text-white">
         {/* Header */}
         <div className="px-5 py-4 border-b border-zinc-800/80 bg-zinc-900/60 flex items-center justify-between shrink-0">
@@ -302,7 +331,7 @@ export default function NetworkSpeedModal({
             </div>
           </div>
           <button
-            onClick={onClose}
+            onClick={handleClose}
             aria-label="Close speed test"
             className="min-w-[44px] min-h-[44px] flex items-center justify-center p-2.5 rounded-xl text-zinc-400 hover:text-white hover:bg-zinc-800/80 transition-colors cursor-pointer"
           >
