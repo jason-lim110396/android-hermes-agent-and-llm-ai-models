@@ -76,8 +76,20 @@ export default function VoiceCallModal({ isOpen, onClose }: VoiceCallModalProps)
   const audioChunksRef = useRef<Blob[]>([]);
   const sessionTokenRef = useRef(0);
   const silenceDetectorRef = useRef<SilenceDetector | null>(null);
+  const isOpenRef = useRef(isOpen);
+  const isGeneratingRef = useRef(isGenerating);
+  const isSpeakingRef = useRef(isSpeaking);
+  const userSpeechDraftRef = useRef(userSpeechDraft);
+  const handleCommitUserSpeechRef = useRef<(text: string) => Promise<void>>(async () => {});
   const isMutedRef = useRef(isMuted);
   isMutedRef.current = isMuted;
+
+  useEffect(() => {
+    isOpenRef.current = isOpen;
+    isGeneratingRef.current = isGenerating;
+    isSpeakingRef.current = isSpeaking;
+    userSpeechDraftRef.current = userSpeechDraft;
+  }, [isOpen, isGenerating, isSpeaking, userSpeechDraft]);
 
   // Check if browser has SpeechRecognition support
   const hasSpeechRecognition =
@@ -174,7 +186,7 @@ export default function VoiceCallModal({ isOpen, onClose }: VoiceCallModalProps)
 
   // Start or restart speech recognition safely
   const startRecognitionSafe = useCallback(() => {
-    if (typeof window === 'undefined') return;
+    if (typeof window === 'undefined' || !isOpenRef.current) return;
     if (isMutedRef.current) return;
 
     const SpeechRecognition =
@@ -228,11 +240,12 @@ export default function VoiceCallModal({ isOpen, onClose }: VoiceCallModalProps)
           }
 
           if (transcript.trim()) {
+            userSpeechDraftRef.current = transcript;
             setUserSpeechDraft(transcript);
           }
 
           if (isFinal && transcript.trim().length > 0) {
-            handleCommitUserSpeech(transcript.trim());
+            handleCommitUserSpeechRef.current(transcript.trim());
           }
         },
         onError: (err) => {
@@ -240,9 +253,17 @@ export default function VoiceCallModal({ isOpen, onClose }: VoiceCallModalProps)
             setPermissionError('Microphone permission denied. Tap orb or use quick input to chat.');
           } else if (err.error !== 'no-speech' && err.error !== 'aborted') {
             // Transient error: re-arm if still listening
-            if (isOpen && !isMutedRef.current && !isGenerating && !isSpeaking) {
+            if (isOpenRef.current && !isMutedRef.current && !isGeneratingRef.current && !isSpeakingRef.current) {
               setTimeout(() => {
-                if (isCurrent()) startRecognitionSafe();
+                if (
+                  isCurrent() &&
+                  isOpenRef.current &&
+                  !isMutedRef.current &&
+                  !isGeneratingRef.current &&
+                  !isSpeakingRef.current
+                ) {
+                  startRecognitionSafe();
+                }
               }, 400);
             }
           }
@@ -250,12 +271,20 @@ export default function VoiceCallModal({ isOpen, onClose }: VoiceCallModalProps)
         onEnd: () => {
           silenceDetectorRef.current?.clear();
           // If stopped without final and we still have text, commit it
-          if (userSpeechDraft.trim().length > 0) {
-            handleCommitUserSpeech(userSpeechDraft.trim());
-          } else if (isOpen && !isMutedRef.current && !isGenerating && !isSpeaking) {
+          if (userSpeechDraftRef.current.trim().length > 0) {
+            handleCommitUserSpeechRef.current(userSpeechDraftRef.current.trim());
+          } else if (isOpenRef.current && !isMutedRef.current && !isGeneratingRef.current && !isSpeakingRef.current) {
             // Auto-rearm
             setTimeout(() => {
-              if (isCurrent()) startRecognitionSafe();
+              if (
+                isCurrent() &&
+                isOpenRef.current &&
+                !isMutedRef.current &&
+                !isGeneratingRef.current &&
+                !isSpeakingRef.current
+              ) {
+                startRecognitionSafe();
+              }
             }, 300);
           }
         },
@@ -268,7 +297,7 @@ export default function VoiceCallModal({ isOpen, onClose }: VoiceCallModalProps)
         setPermissionError('Microphone permission blocked. Tap orb or use quick input to chat.');
       }
     }
-  }, [isOpen, isGenerating, isSpeaking, userSpeechDraft]);
+  }, []);
 
   // Initial connect when modal opens
   useEffect(() => {
@@ -277,6 +306,7 @@ export default function VoiceCallModal({ isOpen, onClose }: VoiceCallModalProps)
     triggerHaptic('success');
     setCallState('connecting');
     setPermissionError(null);
+    userSpeechDraftRef.current = '';
     setUserSpeechDraft('');
     const greeting = 'Hello! I am listening. How can I help you today?';
     setAssistantText(greeting);
@@ -311,6 +341,7 @@ export default function VoiceCallModal({ isOpen, onClose }: VoiceCallModalProps)
 
     return () => {
       clearTimeout(startTimeout);
+      sessionTokenRef.current += 1;
       if (recognitionRef.current) {
         try {
           recognitionRef.current.abort();
@@ -330,6 +361,7 @@ export default function VoiceCallModal({ isOpen, onClose }: VoiceCallModalProps)
   const handleCommitUserSpeech = async (text: string) => {
     if (!text.trim() || isGenerating) return;
     triggerHaptic('selection');
+    userSpeechDraftRef.current = '';
     setUserSpeechDraft('');
     setCallState('thinking');
 
@@ -349,6 +381,10 @@ export default function VoiceCallModal({ isOpen, onClose }: VoiceCallModalProps)
       }
     }
   };
+
+  useEffect(() => {
+    handleCommitUserSpeechRef.current = handleCommitUserSpeech;
+  });
 
   const handleInterrupt = () => {
     triggerHaptic('medium');
