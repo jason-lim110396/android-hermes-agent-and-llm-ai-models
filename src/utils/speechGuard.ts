@@ -39,9 +39,46 @@ if (typeof window !== 'undefined') {
 }
 
 export interface HermesTTSPlugin {
-  isAvailable(): Promise<{ available: boolean }>;
-  speak(options: { text: string; rate?: number; pitch?: number; lang?: string }): Promise<{ success: boolean; utteranceId?: string }>;
+  isAvailable(): Promise<{ available: boolean; initializing?: boolean; reason?: string }>;
+  speak(options: { text: string; rate?: number; pitch?: number; lang?: string }): Promise<{
+    success: boolean;
+    utteranceId?: string;
+    reason?: string;
+    languageFallback?: boolean;
+    lang?: string;
+  }>;
   stop(): Promise<{ stopped: boolean }>;
+  /** Native progress events; ttsEnd/ttsError let the guard stop early. */
+  addListener?: (
+    event: 'ttsStart' | 'ttsEnd' | 'ttsError',
+    listener: (data: { utteranceId?: string; code?: number }) => void
+  ) => Promise<unknown>;
+}
+
+// The native engine reports when an utterance really ended. The estimated
+// duration below is only a safety net now: a mid-utterance engine error used
+// to leave the UI "speaking" for up to 30 s with no sound playing.
+let nativeUtteranceId: string | null = null;
+let nativeFinish: (() => void) | null = null;
+let nativeEventsBound = false;
+
+function handleNativeUtteranceDone(data: { utteranceId?: string }) {
+  if (!nativeUtteranceId || data?.utteranceId !== nativeUtteranceId) return;
+  nativeUtteranceId = null;
+  const done = nativeFinish;
+  nativeFinish = null;
+  try {
+    done?.();
+  } catch (_) {}
+}
+
+function bindNativeTtsEvents(tts: HermesTTSPlugin) {
+  if (nativeEventsBound || typeof tts.addListener !== 'function') return;
+  nativeEventsBound = true;
+  try {
+    tts.addListener('ttsEnd', handleNativeUtteranceDone);
+    tts.addListener('ttsError', handleNativeUtteranceDone);
+  } catch (_) {}
 }
 
 let hermesTTSInstance: HermesTTSPlugin | null = null;
@@ -207,7 +244,27 @@ export function speakGuarded(
 
       nativeTTS
         .speak({ text: textToSpeak, rate, pitch, lang })
-        .then(() => {
+        .then((result) => {
+          // A Stop (or closing the sheet) bumps the session while the engine
+          // was still binding; the failure that arrives afterwards must stay
+          // silent instead of chiming over the user's cancel.
+          if (my !== sessionId) return;
+          if (!result || result.success === false) {
+            // No engine, missing voice data or a rejected request. Reporting
+            // "speaking" here is how the old build looked like it worked while
+            // the phone stayed silent, so release the state and play the
+            // audible chime instead of a fake countdown.
+            console.warn('[speechGuard] native TTS could not speak:', result?.reason || 'unknown');
+            playWebAudioSpeechChime(textToSpeak);
+            setTimeout(finishIfCurrent, 1200);
+            return;
+          }
+          if (result.languageFallback && result.lang) {
+            console.warn(`[speechGuard] voice data for ${lang} is not installed; spoke with ${result.lang}`);
+          }
+          bindNativeTtsEvents(nativeTTS);
+          nativeUtteranceId = result.utteranceId || null;
+          nativeFinish = finishIfCurrent;
           // Estimate duration roughly at ~150wpm (2.5 words/sec) with minimum 1.5s
           const wordCount = textToSpeak.split(/\s+/).length;
           const durationMs = Math.max(1500, Math.min(30000, (wordCount / 2.5) * 1000));
@@ -315,6 +372,8 @@ export function speakGuarded(
 /** Cancel any active utterance and clear all watchdogs/flags. */
 export function cancelSpeech(): void {
   sessionId++;
+  nativeUtteranceId = null;
+  nativeFinish = null;
   if (Capacitor.isNativePlatform()) {
     try {
       getHermesTTS()?.stop().catch(() => {});

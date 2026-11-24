@@ -37,6 +37,15 @@
         </provider>
     </application>
 
+    <!-- Android 11+ package visibility: without this intent query the app may
+         not see the installed text-to-speech engine, so TextToSpeech never
+         initializes and speak() is silently dropped. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE" />
+        </intent>
+    </queries>
+
     <!-- Permissions -->
     <!-- The web app uses every one of these capabilities. Capacitor denies a
          WebView request for anything the manifest does not declare, which is
