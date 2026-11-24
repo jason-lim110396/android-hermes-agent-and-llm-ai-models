@@ -110,6 +110,11 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
       // retained for the rest of the app session, and so a later reopen
       // never shows a stale, unattachable filmstrip.
       setCapturedUrl(null);
+      // The OCR source is a second full-size JPEG data URL; leaving it set
+      // kept several MB alive after the camera closed and let a reopened
+      // document scan "enhance" a photo from the previous session.
+      setOriginalCapturedUrl(null);
+      setIsHighContrast(false);
       setBurstFrames([]);
       setSelectedFrameIndex(0);
       setBurstCount(0);
@@ -405,6 +410,11 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
     setBurstFrames(captured);
     setSelectedFrameIndex(2);
     setCapturedUrl(captured[2].url);
+    // The OCR source must follow the frame the user is actually looking at.
+    // Without this, "Enhance OCR" either did nothing (no source) or restored
+    // an older photo over the burst and attached that instead.
+    setOriginalCapturedUrl(captured[2].url);
+    setIsHighContrast(false);
     setIsBurstCapturing(false);
     stopCamera();
   };
@@ -770,6 +780,10 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
                   onClick={() => {
                     setSelectedFrameIndex(idx);
                     setCapturedUrl(frame.url);
+                    // Picking another keyframe changes what will be attached,
+                    // so the un-filtered source for Enhance OCR follows it.
+                    setOriginalCapturedUrl(frame.url);
+                    setIsHighContrast(false);
                     triggerHaptic(15);
                   }}
                   className={`relative rounded-lg overflow-hidden border-2 aspect-video transition-all cursor-pointer ${
