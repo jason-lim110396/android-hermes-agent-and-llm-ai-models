@@ -110,6 +110,11 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
       // retained for the rest of the app session, and so a later reopen
       // never shows a stale, unattachable filmstrip.
       setCapturedUrl(null);
+      // The OCR source is a second full-size JPEG data URL; leaving it set
+      // kept several MB alive after the camera closed and let a reopened
+      // document scan "enhance" a photo from the previous session.
+      setOriginalCapturedUrl(null);
+      setIsHighContrast(false);
       setBurstFrames([]);
       setSelectedFrameIndex(0);
       setBurstCount(0);
