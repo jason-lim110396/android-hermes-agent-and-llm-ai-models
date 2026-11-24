@@ -311,24 +311,18 @@ export default function VoiceCallModal({ isOpen, onClose }: VoiceCallModalProps)
     const greeting = 'Hello! I am listening. How can I help you today?';
     setAssistantText(greeting);
 
-    // Audible spoken greeting on connect
-    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      try {
-        if (window.speechSynthesis.paused) {
-          window.speechSynthesis.resume();
-        }
-        const utterance = createSpeechUtterance(greeting);
-        if (utterance) {
-          utterance.lang = 'en-US';
-          utterance.volume = 1.0;
-          utterance.rate = 1.0;
-          utterance.pitch = 1.05;
-        }
-        speakGuarded(utterance, greeting);
-      } catch (_) {
-        playWebAudioSpeechChime(greeting);
-      }
-    } else {
+    // Audible spoken greeting on connect. The Android WebView has no
+    // `speechSynthesis`, so do not gate the native engine on it.
+    const greetingUtterance = createSpeechUtterance(greeting);
+    if (greetingUtterance) {
+      greetingUtterance.lang = 'en-US';
+      greetingUtterance.volume = 1.0;
+      greetingUtterance.rate = 1.0;
+      greetingUtterance.pitch = 1.05;
+    }
+    try {
+      speakGuarded(greetingUtterance, greeting, { lang: 'en-US' });
+    } catch (_) {
       playWebAudioSpeechChime(greeting);
     }
 

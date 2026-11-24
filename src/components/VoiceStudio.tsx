@@ -556,42 +556,39 @@ export default function VoiceStudio() {
   };
 
   const playUtterance = (text: string, voicePitch: number, voiceRate: number) => {
-    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      try {
-        if (window.speechSynthesis.paused) {
-          window.speechSynthesis.resume();
-        }
-        const utterance = createSpeechUtterance(text);
-        if (utterance) {
-          utterance.rate = voiceRate;
-          utterance.pitch = voicePitch;
-          utterance.lang = 'en-US';
-          utterance.volume = 1.0;
+    // Android System WebView has no `speechSynthesis` object at all, so the old
+    // `'speechSynthesis' in window` guard sent every Neural Voice preview to the
+    // silent branch and never reached the native engine. speakGuarded already
+    // routes native TTS → browser synthesis → audible chime, so build the
+    // utterance only when the browser API exists and always ask it to speak.
+    const utterance =
+      typeof window !== 'undefined' && 'speechSynthesis' in window ? createSpeechUtterance(text) : null;
+    try {
+      if (utterance) {
+        utterance.rate = voiceRate;
+        utterance.pitch = voicePitch;
+        utterance.lang = 'en-US';
+        utterance.volume = 1.0;
 
-          const voices = window.speechSynthesis.getVoices();
-          if (voices && voices.length > 0) {
-            const naturalVoice = voices.find(
-              (v) => (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('Neural')) && v.lang.startsWith('en')
-            ) || voices.find((v) => v.lang.startsWith('en')) || voices[0];
-            if (naturalVoice) {
-              utterance.voice = naturalVoice;
-              if (naturalVoice.lang) utterance.lang = naturalVoice.lang;
-            }
+        const voices = window.speechSynthesis.getVoices();
+        if (voices && voices.length > 0) {
+          const naturalVoice = voices.find(
+            (v) => (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('Neural')) && v.lang.startsWith('en')
+          ) || voices.find((v) => v.lang.startsWith('en')) || voices[0];
+          if (naturalVoice) {
+            utterance.voice = naturalVoice;
+            if (naturalVoice.lang) utterance.lang = naturalVoice.lang;
           }
-
-          utterance.onstart = () => {
-            drawClonerSpectrum();
-          };
-          speakGuarded(utterance, text);
-        } else {
-          speakGuarded(null, text);
         }
-      } catch (_) {
-        handlePreviewTrimmedAudio();
-        useAppStore.setState({ isSpeaking: false });
+
+        utterance.onstart = () => {
+          drawClonerSpectrum();
+        };
       }
-    } else {
+      speakGuarded(utterance, text, { rate: voiceRate, pitch: voicePitch, lang: 'en-US' });
+    } catch (_) {
       handlePreviewTrimmedAudio();
+      useAppStore.setState({ isSpeaking: false });
     }
   };
 
