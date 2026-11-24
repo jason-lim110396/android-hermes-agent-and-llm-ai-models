@@ -42,7 +42,7 @@ dependencies {
     implementation project(':capacitor-cordova-android-plugins')
     // Bundled Latin text recognizer for HermesOCR. Model ships inside the APK,
     // so scanning documents works offline and images never leave the device.
-    implementation 'com.google.mlkit:text-recognition:16.0.0'
+    implementation 'com.google.mlkit:text-recognition:16.0.1'
 }
 
 apply from: 'capacitor.build.gradle'
