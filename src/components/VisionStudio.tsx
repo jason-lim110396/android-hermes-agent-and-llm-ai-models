@@ -561,7 +561,10 @@ export default function VisionStudio() {
         const ocr = await recognizeTextFromDataUrl(currentPage.dataUrl);
         if (ocr.lines.length > 0) {
           extractedLines = ocr.lines;
-          analyzerLabel = 'Android ML Kit text recognition (on-device, offline)';
+          analyzerLabel =
+            ocr.script === 'cjk'
+              ? 'Android ML Kit text recognition (Chinese + Latin, on-device, offline)'
+              : 'Android ML Kit text recognition (Latin, on-device, offline)';
           // A scan always replaces the translation source. The old code only
           // filled an *empty* box, so the prefilled example paragraph won and
           // real OCR text never reached the translate tab.
