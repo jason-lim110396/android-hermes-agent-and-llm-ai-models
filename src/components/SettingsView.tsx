@@ -603,9 +603,9 @@ export default function SettingsView() {
           'hermes_sensor_calibration_offset',
           'hermes_noise_gate_threshold',
           // The on-device knowledge base and its index are user documents,
-          // not rebuildable session cache.
+          // not rebuildable session cache. (hermes_vector_db itself is an
+          // IndexedDB database, which this button never touches.)
           'hermes_vector_kb_docs_v1',
-          'hermes_vector_db',
           // Saved benchmark runs are the user's own results.
           'hermes_benchmark_history',
         ]);
