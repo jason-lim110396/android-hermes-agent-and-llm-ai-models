@@ -19,6 +19,8 @@ interface HermesOCRPlugin {
     lines: string[];
     blockCount: number;
     engine: string;
+    /** Which script model produced the text: Latin, or the CJK model. */
+    script?: string;
   }>;
 }
 
@@ -39,6 +41,8 @@ export interface OcrResult {
   lines: string[];
   /** Which engine produced this: native ML Kit, or none available. */
   engine: 'mlkit' | 'unavailable';
+  /** Script model that produced the text: Latin, or the CJK model. */
+  script?: 'latin' | 'cjk';
   /** Human readable reason when OCR could not run. */
   reason?: string;
 }
@@ -83,6 +87,7 @@ export async function recognizeTextFromDataUrl(dataUrl: string): Promise<OcrResu
       text,
       lines: lines.length > 0 ? lines : text ? text.split('\n') : [],
       engine: 'mlkit',
+      script: result.script === 'cjk' ? 'cjk' : 'latin',
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error || 'unknown error');
