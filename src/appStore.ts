@@ -136,6 +136,12 @@ interface AppStore {
   pauseDownloadModel: (modelId: string) => void;
   deleteModel: (modelId: string) => Promise<void>;
 
+  // Model gate: when an action needs on-device weights the user has not
+  // downloaded, the UI asks instead of failing silently inside inference.
+  modelGate: { modelId: string; reason: string; resolve: (proceed: boolean) => void } | null;
+  requestModel: (modelId: string, reason: string) => Promise<boolean>;
+  closeModelGate: (proceed: boolean) => void;
+
   // Separated Multi-Session Threads for Chat and Agent
   chatSessions: Record<string, ChatSession>;
   agentSessions: Record<string, ChatSession>;
@@ -541,6 +547,32 @@ export const useAppStore = create<AppStore>((set, get) => {
   },
 
   downloads: {},
+
+  modelGate: null,
+
+  requestModel: (modelId: string, reason: string) => {
+    const state = get();
+    // An endpoint-backed setup does not need local weights at all.
+    if (state.apiEndpoint && state.apiKey) return Promise.resolve(true);
+    if (state.downloads[modelId]?.isReady) return Promise.resolve(true);
+
+    // Replace any gate already open so two prompts can never stack, and let
+    // the older caller finish as "declined" rather than hanging forever.
+    const previous = state.modelGate;
+    if (previous) previous.resolve(false);
+
+    return new Promise<boolean>((resolve) => {
+      set({ modelGate: { modelId, reason, resolve } });
+    });
+  },
+
+  closeModelGate: (proceed: boolean) => {
+    const gate = get().modelGate;
+    if (!gate) return;
+    // Clear first: the resolver may synchronously start a new request.
+    set({ modelGate: null });
+    gate.resolve(proceed);
+  },
 
   checkCacheStatus: async () => {
     const updated: Record<string, ModelDownloadState> = { ...get().downloads };
@@ -1317,6 +1349,15 @@ export const useAppStore = create<AppStore>((set, get) => {
       return '⚠️ Translation failed: a reply is still generating. Stop it or wait for it to finish, then translate again.';
     }
 
+    // Same pre-flight model gate as chat: never run translation against weights
+    // that are not downloaded; offer the download or another ready model first.
+    const gateModelId = get().selectedModelId;
+    const proceed = await get().requestModel(
+      gateModelId,
+      'Translation uses the selected model, which is not downloaded on this phone yet.'
+    );
+    if (!proceed) return '';
+
     const { apiEndpoint, apiKey, customModelName, selectedModelId, temperature, performanceMode } = get();
     let latest = '';
     try {
@@ -1575,6 +1616,30 @@ export const useAppStore = create<AppStore>((set, get) => {
     }
 
     const currentModel = AVAILABLE_MODELS.find((m) => m.id === activeModelId);
+
+    // Pre-flight model gate: if this reply would run on on-device weights that
+    // are not downloaded yet, ask BEFORE the message is appended, then resume
+    // automatically once the download finishes or a ready model is chosen.
+    // Previously the request went to inference and the user only saw a
+    // "weights not found, open Model Hub" hint in the transcript.
+    {
+      const { apiEndpoint: gateEndpoint, apiKey: gateKey } = get();
+      const activeSpec = AVAILABLE_MODELS.find((m) => m.id === activeModelId);
+      const needsLocalWeights =
+        !(gateEndpoint && gateKey) &&
+        !!activeSpec?.engine &&
+        activeSpec.family !== 'image' &&
+        activeSpec.family !== 'audio';
+      if (needsLocalWeights && !get().downloads[activeModelId]?.isReady) {
+        const proceed = await get().requestModel(
+          activeModelId,
+          'This reply runs on an on-device model that is not downloaded on this phone yet.'
+        );
+        if (!proceed) return;
+        // The gate can switch the model (user picked another downloaded one).
+        activeModelId = get().selectedModelId;
+      }
+    }
 
     const userMessage: ChatMessage = {
       id: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,

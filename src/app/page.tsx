@@ -37,6 +37,7 @@ import VoiceStudio from '@/components/VoiceStudio';
 import FileSearchStudio from '@/components/FileSearchStudio';
 import TaskWorkflowsStudio from '@/components/TaskWorkflowsStudio';
 import BenchmarkStudio from '@/components/BenchmarkStudio';
+import ModelGateModal from '@/components/ModelGateModal';
 
 export default function Home() {
   const currentTab = useAppStore((s) => s.currentTab);
@@ -295,6 +296,7 @@ export default function Home() {
           <span className="text-[10px]">Settings</span>
         </button>
       </nav>
+      <ModelGateModal />
       </main>
     </ErrorBoundary>
   );
