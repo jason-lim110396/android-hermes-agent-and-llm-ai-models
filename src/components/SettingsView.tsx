@@ -585,19 +585,40 @@ export default function SettingsView() {
           'hermes_active_alarms',
           'hermes_haptic_alerts',
           'hermes_haptic_intensity',
-          'hermes_wakelock_enabled',
+          // The wake-lock module stores 'hermes_wake_lock_enabled'; the list
+          // used to spell it 'hermes_wakelock_enabled', so the "keep settings"
+          // promise silently dropped the screen-awake preference.
+          'hermes_wake_lock_enabled',
           'hermes_voice_rate',
           'hermes_voice_pitch',
           'hermes_voice_uri',
+          // A low-vision user's accessibility mode is a setting, not cache.
+          'hermes_high_contrast',
+          'hermes_chat_font_size',
+          // Saved clips are user-authored content; deleting them here lost
+          // every entry the Clipboard Vault screen had stored.
+          'hermes_clipboard_vault',
+          // Voice input calibration and the noise gate are set once on the
+          // phone and are painful to redo.
+          'hermes_sensor_calibration_offset',
+          'hermes_noise_gate_threshold',
+          // The on-device knowledge base and its index are user documents,
+          // not rebuildable session cache.
+          'hermes_vector_kb_docs_v1',
+          'hermes_vector_db',
+          // Saved benchmark runs are the user's own results.
+          'hermes_benchmark_history',
         ]);
         // Most app data lives under 'hermes_...' (underscore) - including the
         // conversation vault hermes_sessions_v1 and every per-session
         // scratchpad - while the old filter matched only the rare 'hermes-'
         // (hyphen) prefix, so a "Cleared!" toast left chat history on disk.
+        // Whatever the prefix, a key on the keep list survives this button.
         const keysToRemove = Object.keys(localStorage).filter(
           (k) =>
             (k.startsWith('hermes-') || k.startsWith('synthetic-') ||
-             (k.startsWith('hermes_') && !KEPT_USER_KEYS.has(k)))
+             k.startsWith('hermes_')) &&
+            !KEPT_USER_KEYS.has(k)
         );
         keysToRemove.forEach((k) => localStorage.removeItem(k));
         clearPersistedSessions();
@@ -2383,7 +2404,10 @@ export default function SettingsView() {
           <div className="flex items-center justify-between pt-1 border-t border-zinc-800/60">
             <div>
               <h5 className="text-[11px] font-bold text-zinc-300">Session & Scratchpad Cache</h5>
-              <p className="text-[10px] text-zinc-500">Reset cached sessions and scratchpads while preserving user settings.</p>
+              <p className="text-[10px] text-zinc-500">
+                Reset cached sessions and scratchpads. Saved clips, documents, benchmark runs,
+                accessibility and app settings are kept.
+              </p>
               {vaultStats && (
                 <div className="flex items-center gap-2 mt-1 text-[10px] text-zinc-400 font-mono">
                   <span className="px-1.5 py-0.5 rounded bg-zinc-800/90 border border-zinc-700/60 text-zinc-300">
