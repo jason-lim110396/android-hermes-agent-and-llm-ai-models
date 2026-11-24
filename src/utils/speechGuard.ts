@@ -245,6 +245,10 @@ export function speakGuarded(
       nativeTTS
         .speak({ text: textToSpeak, rate, pitch, lang })
         .then((result) => {
+          // A Stop (or closing the sheet) bumps the session while the engine
+          // was still binding; the failure that arrives afterwards must stay
+          // silent instead of chiming over the user's cancel.
+          if (my !== sessionId) return;
           if (!result || result.success === false) {
             // No engine, missing voice data or a rejected request. Reporting
             // "speaking" here is how the old build looked like it worked while
