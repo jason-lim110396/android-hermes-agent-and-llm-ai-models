@@ -39,8 +39,14 @@ if (typeof window !== 'undefined') {
 }
 
 export interface HermesTTSPlugin {
-  isAvailable(): Promise<{ available: boolean }>;
-  speak(options: { text: string; rate?: number; pitch?: number; lang?: string }): Promise<{ success: boolean; utteranceId?: string }>;
+  isAvailable(): Promise<{ available: boolean; initializing?: boolean; reason?: string }>;
+  speak(options: { text: string; rate?: number; pitch?: number; lang?: string }): Promise<{
+    success: boolean;
+    utteranceId?: string;
+    reason?: string;
+    languageFallback?: boolean;
+    lang?: string;
+  }>;
   stop(): Promise<{ stopped: boolean }>;
 }
 
@@ -207,7 +213,20 @@ export function speakGuarded(
 
       nativeTTS
         .speak({ text: textToSpeak, rate, pitch, lang })
-        .then(() => {
+        .then((result) => {
+          if (!result || result.success === false) {
+            // No engine, missing voice data or a rejected request. Reporting
+            // "speaking" here is how the old build looked like it worked while
+            // the phone stayed silent, so release the state and play the
+            // audible chime instead of a fake countdown.
+            console.warn('[speechGuard] native TTS could not speak:', result?.reason || 'unknown');
+            playWebAudioSpeechChime(textToSpeak);
+            setTimeout(finishIfCurrent, 1200);
+            return;
+          }
+          if (result.languageFallback && result.lang) {
+            console.warn(`[speechGuard] voice data for ${lang} is not installed; spoke with ${result.lang}`);
+          }
           // Estimate duration roughly at ~150wpm (2.5 words/sec) with minimum 1.5s
           const wordCount = textToSpeak.split(/\s+/).length;
           const durationMs = Math.max(1500, Math.min(30000, (wordCount / 2.5) * 1000));
