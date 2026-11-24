@@ -174,6 +174,12 @@ interface AppStore {
   removeAttachment: (id: string) => void;
   clearAttachments: () => void;
   sendMessage: (userText: string, options?: { isLive?: boolean }) => Promise<void>;
+  /**
+   * Translate text with the model and endpoint the user already configured.
+   * Returns the translation, or an engine failure text starting with "⚠️" so
+   * callers can show the reason instead of passing it off as a translation.
+   */
+  translateText: (text: string, targetLanguage: string, onChunk?: (partial: string) => void) => Promise<string>;
   stopAllRunningTasks: () => void;
 
   // Performance & Power Efficiency Mode
@@ -1298,6 +1304,50 @@ export const useAppStore = create<AppStore>((set, get) => {
       speakGuarded(utterance, chunk);
     } catch (_) {
       set({ isSpeaking: false });
+    }
+  },
+
+  translateText: async (text: string, targetLanguage: string, onChunk?: (partial: string) => void) => {
+    const source = text.trim();
+    if (!source) return '';
+    // Inference shares one abort controller and one GPU/CPU engine with chat.
+    // A concurrent call would interrupt the reply being generated, so ask the
+    // caller to wait rather than silently killing that turn.
+    if (get().isGenerating) {
+      return '⚠️ Translation failed: a reply is still generating. Stop it or wait for it to finish, then translate again.';
+    }
+
+    const { apiEndpoint, apiKey, customModelName, selectedModelId, temperature, performanceMode } = get();
+    let latest = '';
+    try {
+      latest = await callRealLLMInference({
+        messages: [{ role: 'user', content: source }],
+        modelId: selectedModelId,
+        systemPrompt:
+          `You are a professional translator. Translate the user's text into ${targetLanguage}. ` +
+          'Preserve line breaks, numbers, names and formatting. Return only the translation, ' +
+          'with no notes, quotes, romanization or explanation.',
+        temperature: Math.min(temperature, 0.3),
+        // Short OCR pages need little room; long ones should not be truncated
+        // mid-sentence, so scale the budget with the source length.
+        maxTokens: Math.max(1024, Math.min(4096, Math.ceil(source.length / 2))),
+        performanceMode,
+        config: {
+          backendType: apiEndpoint ? 'api' : 'webllm',
+          apiEndpoint,
+          apiKey,
+          customModelName: customModelName || undefined,
+          ...resolveFallbackConfig(get),
+        },
+        onStreamChunk: (chunk) => {
+          latest = chunk;
+          onChunk?.(chunk);
+        },
+      });
+      return latest;
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error || 'unknown error');
+      return `⚠️ Translation failed: ${reason}`;
     }
   },
 

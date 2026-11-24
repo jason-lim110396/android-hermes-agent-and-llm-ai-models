@@ -109,20 +109,22 @@ export default function VisionStudio() {
   const sendMessage = useAppStore((s) => s.sendMessage);
   const setCurrentTab = useAppStore((s) => s.setCurrentTab);
   const addAttachment = useAppStore((s) => s.addAttachment);
+  const translateText = useAppStore((s) => s.translateText);
 
   const [activeTab, setActiveTab] = useState<'scanner' | 'reconciler' | 'barcode' | 'diff' | 'translate'>('scanner');
 
   // Multi-Lingual OCR Translation & Speech Readout State
   const [ocrTranslateLang, setOcrTranslateLang] = useState<string>('Spanish');
-  const [ocrSourceText, setOcrSourceText] = useState<string>(
-    'Hermes Neural Engine v3.0: High-performance on-device AI for mobile devices. Zero cloud latency and 100% data sovereignty.'
-  );
-  const [ocrTranslatedResult, setOcrTranslatedResult] = useState<string>(
-    'Motor Neuronal Hermes v3.0: IA integrada de alto rendimiento para dispositivos móviles. Cero latencia en la nube y 100% de soberanía de datos.'
-  );
+  // Never prefilled: the source box only holds text the user scanned or typed,
+  // so a translation can never be produced from an example paragraph.
+  const [ocrSourceText, setOcrSourceText] = useState<string>('');
+  const [ocrTranslatedResult, setOcrTranslatedResult] = useState<string>('');
   const [isTranslatingOcr, setIsTranslatingOcr] = useState<boolean>(false);
   const [isSpeakingOcrTranslation, setIsSpeakingOcrTranslation] = useState<boolean>(false);
   const [ocrTranslateFeedback, setOcrTranslateFeedback] = useState<string | null>(null);
+  // Token-by-token store writes into this panel would re-render the whole
+  // studio per token on a phone; batch the preview to ~7fps.
+  const lastTranslateFlushRef = useRef(0);
 
   const OCR_LANGUAGES = [
     { name: 'Spanish', flag: '🇪🇸', code: 'es' },
@@ -137,44 +139,51 @@ export default function VisionStudio() {
 
   const handleTranslateOcr = async (target: string) => {
     setOcrTranslateLang(target);
-    setIsTranslatingOcr(true);
-    setOcrTranslateFeedback(`Translating OCR text into ${target} via on-device MiniCPM-V...`);
     triggerHaptic(20);
 
-    await new Promise((r) => setTimeout(r, 600));
-
-    let translated = '';
-    switch (target) {
-      case 'French':
-        translated = 'Moteur Neuronal Hermes v3.0 : IA embarquée haute performance pour appareils mobiles. Zéro latence cloud et 100% de souveraineté des données.';
-        break;
-      case 'German':
-        translated = 'Hermes Neuronale Engine v3.0: Leistungsstarke On-Device-KI für Mobilgeräte. Keine Cloud-Latenz und 100% Datensouveränität.';
-        break;
-      case 'Japanese':
-        translated = 'Hermesニューラルエンジン v3.0：モバイル端末向け高性能オンデバイスAI。クラウド遅延ゼロ、100%のデータ主権を実現。';
-        break;
-      case 'Chinese':
-        translated = 'Hermes 神经网络引擎 v3.0：专为移动设备打造的高性能端侧 AI。零云端延迟，100% 数据主权。';
-        break;
-      case 'Korean':
-        translated = 'Hermes 뉴럴 엔진 v3.0: 모바일 장치를 위한 고성능 온디바이스 AI. 클라우드 지연 제로 및 100% 데이터 주권 보장.';
-        break;
-      case 'Italian':
-        translated = 'Motore Neurale Hermes v3.0: IA on-device ad alte prestazioni per dispositivi mobili. Zero latenza cloud e sovranità dei dati al 100%.';
-        break;
-      case 'Portuguese':
-        translated = 'Motor Neural Hermes v3.0: IA no dispositivo de alto desempenho para dispositivos móveis. Zero latência na nuvem e 100% de soberania dos dados.';
-        break;
-      default:
-        translated = 'Motor Neuronal Hermes v3.0: IA integrada de alto rendimiento para dispositivos móviles. Cero latencia en la nube y 100% de soberanía de datos.';
+    const source = ocrSourceText.trim();
+    if (!source) {
+      setOcrTranslatedResult('');
+      setOcrTranslateFeedback('Nothing to translate yet - scan a page with Extract OCR, or paste text into the source box.');
+      return;
     }
 
-    setOcrTranslatedResult(translated);
-    setIsTranslatingOcr(false);
-    setOcrTranslateFeedback(`Translation into ${target} complete!`);
-    setTimeout(() => setOcrTranslateFeedback(null), 3000);
-    triggerHaptic([30, 20, 30]);
+    setIsTranslatingOcr(true);
+    setOcrTranslatedResult('');
+    setOcrTranslateFeedback(`Translating into ${target} with ${activeModelName}...`);
+
+    try {
+      // Real translation through the configured model/endpoint. This replaces
+      // a per-language canned paragraph that ignored the scanned text.
+      const result = await translateText(source, target, (partial) => {
+        const now = Date.now();
+        if (now - lastTranslateFlushRef.current < 150) return;
+        lastTranslateFlushRef.current = now;
+        setOcrTranslatedResult(partial);
+      });
+      const translated = (result || '').trim();
+      if (!translated) {
+        setOcrTranslateFeedback(`No translation came back from ${activeModelName}. Try again or switch model.`);
+        return;
+      }
+      if (translated.startsWith('⚠️')) {
+        // The engine explains its own failure; keep that text visible and
+        // label it as a failure instead of presenting it as a translation.
+        setOcrTranslatedResult(translated);
+        setOcrTranslateFeedback('Translation failed - see the reason above.');
+        return;
+      }
+      setOcrTranslatedResult(translated);
+      setOcrTranslateFeedback(`Translation into ${target} complete.`);
+      triggerHaptic([30, 20, 30]);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error || 'unknown error');
+      setOcrTranslatedResult(`⚠️ Translation failed: ${reason}`);
+      setOcrTranslateFeedback('Translation failed - see the reason above.');
+    } finally {
+      setIsTranslatingOcr(false);
+      setTimeout(() => setOcrTranslateFeedback(null), 4000);
+    }
   };
 
   const handleSpeakOcrTranslation = async () => {
@@ -288,6 +297,9 @@ export default function VisionStudio() {
 
   const visionModels = AVAILABLE_MODELS.filter((m) => m.category === 'vision' || m.capabilities.includes('vision'));
   const currentModel = visionModels.find((m) => m.id === selectedModelId) || visionModels[0];
+  // Translation runs on the globally selected text model, not a vision model,
+  // so the UI names that model instead of claiming an on-device translator.
+  const activeModelName = AVAILABLE_MODELS.find((m) => m.id === selectedModelId)?.name || 'the selected model';
 
   const currentPage = scannedPages[selectedPageIndex] || scannedPages[0];
   const [imgDims, setImgDims] = useState<{ width: number; height: number } | null>(null);
@@ -550,7 +562,11 @@ export default function VisionStudio() {
         if (ocr.lines.length > 0) {
           extractedLines = ocr.lines;
           analyzerLabel = 'Android ML Kit text recognition (on-device, offline)';
-          setOcrSourceText((prev) => (prev.trim().length > 0 ? prev : ocr.text));
+          // A scan always replaces the translation source. The old code only
+          // filled an *empty* box, so the prefilled example paragraph won and
+          // real OCR text never reached the translate tab.
+          setOcrSourceText(ocr.text);
+          setOcrTranslatedResult('');
         } else {
           const detail =
             ocr.reason ||
@@ -1675,7 +1691,7 @@ export default function VisionStudio() {
               {/* Target Language Selection Pills */}
               <div className="space-y-1.5 pt-1 border-t border-zinc-800/80">
                 <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">
-                  Target Language (MiniCPM-V + Kokoro TTS)
+                  Target Language
                 </span>
                 <div className="grid grid-cols-4 gap-1.5">
                   {OCR_LANGUAGES.map((lang) => {
@@ -1706,8 +1722,8 @@ export default function VisionStudio() {
                   <Languages className="w-4 h-4" />
                   <span>Translated Document ({ocrTranslateLang})</span>
                 </span>
-                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/40 font-mono">
-                  100% On-Device
+                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/40 font-mono max-w-[45%] truncate">
+                  via {activeModelName}
                 </span>
               </div>
 
@@ -1718,7 +1734,11 @@ export default function VisionStudio() {
                     <span>Translating document text...</span>
                   </div>
                 ) : (
-                  ocrTranslatedResult
+                  ocrTranslatedResult || (
+                    <span className="text-zinc-500">
+                      No translation yet - run Extract OCR or paste text above, then pick a target language.
+                    </span>
+                  )
                 )}
               </div>
 
