@@ -1050,14 +1050,15 @@ export async function callRealLLMInference({
 
       const cleanSpoken = userPrompt.replace(/[`*#_~]/g, '').trim();
 
-      // Trigger immediate on-device browser/Android speech utterance with best acoustic voice
-      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-        try {
-          const utterance = createSpeechUtterance(cleanSpoken);
-          if (utterance) {
-            utterance.rate = 1.0;
-            utterance.pitch = modelSpec.id.includes('kokoro') ? 1.0 : 1.05;
+      // Speak on-device. The Android WebView has no `speechSynthesis`, so do
+      // not gate this on it: speakGuarded routes to the native TTS engine.
+      try {
+        const utterance = createSpeechUtterance(cleanSpoken);
+        if (utterance) {
+          utterance.rate = 1.0;
+          utterance.pitch = modelSpec.id.includes('kokoro') ? 1.0 : 1.05;
 
+          if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
             const voices = window.speechSynthesis.getVoices();
             if (voices && voices.length > 0) {
               const bestVoice = voices.find(
@@ -1065,13 +1066,10 @@ export async function callRealLLMInference({
               ) || voices.find((v) => v.lang.startsWith('en')) || voices[0];
               if (bestVoice) utterance.voice = bestVoice;
             }
-
-            speakGuarded(utterance, cleanSpoken);
-          } else {
-            speakGuarded(null, cleanSpoken);
           }
-        } catch (_) {}
-      }
+        }
+        speakGuarded(utterance, cleanSpoken);
+      } catch (_) {}
 
       const resultText = `🔊 **Audio & Voice Output** synthesized by **${modelSpec.name}**:\n\n> "${cleanSpoken}"\n\n*(Neural audio waveform generated and spoken aloud on your device)*`;
       onStreamChunk(resultText);

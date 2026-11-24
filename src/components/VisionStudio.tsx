@@ -41,7 +41,7 @@ import {
 import { useAppStore, Attachment } from '@/appStore';
 import { downsampleImageFile } from '@/utils/imageOptimizer';
 import { AVAILABLE_MODELS } from '@/models';
-import { speakGuarded, createSpeechUtterance } from '@/utils/speechGuard';
+import { speakGuarded, createSpeechUtterance, onSpeakingChange } from '@/utils/speechGuard';
 import { recognizeTextFromDataUrl } from '@/utils/ocrEngine';
 import CameraModal from './CameraModal';
 
@@ -122,6 +122,9 @@ export default function VisionStudio() {
   const [isTranslatingOcr, setIsTranslatingOcr] = useState<boolean>(false);
   const [isSpeakingOcrTranslation, setIsSpeakingOcrTranslation] = useState<boolean>(false);
   const [ocrTranslateFeedback, setOcrTranslateFeedback] = useState<string | null>(null);
+  // Native TTS reports completion by event, not through utterance.onend, so the
+  // read-aloud button follows the guard's real speaking state.
+  useEffect(() => onSpeakingChange((active) => setIsSpeakingOcrTranslation(active)), []);
   // Token-by-token store writes into this panel would re-render the whole
   // studio per token on a phone; batch the preview to ~7fps.
   const lastTranslateFlushRef = useRef(0);
@@ -191,23 +194,18 @@ export default function VisionStudio() {
     setIsSpeakingOcrTranslation(true);
     triggerHaptic(30);
 
-    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      const utterance = createSpeechUtterance(ocrTranslatedResult);
-      if (utterance) {
-        const targetObj = OCR_LANGUAGES.find((l) => l.name === ocrTranslateLang);
-        if (targetObj) utterance.lang = targetObj.code;
-        utterance.rate = 1.0;
-        utterance.onend = () => setIsSpeakingOcrTranslation(false);
-        utterance.onerror = () => setIsSpeakingOcrTranslation(false);
-        speakGuarded(utterance, ocrTranslatedResult);
-      } else {
-        speakGuarded(null, ocrTranslatedResult);
-        setTimeout(() => setIsSpeakingOcrTranslation(false), 1200);
-      }
-    } else {
-      await new Promise((r) => setTimeout(r, 1500));
-      setIsSpeakingOcrTranslation(false);
+    // Android WebView has no `speechSynthesis`, so the old guard skipped the
+    // native engine and silently did nothing. speakGuarded handles native,
+    // browser and chime paths; the speaking flag follows its real state.
+    const utterance = createSpeechUtterance(ocrTranslatedResult);
+    const targetObj = OCR_LANGUAGES.find((l) => l.name === ocrTranslateLang);
+    if (utterance) {
+      if (targetObj) utterance.lang = targetObj.code;
+      utterance.rate = 1.0;
+      utterance.onend = () => setIsSpeakingOcrTranslation(false);
+      utterance.onerror = () => setIsSpeakingOcrTranslation(false);
     }
+    speakGuarded(utterance, ocrTranslatedResult, targetObj ? { lang: targetObj.code } : undefined);
   };
 
   // Visual Diff & Comparison State
