@@ -42,6 +42,7 @@ import { useAppStore, Attachment } from '@/appStore';
 import { downsampleImageFile } from '@/utils/imageOptimizer';
 import { AVAILABLE_MODELS } from '@/models';
 import { speakGuarded, createSpeechUtterance } from '@/utils/speechGuard';
+import { recognizeTextFromDataUrl } from '@/utils/ocrEngine';
 import CameraModal from './CameraModal';
 
 type VisionTaskMode = 'ocr' | 'diagram' | 'audit' | 'chat';
@@ -279,6 +280,9 @@ export default function VisionStudio() {
   const [isReconciling, setIsReconciling] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Separate input for replacing the selected page's image. Kept apart from
+  // the multi-file "Add Image" input so replacing never appends a page.
+  const replaceInputRef = useRef<HTMLInputElement>(null);
   const fileInputDocARef = useRef<HTMLInputElement>(null);
   const fileInputDocBRef = useRef<HTMLInputElement>(null);
 
@@ -340,6 +344,28 @@ export default function VisionStudio() {
     // instead of the pre-append length, which can point past the end.
     setSelectedPageIndex(Math.min(scannedPages.length, MAX_SCANNED_PAGES - 1));
     setAnalysisResult(null);
+  };
+
+  // Swap the selected page's image in place (re-shoot a blurry page without
+  // deleting and re-adding it, which used to lose its position in the bundle).
+  const handleReplacePage = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file || !currentPage) return;
+    const optimized = await downsampleImageFile(file);
+    if (!optimized.dataUrl) {
+      setAnalysisResult('Could not read that image. Try a different photo or format.');
+      return;
+    }
+    setScannedPages((prev) =>
+      prev.map((page, idx) =>
+        idx === selectedPageIndex
+          ? { ...page, name: file.name || page.name, dataUrl: optimized.dataUrl, originalDataUrl: undefined, isHighContrast: false }
+          : page
+      )
+    );
+    setAnalysisResult(null);
+    triggerHaptic([15, 15]);
   };
 
   const handleDeletePage = (index: number) => {
@@ -499,9 +525,9 @@ export default function VisionStudio() {
     setAnalysisResult(null);
 
     try {
-      await new Promise((r) => setTimeout(r, 800));
-
       let extractedLines: string[] = [];
+      let analyzerLabel = 'Preview template (not model output)';
+
       // Real SVG / DataURL inspection
       if (currentPage.dataUrl.includes('<svg') || currentPage.dataUrl.startsWith('data:image/svg+xml')) {
         try {
@@ -511,19 +537,40 @@ export default function VisionStudio() {
           );
           if (textMatches.length > 0) {
             extractedLines = textMatches;
+            analyzerLabel = 'SVG text nodes (exact, read from the file)';
           }
         } catch (_) {}
       }
 
-      if (extractedLines.length === 0) {
-        if (taskMode === 'ocr') {
-          extractedLines = [
-            `HERMES ON-DEVICE OCR ENGINE v3.2`,
-            `Document: ${currentPage.name}`,
-            `Status: Processed locally via MiniCPM-V 4.7`,
-            `Detected Text: All alphanumeric symbols and layout bounding boxes indexed`,
-          ];
-        } else if (taskMode === 'diagram') {
+      if (taskMode === 'ocr') {
+        // Real on-device OCR. This replaces a canned "OCR engine" block that
+        // printed the same four placeholder lines for every image, which is
+        // why scanning appeared to work while extracting nothing.
+        const ocr = await recognizeTextFromDataUrl(currentPage.dataUrl);
+        if (ocr.lines.length > 0) {
+          extractedLines = ocr.lines;
+          analyzerLabel = 'Android ML Kit text recognition (on-device, offline)';
+          setOcrSourceText((prev) => (prev.trim().length > 0 ? prev : ocr.text));
+        } else {
+          const detail =
+            ocr.reason ||
+            'No readable text found on this page. Try a straight-on photo, better lighting, or tap "Enhance Text" and scan again.';
+          setAnalysisResult(
+            [
+              '### OCR: no text extracted',
+              `**Page**: ${currentPage.name} (Page ${selectedPageIndex + 1} of ${scannedPages.length})`,
+              '',
+              detail,
+              ...(extractedLines.length > 0
+                ? ['', '#### Text embedded in the file', ...extractedLines.map((line) => `- ${line}`)]
+                : []),
+            ].join('\n')
+          );
+          triggerHaptic([20, 40]);
+          return;
+        }
+      } else if (extractedLines.length === 0) {
+        if (taskMode === 'diagram') {
           extractedLines = [
             `DIAGRAM & TOPOLOGY RECONSTRUCTION`,
             `Component Nodes: Mobile Client -> Hermes Agent -> WebGPU Tensor -> Weights`,
@@ -546,29 +593,31 @@ export default function VisionStudio() {
       }
 
       const extractedMarkdown = [
-        `### 👁️ MiniCPM-V Multimodal OCR Extraction`,
+        `### Vision result — ${taskMode.toUpperCase()}`,
         `**Target**: ${currentPage.name} (Page ${selectedPageIndex + 1} of ${scannedPages.length})`,
-        `**Mode**: ${taskMode.toUpperCase()} · **Hardware**: Local WebGPU Accelerator`,
-        `**Confidence**: 99.1% · **Latency**: 142ms`,
+        `**Analyzer**: ${analyzerLabel}`,
         ``,
         `#### 📄 Extracted Text Content:`,
         ...extractedLines.map((line) => `- ${line}`),
         ``,
-        `#### 📊 Structured Layout & Entity Matrix:`,
-        `| Field / Key | Extracted Value | Verification |`,
+        `#### 📊 Layout & Entity Matrix:`,
+        `| Field / Key | Value | Source |`,
         `| :--- | :--- | :--- |`,
-        `| Source File | \`${currentPage.name}\` | Verified |`,
-        `| Format Mode | ${taskMode.toUpperCase()} | Calibrated |`,
-        `| Total Rows | ${extractedLines.length} rows | Indexed |`,
-        `| Data Egress | 0 bytes (100% Offline) | Secure |`,
+        `| Source File | \`${currentPage.name}\` | ${analyzerLabel} |`,
+        `| Mode | ${taskMode.toUpperCase()} | Selected by you |`,
+        `| Total Lines | ${extractedLines.length} | Counted from the result above |`,
+        `| Data Egress | 0 bytes | On-device processing |`,
         ``,
-        `> **Hermes Autonomous Ready**: Content parsed. Tap "Send to Hermes" or copy results to execute agent tasks.`,
+        taskMode === 'ocr'
+          ? `> Text read on this phone with ML Kit; the image was not uploaded. Tap "Send to Hermes" to work with it.`
+          : `> This mode shows a structure preview, not model output. Tap "Send to Hermes" for a real multimodal pass on this page.`,
       ].join('\n');
 
       setAnalysisResult(extractedMarkdown);
       triggerHaptic([30, 20, 30]);
-    } catch (_) {
-      setAnalysisResult('Vision model processing error. Please check WebGPU allocation.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error || 'unknown error');
+      setAnalysisResult(`Could not analyse this page: ${message}`);
     } finally {
       setIsProcessing(false);
     }
@@ -727,6 +776,14 @@ export default function VisionStudio() {
                 className="hidden"
               />
 
+              <input
+                ref={replaceInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handleReplacePage}
+                className="hidden"
+              />
+
               {/* Multi-Page Thumbnail Strip */}
               <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
                 {scannedPages.map((page, idx) => {
@@ -800,6 +857,14 @@ export default function VisionStudio() {
                   )}
 
                   <div className="absolute top-3 right-3 flex items-center gap-1.5">
+                    <button
+                      onClick={() => replaceInputRef.current?.click()}
+                      className="flex items-center gap-1 px-2 py-1 rounded-lg backdrop-blur-md text-[10px] font-bold transition-all cursor-pointer bg-black/70 text-zinc-300 hover:text-white border border-zinc-700"
+                      title="Replace this page's photo with another image"
+                    >
+                      <RefreshCw className="w-3 h-3" />
+                      <span>Replace</span>
+                    </button>
                     <button
                       onClick={toggleHighContrastFilter}
                       className={`flex items-center gap-1 px-2 py-1 rounded-lg backdrop-blur-md text-[10px] font-bold transition-all cursor-pointer ${
