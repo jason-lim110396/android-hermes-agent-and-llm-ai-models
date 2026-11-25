@@ -78,7 +78,19 @@ public class HermesTTS extends Plugin implements TextToSpeech.OnInitListener {
     public void load() {
         super.load();
         handler = new Handler(Looper.getMainLooper());
-        initTTS();
+        // The engine binds on first use instead. Binding the system TTS service
+        // during bridge creation put work on the main thread before the page
+        // could mount, for a feature most launches never touch.
+    }
+
+    /** Binds the engine on the main thread the first time a caller needs it. */
+    private void ensureEngine() {
+        Handler main = handler;
+        if (main == null) {
+            main = new Handler(Looper.getMainLooper());
+            handler = main;
+        }
+        main.post(this::initTTS);
     }
 
     /** Must be called on the main thread, or at least with stateLock available. */
@@ -194,6 +206,7 @@ public class HermesTTS extends Plugin implements TextToSpeech.OnInitListener {
 
     @PluginMethod
     public void isAvailable(PluginCall call) {
+        ensureEngine();
         JSObject ret = new JSObject();
         synchronized (stateLock) {
             ret.put("available", isInitialized && tts != null);
@@ -215,20 +228,13 @@ public class HermesTTS extends Plugin implements TextToSpeech.OnInitListener {
         float pitch = call.getFloat("pitch", 1.0f);
         String lang = call.getString("lang", "en-US");
 
-        boolean retry = false;
         synchronized (stateLock) {
             if (!isInitialized && initFailed
                 && System.currentTimeMillis() - lastInitAttempt >= INIT_RETRY_MS) {
-                retry = true;
+                // Voice data may have just been installed; try once with a
+                // fresh engine.
+                resetEngine();
             }
-        }
-        if (retry) {
-            // Voice data may have just been installed; try once with a fresh engine.
-            resetEngine();
-            initTTS();
-        }
-
-        synchronized (stateLock) {
             if (isInitialized) {
                 postSpeak(call, text, rate, pitch, lang, true);
                 return;
@@ -237,11 +243,13 @@ public class HermesTTS extends Plugin implements TextToSpeech.OnInitListener {
                 resolveFailure(call, "engine_unavailable");
                 return;
             }
-            // Engine still binding: keep the call alive and speak when it is ready.
-            // Holding stateLock here closes the window where onInit drained an
-            // empty queue and this request was added afterwards forever.
+            // Engine still binding: keep the call alive and speak when it is
+            // ready. Queue while holding stateLock, then start the lazy bind;
+            // onInit takes the same lock, so it cannot drain an empty queue
+            // before this request is in it.
             call.setKeepAlive(true);
             pending.add(new PendingSpeech(call, text, rate, pitch, lang));
+            if (tts == null) ensureEngine();
         }
     }
 

@@ -38,6 +38,8 @@ public class HermesOCR extends Plugin {
 
     private TextRecognizer latinRecognizer;
     private TextRecognizer chineseRecognizer;
+    /** Guards lazy recognizer creation against two concurrent first calls. */
+    private final Object recognizerLock = new Object();
 
     // Han, kana and hangul. If the Chinese model sees any of these, the page is
     // CJK and the Latin model's output for the same page is noise.
@@ -46,8 +48,34 @@ public class HermesOCR extends Plugin {
 
     @Override
     public void load() {
-        latinRecognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);
-        chineseRecognizer = TextRecognition.getClient(new ChineseTextRecognizerOptions.Builder().build());
+        // Recognizers are created on first use instead. Building both ML Kit
+        // clients during bridge creation measured 0.6-2.0s on a cold start,
+        // which delayed the WebView load and the boot-screen ready signal for
+        // every launch whether or not the user ever opened OCR.
+    }
+
+    /**
+     * Creates both recognizers on first use, on the Capacitor plugin thread
+     * (never the main thread). Returns false when ML Kit cannot provide them.
+     */
+    private boolean ensureRecognizers() {
+        synchronized (recognizerLock) {
+            if (latinRecognizer != null && chineseRecognizer != null) return true;
+            try {
+                if (latinRecognizer == null) {
+                    latinRecognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);
+                }
+                if (chineseRecognizer == null) {
+                    chineseRecognizer = TextRecognition.getClient(
+                            new ChineseTextRecognizerOptions.Builder().build());
+                }
+                android.util.Log.i("HermesOCR", "recognizers created on first use");
+                return true;
+            } catch (Exception ex) {
+                android.util.Log.e("HermesOCR", "Could not create the recognizers", ex);
+                return false;
+            }
+        }
     }
 
     @PluginMethod
@@ -69,6 +97,12 @@ public class HermesOCR extends Plugin {
         }
         if (bitmap == null) {
             call.reject("Unsupported or empty image data");
+            return;
+        }
+
+        if (!ensureRecognizers()) {
+            bitmap.recycle();
+            call.reject("OCR is not available on this device");
             return;
         }
 
@@ -130,13 +164,15 @@ public class HermesOCR extends Plugin {
 
     @Override
     protected void handleOnDestroy() {
-        if (latinRecognizer != null) {
-            latinRecognizer.close();
-            latinRecognizer = null;
-        }
-        if (chineseRecognizer != null) {
-            chineseRecognizer.close();
-            chineseRecognizer = null;
+        synchronized (recognizerLock) {
+            if (latinRecognizer != null) {
+                latinRecognizer.close();
+                latinRecognizer = null;
+            }
+            if (chineseRecognizer != null) {
+                chineseRecognizer.close();
+                chineseRecognizer = null;
+            }
         }
         super.handleOnDestroy();
     }
