@@ -26,18 +26,36 @@ import {
   subscribeNetworkChanges,
   type NetworkTelemetry,
 } from '@/utils/networkGuard';
+import dynamic from 'next/dynamic';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import ChatView from '@/components/ChatView';
-import ModelHub from '@/components/ModelHub';
-import DeviceDiagnostics from '@/components/DeviceDiagnostics';
-import SettingsView from '@/components/SettingsView';
-import ImageStudio from '@/components/ImageStudio';
-import VisionStudio from '@/components/VisionStudio';
-import VoiceStudio from '@/components/VoiceStudio';
-import FileSearchStudio from '@/components/FileSearchStudio';
-import TaskWorkflowsStudio from '@/components/TaskWorkflowsStudio';
-import BenchmarkStudio from '@/components/BenchmarkStudio';
 import ModelGateModal from '@/components/ModelGateModal';
+
+/**
+ * Tab-level code splitting.
+ *
+ * The app used to import every studio statically, so the first screen had to
+ * download, parse and compile one ~5.9 MB script before the WebView could
+ * paint the chat — the slowest part of a cold start on a mid-range phone.
+ * Only the default Chat tab stays in the entry chunk; the other screens load
+ * on first visit and stay cached afterwards.
+ */
+const tabLoading = () => (
+  <div className="flex-1 flex flex-col items-center justify-center gap-3 text-zinc-500">
+    <div className="w-6 h-6 rounded-full border-2 border-zinc-700 border-t-cyan-400 animate-spin" />
+    <span className="text-[11px] font-mono tracking-wide">Loading studio...</span>
+  </div>
+);
+
+const ModelHub = dynamic(() => import('@/components/ModelHub'), { ssr: false, loading: tabLoading });
+const DeviceDiagnostics = dynamic(() => import('@/components/DeviceDiagnostics'), { ssr: false, loading: tabLoading });
+const SettingsView = dynamic(() => import('@/components/SettingsView'), { ssr: false, loading: tabLoading });
+const ImageStudio = dynamic(() => import('@/components/ImageStudio'), { ssr: false, loading: tabLoading });
+const VisionStudio = dynamic(() => import('@/components/VisionStudio'), { ssr: false, loading: tabLoading });
+const VoiceStudio = dynamic(() => import('@/components/VoiceStudio'), { ssr: false, loading: tabLoading });
+const FileSearchStudio = dynamic(() => import('@/components/FileSearchStudio'), { ssr: false, loading: tabLoading });
+const TaskWorkflowsStudio = dynamic(() => import('@/components/TaskWorkflowsStudio'), { ssr: false, loading: tabLoading });
+const BenchmarkStudio = dynamic(() => import('@/components/BenchmarkStudio'), { ssr: false, loading: tabLoading });
 
 export default function Home() {
   const currentTab = useAppStore((s) => s.currentTab);
