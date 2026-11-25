@@ -1,10 +1,35 @@
 package com.boxhead.game;
 
 import android.content.Intent;
+import android.graphics.Color;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
+import android.view.Gravity;
+import android.view.View;
+import android.view.ViewGroup;
+import android.view.ViewTreeObserver;
+import android.webkit.WebView;
+import android.widget.FrameLayout;
+import android.widget.LinearLayout;
+import android.widget.TextView;
+
 import com.getcapacitor.BridgeActivity;
 
+import java.lang.ref.WeakReference;
+
 public class MainActivity extends BridgeActivity {
+
+    /** Native boot screen shown until the web layer has painted its first frame. */
+    private View bootScreen;
+    /** How long to wait for the web signal before revealing the WebView anyway. */
+    private static final long BOOT_SCREEN_TIMEOUT_MS = 10000L;
+    private static WeakReference<MainActivity> liveActivity = new WeakReference<>(null);
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    private final Runnable bootTimeout = () -> dismissBootScreen(true);
+    private boolean webViewDrawn = false;
+    private boolean contentReady = false;
+    private boolean dismissScheduled = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -16,19 +41,87 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(HermesOCR.class);
         registerPlugin(HermesSTT.class);
         registerPlugin(HermesShare.class);
+        registerPlugin(HermesBoot.class);
         super.onCreate(savedInstanceState);
+        liveActivity = new WeakReference<>(this);
         // A share-sheet launch arrives as this activity's intent, not as a
         // launcher intent. Hand it to the share plugin before the web layer
         // asks for it, so the first getPendingText() finds the text.
         HermesShare.handleIntent(getIntent());
-        // Deliberately no startup permission prompt. Capacitor's bridge asks
-        // for each permission at the moment the feature needs it - camera
-        // and microphone through the WebView media request
-        // (BridgeWebChromeClient.onPermissionRequest), location through
-        // onGeolocationPermissionsShowPrompt - which is exactly the
-        // contextual behavior the user asked for. A denied permission is
-        // then handled honestly in the UI (open the app's settings page
-        // via the HermesAppSettings plugin).
+
+        // The Android system splash is gone as soon as the activity window is
+        // drawn. The WebView surface can still be white for several seconds
+        // after that, and a rotation was the only thing that forced it to
+        // present. A dark native screen now covers that gap; the web layer
+        // removes it after its first mounted frame and we invalidate the
+        // WebView so the already-painted frame is actually composited.
+        installBootScreen();
+        WebView webView = getBridge() == null ? null : getBridge().getWebView();
+        if (webView != null) {
+            webView.setBackgroundColor(Color.parseColor("#09090B"));
+            // The renderer can paint without the screen being updated (the
+            // old build showed white until a rotation). Dismiss on the
+            // WebView's own first draw, then force one presented frame.
+            webView.getViewTreeObserver().addOnDrawListener(new ViewTreeObserver.OnDrawListener() {
+                @Override
+                public void onDraw() {
+                    if (webViewDrawn) return;
+                    webViewDrawn = true;
+                    mainHandler.post(() -> {
+                        android.util.Log.i("HermesBoot", "WebView reported its first draw");
+                        maybeDismissBootScreen();
+                    });
+                }
+            });
+        }
+        mainHandler.postDelayed(bootTimeout, BOOT_SCREEN_TIMEOUT_MS);
+    }
+
+    private void installBootScreen() {
+        ViewGroup root = findViewById(android.R.id.content);
+        if (root == null) return;
+
+        FrameLayout screen = new FrameLayout(this);
+        screen.setBackgroundColor(Color.parseColor("#09090B"));
+        screen.setClickable(true);
+        screen.setFocusable(true);
+
+        LinearLayout column = new LinearLayout(this);
+        column.setOrientation(LinearLayout.VERTICAL);
+        column.setGravity(Gravity.CENTER_HORIZONTAL);
+        // A wrap_content column is narrower than the letter-spaced title, which
+        // clipped the last letter ("HERME"). Full width, with side padding so
+        // the title never touches the screen edge.
+        int columnPad = (int) (24 * getResources().getDisplayMetrics().density);
+        column.setPadding(columnPad, 0, columnPad, 0);
+
+        TextView title = new TextView(this);
+        title.setText("HERMES");
+        title.setTextColor(Color.parseColor("#FAFAFA"));
+        title.setTextSize(26);
+        title.setLetterSpacing(0.16f);
+        title.setGravity(Gravity.CENTER);
+        column.addView(title, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        TextView subtitle = new TextView(this);
+        subtitle.setText("Starting on-device AI");
+        subtitle.setTextColor(Color.parseColor("#A1A1AA"));
+        subtitle.setTextSize(12);
+        subtitle.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams subtitleParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        subtitleParams.topMargin = (int) (10 * getResources().getDisplayMetrics().density);
+        column.addView(subtitle, subtitleParams);
+
+        FrameLayout.LayoutParams columnParams = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        columnParams.gravity = Gravity.CENTER;
+        screen.addView(column, columnParams);
+
+        root.addView(screen, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        bootScreen = screen;
     }
 
     @Override
@@ -39,5 +132,70 @@ public class MainActivity extends BridgeActivity {
         // without a restart.
         setIntent(intent);
         HermesShare.handleIntent(intent);
+    }
+
+    /** Called from HermesBoot.ready() on the Capacitor plugin thread. */
+    static void onWebViewReady() {
+        MainActivity activity = liveActivity.get();
+        if (activity == null) return;
+        activity.mainHandler.post(() -> {
+            if (activity.isFinishing() || activity.isDestroyed()) return;
+            activity.contentReady = true;
+            activity.maybeDismissBootScreen();
+            // Hydration can change layout after the first draw. One more
+            // invalidate makes sure the presented frame follows it.
+            activity.nudgeWebView();
+        });
+    }
+
+    private void nudgeWebView() {
+        if (isFinishing() || isDestroyed()) return;
+        WebView webView = getBridge() == null ? null : getBridge().getWebView();
+        if (webView == null) return;
+        webView.requestLayout();
+        webView.invalidate();
+        // A second pass after layout: Android WebView sometimes only submits
+        // its next frame on the vsync after invalidation.
+        webView.postDelayed(webView::invalidate, 300);
+    }
+
+    /**
+     * Do not reveal the WebView until the native view has drawn AND the web
+     * layer reports its mounted content. The first WebView draw can still be a
+     * blank surface; requiring both is what kept the white frame from showing.
+     */
+    private void maybeDismissBootScreen() {
+        if (!webViewDrawn || !contentReady || dismissScheduled) return;
+        dismissScheduled = true;
+        mainHandler.postDelayed(dismissRunnable, 150);
+    }
+
+    private final Runnable dismissRunnable = () -> dismissBootScreen(false);
+
+    private void dismissBootScreen(boolean timedOut) {
+        mainHandler.removeCallbacks(bootTimeout);
+        dismissScheduled = false;
+        View screen = bootScreen;
+        if (screen == null) return;
+        bootScreen = null;
+
+        ViewGroup parent = screen.getParent() instanceof ViewGroup ? (ViewGroup) screen.getParent() : null;
+        if (parent != null) parent.removeView(screen);
+
+        // A committed DOM is not always a presented frame on Android WebView.
+        // Force one layout/paint pass at handover; this is the same class of
+        // invalidation a rotation was performing manually.
+        nudgeWebView();
+        android.util.Log.i("HermesBoot", timedOut
+                ? "boot screen timed out; revealed WebView"
+                : "web layer ready; boot screen removed and WebView invalidated");
+    }
+
+    @Override
+    public void onDestroy() {
+        mainHandler.removeCallbacks(bootTimeout);
+        mainHandler.removeCallbacks(dismissRunnable);
+        if (liveActivity.get() == this) liveActivity = new WeakReference<>(null);
+        super.onDestroy();
     }
 }

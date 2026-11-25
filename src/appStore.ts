@@ -115,6 +115,12 @@ interface AppStore {
   // Active Modes & AI Purpose
   operatingMode: 'chat' | 'image-gen' | 'vision' | 'voice' | 'agent' | 'embedding';
   setOperatingMode: (mode: 'chat' | 'image-gen' | 'vision' | 'voice' | 'agent' | 'embedding') => void;
+  /**
+   * Apply preferences saved from a previous session AFTER hydration. Reading
+   * them during the first render made the client markup differ from the
+   * prerendered HTML (React #418) whenever the user had changed model or mode.
+   */
+  hydratePersistedPreferences: () => void;
   chatTabMode: 'text' | 'voice';
   setChatTabMode: (mode: 'text' | 'voice') => void;
 
@@ -493,17 +499,7 @@ export const useAppStore = create<AppStore>((set, get) => {
   setFallbackNotice: (n) => set({ fallbackNotice: n, fallbackNoticeId: get().fallbackNoticeId + 1 }),
   clearFallbackNotice: () => set({ fallbackNotice: null }),
 
-  operatingMode: (() => {
-    if (typeof window !== 'undefined') {
-      try {
-        const savedMode = localStorage.getItem('androidllm_operating_mode') as any;
-        if (['chat', 'image-gen', 'vision', 'voice', 'agent', 'embedding'].includes(savedMode)) {
-          return savedMode;
-        }
-      } catch (_) {}
-    }
-    return 'chat'; // Default to Direct Fast LLM Chat
-  })(),
+  operatingMode: 'chat', // Default; a saved mode is applied after mount
   setOperatingMode: (mode) => {
     if (typeof window !== 'undefined') {
       try {
@@ -512,23 +508,36 @@ export const useAppStore = create<AppStore>((set, get) => {
     }
     set({ operatingMode: mode });
   },
+  hydratePersistedPreferences: () => {
+    if (typeof window === 'undefined') return;
+    try {
+      const savedMode = localStorage.getItem('androidllm_operating_mode');
+      if (
+        savedMode &&
+        ['chat', 'image-gen', 'vision', 'voice', 'agent', 'embedding'].includes(savedMode) &&
+        savedMode !== get().operatingMode
+      ) {
+        set({ operatingMode: savedMode as AppStore['operatingMode'] });
+      }
+    } catch (_) {}
+    try {
+      const savedModel = localStorage.getItem('androidllm_selected_model');
+      if (
+        savedModel &&
+        AVAILABLE_MODELS.some((m) => m.id === savedModel) &&
+        savedModel !== get().selectedModelId
+      ) {
+        set({ selectedModelId: savedModel });
+      }
+    } catch (_) {}
+  },
   chatTabMode: 'text',
   setChatTabMode: (mode) => set({ chatTabMode: mode }),
 
   liveTps: 0,
   setLiveTps: (tps) => set({ liveTps: tps }),
 
-  selectedModelId: (() => {
-    if (typeof window !== 'undefined') {
-      try {
-        const saved = localStorage.getItem('androidllm_selected_model');
-        if (saved && AVAILABLE_MODELS.some((m) => m.id === saved)) {
-          return saved;
-        }
-      } catch (_) {}
-    }
-    return 'qwen2.5-0.5b-cpu';
-  })(),
+  selectedModelId: 'qwen2.5-0.5b-cpu', // Default; saved choice applied after mount
   setSelectedModelId: (id) => {
     const prevId = get().selectedModelId;
     if (typeof window !== 'undefined') {
@@ -1865,8 +1874,12 @@ export const useAppStore = create<AppStore>((set, get) => {
   isAppVisible: typeof document !== 'undefined' ? document.visibilityState === 'visible' : true,
   setIsAppVisible: (val) => set({ isAppVisible: val }),
 
-  isOnline: typeof navigator !== 'undefined' ? navigator.onLine : true,
-  networkQuality: typeof navigator !== 'undefined' && navigator.onLine ? 'fast' : 'offline',
+  // Deterministic first paint: the server cannot know the real connection and
+  // Node's partial `navigator` has no onLine. The live value is applied in the
+  // page's network effect after mount. Reading navigator here made the server
+  // render the offline banner while the client rendered the chat UI (#418).
+  isOnline: true,
+  networkQuality: 'fast',
   justReconnected: false,
   setJustReconnected: (val) => set({ justReconnected: val }),
   setNetworkQuality: (q) => set({ networkQuality: q }),

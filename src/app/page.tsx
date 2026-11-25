@@ -22,7 +22,10 @@ import { initAndroidBackButton } from '@/utils/backButton';
 import { startVisibleInterval } from '@/utils/visibleInterval';
 import { consumePendingSharedText, consumePendingShareNotice, startShareNoticeListener, startShareTargetListener } from '@/utils/shareTarget';
 import { startProactiveMemoryWatcher } from '@/utils/memoryGuard';
+import { notifyWebViewReady } from '@/utils/bootSplash';
+import { disarmBootWatchdog } from '@/utils/bootWatchdog';
 import {
+  DEFAULT_NETWORK_TELEMETRY,
   getNetworkTelemetry,
   subscribeNetworkChanges,
   type NetworkTelemetry,
@@ -71,6 +74,9 @@ export default function Home() {
 
   const checkCacheStatus = useAppStore((s) => s.checkCacheStatus);
   const restorePersistedSessions = useAppStore((s) => s.restorePersistedSessions);
+  const hydratePersistedPreferences = useAppStore((s) => s.hydratePersistedPreferences);
+  const setIsOnline = useAppStore((s) => s.setIsOnline);
+  const setNetworkQuality = useAppStore((s) => s.setNetworkQuality);
 
   const isDownloadingAny = Object.values(downloads).some((d) => d.isDownloading);
   const hasRunningTasks = isGenerating || isSpeaking || isDownloadingAny;
@@ -86,26 +92,43 @@ export default function Home() {
   }, [hasRunningTasks]);
 
   // Network connectivity telemetry
-  const [networkInfo, setNetworkInfo] = React.useState<NetworkTelemetry>(() => getNetworkTelemetry());
+  // First paint must match the prerendered HTML exactly. The real connection
+  // details (4G, 50 ms) are client-only, so they are applied after mount.
+  const [networkInfo, setNetworkInfo] = React.useState<NetworkTelemetry>(DEFAULT_NETWORK_TELEMETRY);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const unsub = subscribeNetworkChanges((telemetry) => {
+    const applyTelemetry = (telemetry: NetworkTelemetry) => {
       setNetworkInfo(telemetry);
+      // The store starts optimistic so server and client markup match; the
+      // real state is applied here, after hydration.
+      setIsOnline(telemetry.isOnline);
+      setNetworkQuality(telemetry.quality);
+    };
+    applyTelemetry(getNetworkTelemetry());
+    const unsub = subscribeNetworkChanges((telemetry) => {
+      applyTelemetry(telemetry);
     });
     const cancelInterval = startVisibleInterval(() => {
-      setNetworkInfo(getNetworkTelemetry());
+      applyTelemetry(getNetworkTelemetry());
     }, 5000);
     return () => {
       unsub();
       cancelInterval();
     };
-  }, []);
+  }, [setIsOnline, setNetworkQuality]);
 
   useEffect(() => {
+    // First, before any startup call that could throw: the app mounted, so the
+    // dead-bundle watchdog is not needed. bootWatchdog already disarmed it when
+    // this bundle started executing; this repeats it for safety.
+    disarmBootWatchdog();
     refreshHardwareProfile();
     checkCacheStatus();
     restorePersistedSessions();
+    // Saved model/mode are applied only now, so the first client paint matches
+    // the prerendered HTML. Reading them during render caused React #418.
+    hydratePersistedPreferences();
     const stopWatcher = startProactiveMemoryWatcher();
     // Android hardware back: close the top-most modal first (wired per
     // modal via useBackButtonClose), exit only when nothing is open.
@@ -114,7 +137,16 @@ export default function Home() {
     return () => {
       stopWatcher();
     };
-  }, [refreshHardwareProfile, checkCacheStatus, restorePersistedSessions]);
+  }, [refreshHardwareProfile, checkCacheStatus, restorePersistedSessions, hydratePersistedPreferences]);
+
+  // Tell the native boot screen that React has committed. This is a fallback
+  // signal for the case where the WebView's own draw callback is delayed; a
+  // short timeout is used because requestAnimationFrame is paused while the
+  // page has not been presented, which was exactly the broken state.
+  useEffect(() => {
+    const timer = setTimeout(() => notifyWebViewReady(), 400);
+    return () => clearTimeout(timer);
+  }, []);
 
   // Android share sheet: a text/link shared from another app becomes an
   // unsent draft in the Chat composer. Consume whatever launched the app, then

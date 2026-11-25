@@ -9,8 +9,27 @@ export interface NetworkTelemetry {
   quality: 'fast' | 'slow' | 'offline';
 }
 
+/**
+ * Deterministic first-paint value.
+ *
+ * Node has a global `navigator` object but no `onLine` property, so the old
+ * `typeof navigator === 'undefined'` check treated the server as offline and
+ * prerendered the "100% Offline Mode" pill. The browser then rendered
+ * "4G / 50ms", a text mismatch that React reports as #418 and that left the
+ * Android WebView showing server HTML with no working handlers. Components
+ * must render this value first and read the real telemetry in an effect.
+ */
+export const DEFAULT_NETWORK_TELEMETRY: NetworkTelemetry = {
+  isOnline: true,
+  effectiveType: null,
+  rttMs: null,
+  downlinkMbps: null,
+  saveData: false,
+  quality: 'fast',
+};
+
 export function isOnline(): boolean {
-  if (typeof navigator === 'undefined') return true;
+  if (typeof navigator === 'undefined' || typeof navigator.onLine !== 'boolean') return true;
   return navigator.onLine;
 }
 
@@ -18,15 +37,10 @@ export function isOnline(): boolean {
  * Returns comprehensive network telemetry from the browser/Capacitor environment.
  */
 export function getNetworkTelemetry(): NetworkTelemetry {
-  if (typeof navigator === 'undefined') {
-    return {
-      isOnline: true,
-      effectiveType: null,
-      rttMs: null,
-      downlinkMbps: null,
-      saveData: false,
-      quality: 'fast',
-    };
+  // A partial SSR navigator (Node) must not be treated as a real offline
+  // browser: it would bake "offline" into the prerendered HTML.
+  if (typeof navigator === 'undefined' || typeof navigator.onLine !== 'boolean') {
+    return { ...DEFAULT_NETWORK_TELEMETRY };
   }
 
   const online = navigator.onLine;

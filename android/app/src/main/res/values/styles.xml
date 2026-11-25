@@ -16,9 +16,15 @@
         <item name="android:background">@null</item>
     </style>
 
-    <!-- Splash screen theme (shown during cold start) -->
+    <!-- Splash screen theme (shown during cold start). Dark from the first
+         frame: the old white splash drawable made every late WebView frame
+         look like an empty app. -->
     <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
-        <item name="android:background">@drawable/splash</item>
+        <item name="android:background">#09090B</item>
+        <item name="android:windowBackground">#09090B</item>
+        <item name="windowSplashScreenBackground">#09090B</item>
+        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
+        <item name="postSplashScreenTheme">@style/AppTheme.NoActionBar</item>
         <item name="android:windowFullscreen">false</item>
     </style>
 
