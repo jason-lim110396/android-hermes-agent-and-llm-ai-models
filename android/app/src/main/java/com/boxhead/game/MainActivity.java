@@ -23,7 +23,8 @@ public class MainActivity extends BridgeActivity {
     /** Native boot screen shown until the web layer has painted its first frame. */
     private View bootScreen;
     /** How long to wait for the web signal before revealing the WebView anyway. */
-    private static final long BOOT_SCREEN_TIMEOUT_MS = 10000L;
+    /** Worst-case failure timeout. The web ready signal normally wins. */
+    private static final long BOOT_SCREEN_TIMEOUT_MS = 8000L;
     private static WeakReference<MainActivity> liveActivity = new WeakReference<>(null);
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final Runnable bootTimeout = () -> dismissBootScreen(true);
@@ -99,7 +100,6 @@ public class MainActivity extends BridgeActivity {
         title.setText("HERMES");
         title.setTextColor(Color.parseColor("#FAFAFA"));
         title.setTextSize(26);
-        title.setLetterSpacing(0.16f);
         title.setGravity(Gravity.CENTER);
         column.addView(title, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
