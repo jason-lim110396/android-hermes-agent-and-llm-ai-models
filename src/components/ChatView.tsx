@@ -428,6 +428,18 @@ export default function ChatView() {
   const [inputVal, setInputVal] = useState('');
   const composerRef = useRef<HTMLTextAreaElement>(null);
 
+  // Latest composer text for the flush paths below. Null until the restore (or
+  // the first edit) has run, so a flush in the render->effect gap can never
+  // erase a stored draft or write an empty value over it.
+  const draftRef = useRef<string | null>(null);
+
+  // Clears the stored draft and the ref together: a flush that lands between a
+  // send and the next debounced save must not write the sent prompt back.
+  const discardComposerDraft = () => {
+    draftRef.current = '';
+    clearComposerDraft();
+  };
+
   // Restore an unsent draft left behind by a killed WebView, after mount and
   // never in the initializer: reading localStorage during the first render
   // would make the client HTML differ from the prerendered export (the
@@ -436,9 +448,9 @@ export default function ChatView() {
   useEffect(() => {
     const storedDraft = loadComposerDraft();
     if (!storedDraft) return;
-    // Only fill an empty composer. A share that landed during startup already
-    // put its own text here (it appends on the next frame) and must not be
-    // overwritten by this restore.
+    // Only fill an empty composer, and keep the ref in step with it so a
+    // hide/reload before the save effect runs still flushes the real text.
+    draftRef.current = storedDraft;
     setInputVal((prev) => (prev.trim() ? prev : storedDraft));
   }, []);
 
@@ -446,7 +458,6 @@ export default function ChatView() {
   // pause instead of one per keystroke (localStorage is synchronous on the
   // WebView thread). The ref holds the latest text so the flush below can
   // write it without a pending timer.
-  const draftRef = useRef('');
   useEffect(() => {
     draftRef.current = inputVal;
     const timer = setTimeout(() => saveComposerDraft(inputVal), 500);
@@ -455,9 +466,14 @@ export default function ChatView() {
 
   // Android can stop JS timers the moment the app is hidden and then kill the
   // process, which would drop the last keys typed before the user switched
-  // away. Flush whenever the app leaves the foreground.
+  // away. Flush whenever the app leaves the foreground, and on unmount (the
+  // Chat tab unmounts when another tab is opened), so the last <500 ms of
+  // typing is not rolled back on return.
   useEffect(() => {
-    const flushDraft = () => saveComposerDraft(draftRef.current);
+    const flushDraft = () => {
+      if (draftRef.current === null) return;
+      saveComposerDraft(draftRef.current);
+    };
     const onVisibilityChange = () => {
       if (document.visibilityState === 'hidden') flushDraft();
     };
@@ -466,6 +482,7 @@ export default function ChatView() {
     return () => {
       window.removeEventListener('pagehide', flushDraft);
       document.removeEventListener('visibilitychange', onVisibilityChange);
+      flushDraft();
     };
   }, []);
 
@@ -1597,7 +1614,7 @@ export default function ChatView() {
     setInputVal('');
     // Cancelling a note throws the composer text away on purpose; the stored
     // draft must go with it or a restart would resurrect the discarded words.
-    clearComposerDraft();
+    discardComposerDraft();
     setIsRecordingVoice(false);
     setRecordDurationSec(0);
     setSpeechListening(false);
@@ -1714,7 +1731,7 @@ export default function ChatView() {
     setSpeechListening(false);
     setInputVal('');
     // The voice note and its transcript are on their way to the model now.
-    clearComposerDraft();
+    discardComposerDraft();
 
     // Trigger instant message dispatch to LLM!
     setTimeout(() => {
@@ -1871,7 +1888,7 @@ export default function ChatView() {
       setInputVal('');
       // The prompt was consumed by the send: a killed WebView must not bring
       // it back as if it had never gone out.
-      clearComposerDraft();
+      discardComposerDraft();
       // The shared draft is on its way to the model now; its hint is stale.
       setSharedDraftHint(false);
     }
@@ -2786,7 +2803,7 @@ export default function ChatView() {
                           // composer invited a one-tap double-send.
                           if (dispatchPromptSafely(qp.prompt)) {
                             setInputVal('');
-                            clearComposerDraft();
+                            discardComposerDraft();
                           }
                         }}
                         className="text-left p-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-850 border border-zinc-800 hover:border-cyan-500/50 text-xs transition-all group cursor-pointer"
@@ -3820,7 +3837,7 @@ export default function ChatView() {
                     const prompt = 'Remind me in 30 minutes to review on-device AI logs and battery status';
                     if (dispatchPromptSafely(prompt)) {
                       setInputVal('');
-                      clearComposerDraft();
+                      discardComposerDraft();
                     }
                     setShowQuickActions(false);
                   }}
@@ -3836,7 +3853,7 @@ export default function ChatView() {
                     const prompt = 'Audit phone battery, thermal load, and WebGPU tensor speeds';
                     if (dispatchPromptSafely(prompt)) {
                       setInputVal('');
-                      clearComposerDraft();
+                      discardComposerDraft();
                     }
                     setShowQuickActions(false);
                   }}
