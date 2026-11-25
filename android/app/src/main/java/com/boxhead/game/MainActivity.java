@@ -5,6 +5,7 @@ import android.graphics.Color;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.util.Log;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -34,6 +35,9 @@ public class MainActivity extends BridgeActivity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        // The share plugin needs a context for its persisted delivery record
+        // before BridgeActivity.load() replays the launch intent.
+        HermesShare.init(this);
         // Register BEFORE super.onCreate: the bridge (and the plugin header
         // injected into the WebView) is built during super.onCreate, so a
         // plugin added afterwards would be invisible to the web side.
@@ -48,7 +52,10 @@ public class MainActivity extends BridgeActivity {
         // A share-sheet launch arrives as this activity's intent, not as a
         // launcher intent. Hand it to the share plugin before the web layer
         // asks for it, so the first getPendingText() finds the text.
-        HermesShare.handleIntent(getIntent());
+        // BridgeActivity.load() already replayed this same object through
+        // onNewIntent; the plugin handles each intent object once.
+        HermesShare.handleIntent(getIntent(), true);
+        normaliseShareIntent();
 
         // The Android system splash is gone as soon as the activity window is
         // drawn. The WebView surface can still be white for several seconds
@@ -126,12 +133,44 @@ public class MainActivity extends BridgeActivity {
 
     @Override
     protected void onNewIntent(Intent intent) {
+        // BridgeActivity.load() calls this with getIntent() itself, so the
+        // launch intent is its own replay; a genuine warm share is a different
+        // object. That distinction lets the plugin drop a retained SEND intent
+        // after process death without dropping a real second share.
+        boolean launchReplay = intent == getIntent();
         super.onNewIntent(intent);
         // A share that arrives while the app is already open (launchMode
         // singleTask): keep it as the current intent and hand the text over
         // without a restart.
         setIntent(intent);
-        HermesShare.handleIntent(intent);
+        HermesShare.handleIntent(intent, launchReplay);
+        String action = intent == null ? null : intent.getAction();
+        if (Intent.ACTION_SEND.equals(action) || Intent.ACTION_PROCESS_TEXT.equals(action)) {
+            Log.i("HermesShare", launchReplay
+                    ? "share intent path: launch replay"
+                    : "share intent path: warm share");
+        }
+        normaliseShareIntent();
+    }
+
+    /**
+     * Replaces a SEND/PROCESS_TEXT activity intent with a plain MAIN intent so
+     * a later read of getIntent() in this activity carries no share payload.
+     * The task's retained base intent is fixed only by the fingerprint; this is
+     * the in-process half of the same guarantee.
+     */
+    private void normaliseShareIntent() {
+        Intent current = getIntent();
+        if (current == null) return;
+        String action = current.getAction();
+        if (!Intent.ACTION_SEND.equals(action) && !Intent.ACTION_PROCESS_TEXT.equals(action)) {
+            return;
+        }
+        Intent clean = new Intent(Intent.ACTION_MAIN);
+        clean.addCategory(Intent.CATEGORY_LAUNCHER);
+        clean.setClass(this, MainActivity.class);
+        setIntent(clean);
+        Log.i("HermesShare", "activity intent normalised after share (SEND payload cleared)");
     }
 
     /** Called from HermesBoot.ready() on the Capacitor plugin thread. */
