@@ -24,6 +24,23 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
+            <!-- Share sheet: "Share -> Hermes" from Chrome, Mail, Notes,
+                 YouTube ... delivers the text/link here instead of dropping
+                 it. The app opens on Chat with the text as an unsent draft. -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/*" />
+            </intent-filter>
+
+            <!-- Text selection "Process text" menu (Translate / Proofread style
+                 actions offered by the system on selected text). -->
+            <intent-filter>
+                <action android:name="android.intent.action.PROCESS_TEXT" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/*" />
+            </intent-filter>
+
         </activity>
 
         <provider
