@@ -396,13 +396,19 @@ class NativeSpeechSession implements SpeechSession {
   }
 
   abort(): void {
+    // Only tell the native side to stop when it might actually be running or
+    // waiting on the permission dialog. An abort before start() must not
+    // create bridge traffic or an end event for a session that never began.
+    const shouldStop = this.active || this.startPending;
     this.suppressCallbacks = true;
     this.active = false;
     this.interimText = '';
-    const plugin = getSttPlugin();
-    try {
-      plugin?.stop().catch(() => {});
-    } catch (_) {}
+    if (shouldStop) {
+      const plugin = getSttPlugin();
+      try {
+        plugin?.stop().catch(() => {});
+      } catch (_) {}
+    }
     if (activeNativeSession === this) activeNativeSession = null;
   }
 

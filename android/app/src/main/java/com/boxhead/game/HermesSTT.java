@@ -77,6 +77,12 @@ public class HermesSTT extends Plugin implements RecognitionListener {
     /** The start() call waiting for onReadyForSpeech (or a first error). */
     private PluginCall pendingStartCall = null;
     /**
+     * The start() call waiting on the system microphone dialog. A stop/abort
+     * clears it, so a dialog the user answers afterwards cannot resurrect a
+     * recognizer whose dictation was already cancelled.
+     */
+    private PluginCall pendingPermissionCall = null;
+    /**
      * cancel() delivers ERROR_CLIENT asynchronously. Until this time that code
      * is attributed to the cancel, not to the new session that may have
      * started in between, so it is not shown as a failure.
@@ -161,8 +167,25 @@ public class HermesSTT extends Plugin implements RecognitionListener {
             return;
         }
         if (getPermissionState("microphone") != PermissionState.GRANTED) {
+            synchronized (stateLock) {
+                if (pendingPermissionCall != null || pendingStartCall != null || listening) {
+                    resolveFailure(call, "busy", "The speech recognizer is already running.");
+                    return;
+                }
+                pendingPermissionCall = call;
+                call.setKeepAlive(true);
+            }
             Log.i(TAG, "start: microphone permission not granted, asking");
-            requestPermissionForAlias("microphone", call, "microphoneCallback");
+            try {
+                requestPermissionForAlias("microphone", call, "microphoneCallback");
+            } catch (Exception ex) {
+                synchronized (stateLock) {
+                    if (pendingPermissionCall == call) pendingPermissionCall = null;
+                }
+                Log.e(TAG, "Could not request microphone permission", ex);
+                resolveFailure(call, "permission_denied",
+                        "Microphone permission is required for voice input.");
+            }
             return;
         }
         beginListening(call);
@@ -170,6 +193,18 @@ public class HermesSTT extends Plugin implements RecognitionListener {
 
     @PermissionCallback
     private void microphoneCallback(PluginCall call) {
+        boolean stillWanted;
+        synchronized (stateLock) {
+            stillWanted = pendingPermissionCall == call;
+            pendingPermissionCall = null;
+        }
+        if (!stillWanted) {
+            // The dictation was stopped/aborted while the system dialog was
+            // open. Its start() was already resolved as stopped; do not create
+            // a recognizer or turn the microphone on for a cancelled note.
+            Log.i(TAG, "permission result for a cancelled start ignored");
+            return;
+        }
         if (getPermissionState("microphone") == PermissionState.GRANTED) {
             beginListening(call);
         } else {
@@ -237,13 +272,22 @@ public class HermesSTT extends Plugin implements RecognitionListener {
     @PluginMethod
     public void stop(PluginCall call) {
         int endedSession;
+        PluginCall orphanedPermission;
         synchronized (stateLock) {
             endedSession = listeningSession;
             sessionId++;
             listening = false;
             continuous = false;
             ignoreClientErrorsUntil = System.currentTimeMillis() + 2000L;
+            orphanedPermission = pendingPermissionCall;
+            pendingPermissionCall = null;
             resolvePendingStartIfAny();
+        }
+        if (orphanedPermission != null) {
+            // This start() is still sitting in the system permission dialog.
+            // Resolve it as stopped and let the callback drop the result.
+            Log.i(TAG, "stop: cancelling a start waiting on the permission dialog");
+            resolveStopped(orphanedPermission);
         }
         mainHandler().post(() -> {
             synchronized (stateLock) {
@@ -516,15 +560,27 @@ public class HermesSTT extends Plugin implements RecognitionListener {
         call.resolve(ret);
     }
 
+    private void resolveStopped(PluginCall call) {
+        JSObject ret = new JSObject();
+        ret.put("started", false);
+        ret.put("reason", "stopped");
+        ret.put("message", "Voice input was stopped.");
+        call.resolve(ret);
+    }
+
     @Override
     protected void handleOnDestroy() {
+        PluginCall orphanedPermission;
         synchronized (stateLock) {
             destroyed = true;
             sessionId++;
             listening = false;
             continuous = false;
+            orphanedPermission = pendingPermissionCall;
+            pendingPermissionCall = null;
             resolvePendingStartIfAny();
         }
+        if (orphanedPermission != null) resolveStopped(orphanedPermission);
         mainHandler().post(() -> {
             synchronized (stateLock) {
                 if (recognizer != null) {

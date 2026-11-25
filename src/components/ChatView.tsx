@@ -1287,19 +1287,11 @@ export default function ChatView() {
       },
       { lang: 'en-US', continuous: true }
     );
-    speechSession.start().then((result) => {
-      if (!isCurrent()) {
-        speechSession.abort();
-        return;
-      }
-      if (!result.started) {
-        if (result.reason === 'permission_denied') {
-          setMicPermissionDenied(true);
-        } else {
-          setSpeechInputError(result.message || 'Voice input is unavailable.');
-        }
-      }
-    });
+    // Recognition deliberately starts only after getUserMedia succeeds (below).
+    // Starting it here opened a second permission request alongside the media
+    // one; when the media request failed, the abort could not cancel a start
+    // that was still waiting on the system dialog, and the recognizer switched
+    // the microphone on after the note had already been abandoned.
 
     // 2. Initialize MediaStream & MediaRecorder with safety timeout to prevent WebView thread ANR
     let hasAudioStream = false;
@@ -1446,6 +1438,23 @@ export default function ChatView() {
     recognitionRef.current = speechSession;
     setIsRecordingVoice(true);
     setMicPermissionDenied(false);
+
+    // The recorder has the microphone now, so the recognizer can start with
+    // no competing permission dialog. A failure here still leaves the audio
+    // note recording and is shown as an honest transcription error.
+    speechSession.start().then((result) => {
+      if (!isCurrent()) {
+        speechSession.abort();
+        return;
+      }
+      if (!result.started) {
+        if (result.reason === 'permission_denied') {
+          setMicPermissionDenied(true);
+        } else {
+          setSpeechInputError(result.message || 'Voice input is unavailable.');
+        }
+      }
+    });
 
     // Recording seconds ticker
     if (voiceTimerRef.current) clearInterval(voiceTimerRef.current);
