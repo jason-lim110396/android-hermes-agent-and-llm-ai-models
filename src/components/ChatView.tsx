@@ -417,7 +417,18 @@ export default function ChatView() {
   const sendMessage = useAppStore((s) => s.sendMessage);
   const stopAllRunningTasks = useAppStore((s) => s.stopAllRunningTasks);
 
+  // Android share sheet draft (see shareTarget.ts). The text is staged by the
+  // store and moved into the composer below - it is never sent automatically.
+  const pendingComposerText = useAppStore((s) => s.pendingComposerText);
+  const setPendingComposerText = useAppStore((s) => s.setPendingComposerText);
+  const pendingShareNotice = useAppStore((s) => s.pendingShareNotice);
+  const setPendingShareNotice = useAppStore((s) => s.setPendingShareNotice);
+
   const [inputVal, setInputVal] = useState('');
+  const composerRef = useRef<HTMLTextAreaElement>(null);
+  // True after a share landed in the composer, until the user dismisses the
+  // "review and send" hint above it.
+  const [sharedDraftHint, setSharedDraftHint] = useState(false);
   const [isCameraOpen, setIsCameraOpen] = useState(false);
   const [isFabOpen, setIsFabOpen] = useState(false);
   // "More tools" dropdown for the Row-2 secondary actions (decluttering PR:
@@ -439,6 +450,34 @@ export default function ChatView() {
     document.addEventListener('pointerdown', handlePointerDown);
     return () => document.removeEventListener('pointerdown', handlePointerDown);
   }, [showModelPicker]);
+
+  // Share-sheet draft: text shared from another app is inserted as an unsent
+  // draft and focused, so the user can read and edit it first. Nothing is
+  // sent here on purpose - pressing Send stays the user's decision.
+  useEffect(() => {
+    const shared = pendingComposerText;
+    if (!shared) return;
+    // One frame later, so the composer is laid out (and focusable) and this
+    // effect's own store write cannot race the text it is inserting.
+    requestAnimationFrame(() => {
+      // Append instead of replace: a draft the user was already typing
+      // survives the share (same rule as the Insert-into-chat actions below).
+      setInputVal((prev) => (prev.trim() ? `${prev}\n\n${shared}` : shared));
+      // Delivered once: clearing the store copy keeps a re-render or a tab
+      // switch from pasting the same share a second time.
+      setPendingComposerText(null);
+      setSharedDraftHint(true);
+      const el = composerRef.current;
+      if (!el) return;
+      try {
+        el.focus();
+        el.setSelectionRange(el.value.length, el.value.length);
+      } catch (_) {
+        // Focusing a not-yet-visible textarea is not worth an error boundary.
+      }
+    });
+  }, [pendingComposerText, setPendingComposerText]);
+
   const [modelSearchQuery, setModelSearchQuery] = useState('');
   const [modelCategoryFilter, setModelCategoryFilter] = useState<'all' | 'ready' | 'vision' | 'agent' | 'text' | 'code'>('all');
   const [showSessionPicker, setShowSessionPicker] = useState(false);
@@ -1775,6 +1814,8 @@ export default function ChatView() {
     }
     if (dispatchPromptSafely(textToSend)) {
       setInputVal('');
+      // The shared draft is on its way to the model now; its hint is stale.
+      setSharedDraftHint(false);
     }
   };
 
@@ -3783,6 +3824,52 @@ export default function ChatView() {
           </div>
         )}
 
+        {/* Unsupported share: say why no draft was created instead of
+            silently dropping the intent. */}
+        {pendingShareNotice && (
+          <div className="flex items-center justify-between gap-2 px-3 py-1.5 bg-amber-950/60 border border-amber-500/40 rounded-xl mb-1 text-xs shadow-lg animate-in fade-in duration-150">
+            <div className="flex items-center gap-2 overflow-hidden flex-1">
+              <Share2 className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+              <span className="text-[11px] text-amber-200">{pendingShareNotice}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                triggerHaptic(10);
+                setPendingShareNotice(null);
+              }}
+              className="p-1 rounded-lg text-amber-300 hover:text-white hover:bg-amber-900/40 transition-colors cursor-pointer shrink-0"
+              aria-label="Dismiss share notice"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+
+        {/* Shared from another app: a one-line, dismissible note so the user
+            knows where the draft came from and that it was not sent. */}
+        {sharedDraftHint && (
+          <div className="flex items-center justify-between gap-2 px-3 py-1.5 bg-zinc-900 border border-cyan-500/40 rounded-xl mb-1 text-xs shadow-lg animate-in fade-in duration-150">
+            <div className="flex items-center gap-2 overflow-hidden flex-1">
+              <Share2 className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+              <span className="text-[11px] text-zinc-300 truncate">
+                Shared from another app - review and send
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                triggerHaptic(10);
+                setSharedDraftHint(false);
+              }}
+              className="p-1 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors cursor-pointer"
+              aria-label="Dismiss shared draft hint"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+
         {isRecordingVoice ? (
           <div className="flex flex-col gap-1.5 w-full animate-in fade-in duration-200">
             {/* Optional Noise Gate Settings Drawer */}
@@ -4051,6 +4138,7 @@ export default function ChatView() {
             <div className="flex flex-col flex-1 min-w-0">
               {/* Prompt Textarea */}
               <textarea
+                ref={composerRef}
                 value={inputVal}
                 onChange={(e) => setInputVal(e.target.value)}
                 onFocus={() => setIsComposerFocused(true)}
