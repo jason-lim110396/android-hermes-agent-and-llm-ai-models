@@ -104,7 +104,7 @@ import { useBackButtonClose } from '@/utils/backButton';
 import MarkdownNotepadModal from './MarkdownNotepadModal';
 import QRCodeStudioModal from './QRCodeStudioModal';
 import VoiceCallModal from './VoiceCallModal';
-import { isLowMemory, isCriticalMemoryPressure, getHeapMemoryStats, type HeapMemoryStats } from '@/utils/memoryGuard';
+import { isCriticalMemoryPressure, getHeapMemoryStats, type HeapMemoryStats } from '@/utils/memoryGuard';
 import { flushPersistNow } from '@/utils/sessionPersistence';
 import { subscribeThermalTelemetry, getThermalTelemetry, type ThermalTelemetry } from '@/utils/thermalGuard';
 import { copyToClipboardSafe, formatMessageForCopy } from '@/utils/clipboardGuard';
@@ -120,12 +120,10 @@ const HardwareTickerBar = React.memo(function HardwareTickerBar({
   isGenerating,
   engineLabel,
   accelLabel,
-  cpuCores,
 }: {
   isGenerating: boolean;
   engineLabel: string;
   accelLabel: string;
-  cpuCores: number;
 }) {
   const liveTps = useAppStore((s) => s.liveTps);
   // Real measurements only: the WebView heap from performance.memory and the
@@ -181,10 +179,11 @@ const HardwareTickerBar = React.memo(function HardwareTickerBar({
       lastTickAtRef.current = now;
       if (previous > 0) {
         const drift = now - previous - TICK_MS;
-        // After a resume the first gap spans the whole background period;
-        // ignore it instead of reporting it as a stall.
-        if (drift >= 0 && drift < 3000) {
-          setMainThreadLagMs(Math.round(drift));
+        // After a resume the first gap spans the whole background period and
+        // is dropped by resetBaseline; a long stall in the foreground is real,
+        // so it is clamped and shown as "3000ms+" instead of being hidden.
+        if (drift >= 0) {
+          setMainThreadLagMs(Math.round(Math.min(drift, 3000)));
         }
       }
     }, TICK_MS);
@@ -209,10 +208,10 @@ const HardwareTickerBar = React.memo(function HardwareTickerBar({
           <Cpu className="w-3 h-3 text-cyan-400 shrink-0" />
           <span className="text-zinc-400">Heap:</span>
           <span className="text-cyan-300 font-bold">
-            {(heapStats.usedJSHeapMB / 1024).toFixed(2)} GB
+            {heapStats.usedJSHeapMB} MB
           </span>
           <span className="text-[9px] text-zinc-500 hidden sm:inline">
-            / {(heapStats.jsHeapLimitMB / 1024).toFixed(1)} GB
+            / limit {(heapStats.jsHeapLimitMB / 1024).toFixed(1)} GB
           </span>
         </div>
       )}
@@ -223,10 +222,7 @@ const HardwareTickerBar = React.memo(function HardwareTickerBar({
           <Gauge className="w-3 h-3 text-emerald-400 shrink-0" />
           <span className="text-zinc-400">Lag:</span>
           <span className={`font-bold ${mainThreadLagMs > 120 ? 'text-amber-400' : 'text-emerald-300'}`}>
-            {mainThreadLagMs}ms
-          </span>
-          <span className="text-[9px] text-zinc-500 hidden sm:inline">
-            ({cpuCores}C)
+            {mainThreadLagMs >= 3000 ? '3000ms+' : `${mainThreadLagMs}ms`}
           </span>
         </div>
       )}
@@ -2561,7 +2557,6 @@ export default function ChatView() {
         isGenerating={isGenerating}
         engineLabel={currentModel?.engine === 'cpu-wasm' ? 'CPU:' : 'GPU:'}
         accelLabel={currentModel?.engine === 'cpu-wasm' ? 'WASM CPU' : (hardwareProfile?.hasWebGpu ? 'WebGPU' : 'WebGL2')}
-        cpuCores={hardwareProfile?.cpuCores || 8}
       />
 
       {/* Row 2.5: Search bar if active */}
