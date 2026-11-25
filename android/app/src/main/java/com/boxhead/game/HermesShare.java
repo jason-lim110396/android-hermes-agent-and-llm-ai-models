@@ -25,14 +25,19 @@ import java.util.List;
  * The text is only ever staged as a draft for the composer. Nothing here sends
  * a prompt - a share must never start an inference the user did not ask for.
  *
- * Delivery is one-shot: setPendingText() parks the text in a static holder and
- * getPendingText() hands it to the web layer and clears it, so a restart or a
- * second read cannot duplicate the draft.
+ * Delivery is exactly once. The text is always parked, and a live composer
+ * also gets a `sharedText` event for an instant insert. The parked copy is
+ * cleared only when that composer acknowledges the event (or when a reader
+ * takes it through getPendingText), so a WebView reload that outlives the
+ * native listener cannot swallow the share - and an acknowledged event cannot
+ * be inserted twice from the parked copy.
  */
 @CapacitorPlugin(name = "HermesShare")
 public class HermesShare extends Plugin {
 
     private static final String TAG = "HermesShare";
+    private static final String EVENT_TEXT = "sharedText";
+    private static final String EVENT_NOTICE = "sharedNotice";
     /** A pathological share (an entire log file) must not stall the WebView. */
     private static final int MAX_TEXT_CHARS = 100000;
     /** A gallery share can carry a whole album; keep the draft readable. */
@@ -46,6 +51,12 @@ public class HermesShare extends Plugin {
     private static long pendingNoticeAt = 0L;
     /** Live plugin instance: only a running bridge can be notified. */
     private static HermesShare instance = null;
+    /**
+     * The last intent that was already handled. BridgeActivity.load() calls
+     * onNewIntent(getIntent()) and onCreate also hands over the same intent, so
+     * a cold start reaches handleIntent twice; the second call is a no-op.
+     */
+    private static java.lang.ref.WeakReference<Intent> lastHandledIntent = new java.lang.ref.WeakReference<>(null);
 
     @Override
     public void load() {
@@ -104,8 +115,14 @@ public class HermesShare extends Plugin {
             return;
         }
         if (action == null) return;
+        synchronized (stateLock) {
+            // Marked only after the action was read, so a transient read failure
+            // above can still be retried with the same intent.
+            if (lastHandledIntent.get() == intent) return;
+            lastHandledIntent = new java.lang.ref.WeakReference<>(intent);
+        }
         try {
-            if (Intent.ACTION_SEND.equals(action) || Intent.ACTION_SEND_MULTIPLE.equals(action)) {
+            if (Intent.ACTION_SEND.equals(action)) {
                 if (!isTextShare(intent)) return;
                 String text = readSendText(intent);
                 if (text == null || text.trim().isEmpty()) {
@@ -148,8 +165,14 @@ public class HermesShare extends Plugin {
     }
 
     /**
-     * Parks a shared text and, when the bridge is already running, emits
-     * `sharedText` so an open app reacts without a restart.
+     * Parks a shared text and, when a composer is listening, emits `sharedText`
+     * for an instant insert.
+     *
+     * The parked copy always stays until the web layer takes it: a listener can
+     * outlive the page that registered it (a WebView reload keeps Capacitor's
+     * listener map), so an emit is not proof that anyone received the text. A
+     * live composer acknowledges the event and that clears the copy, which is
+     * what keeps a reload from inserting the same share a second time.
      *
      * A blank share is ignored rather than stored: some apps send an
      * ACTION_SEND with no EXTRA_TEXT, and that must not wipe the draft.
@@ -166,24 +189,12 @@ public class HermesShare extends Plugin {
             pendingText = cleaned;
             pendingAt = receivedAt;
         }
-
-        HermesShare live = instance;
-        if (live == null || live.getBridge() == null) return;
-        JSObject payload = new JSObject();
-        payload.put("text", cleaned);
-        payload.put("receivedAt", receivedAt);
-        try {
-            live.notifyListeners("sharedText", payload);
-        } catch (Exception ex) {
-            // The bridge can be torn down between the check and the emit; the
-            // parked text above is still delivered by the next getPendingText.
-            Log.w(TAG, "Could not emit sharedText: " + ex.getMessage());
-        }
+        emit(EVENT_TEXT, "text", cleaned, receivedAt);
     }
 
     /**
-     * Parks an honest "cannot use this share" notice and, when the bridge is
-     * already running, emits `sharedNotice`. Same one-shot delivery as text.
+     * Parks an honest "cannot use this share" notice and, when a composer is
+     * listening, emits `sharedNotice`. Same durable-park rule as the text.
      */
     public static void setPendingNotice(String notice) {
         String cleaned = notice == null ? "" : notice.trim();
@@ -195,16 +206,55 @@ public class HermesShare extends Plugin {
             pendingNotice = cleaned;
             pendingNoticeAt = receivedAt;
         }
+        emit(EVENT_NOTICE, "notice", cleaned, receivedAt);
+    }
 
+    /**
+     * A live composer reports that it inserted the share with this
+     * `receivedAt`. Only the matching parked value is cleared, so an
+     * acknowledgement that arrives after a newer share landed cannot wipe it.
+     */
+    @PluginMethod
+    public void acknowledgeShared(PluginCall call) {
+        Long receivedAt = call.getLong("receivedAt");
+        boolean textCleared = false;
+        boolean noticeCleared = false;
+        synchronized (stateLock) {
+            if (receivedAt != null && receivedAt != 0L && pendingAt == receivedAt) {
+                pendingText = null;
+                pendingAt = 0L;
+                textCleared = true;
+            }
+            if (receivedAt != null && receivedAt != 0L && pendingNoticeAt == receivedAt) {
+                pendingNotice = null;
+                pendingNoticeAt = 0L;
+                noticeCleared = true;
+            }
+        }
+        JSObject ret = new JSObject();
+        ret.put("textCleared", textCleared);
+        ret.put("noticeCleared", noticeCleared);
+        call.resolve(ret);
+    }
+
+    /**
+     * Emits `eventName` to a live bridge when a listener is attached. The
+     * parked copy is the durable delivery; this is only the fast path, so a
+     * failed or dead emit costs nothing.
+     */
+    private static void emit(String eventName, String field, String value, long receivedAt) {
         HermesShare live = instance;
         if (live == null || live.getBridge() == null) return;
-        JSObject payload = new JSObject();
-        payload.put("notice", cleaned);
-        payload.put("receivedAt", receivedAt);
         try {
-            live.notifyListeners("sharedNotice", payload);
+            if (!live.hasListeners(eventName)) return;
+            JSObject payload = new JSObject();
+            payload.put(field, value);
+            payload.put("receivedAt", receivedAt);
+            live.notifyListeners(eventName, payload);
         } catch (Exception ex) {
-            Log.w(TAG, "Could not emit sharedNotice: " + ex.getMessage());
+            // The bridge can be torn down between the check and the emit; the
+            // parked copy above is still delivered by the next getPending* call.
+            Log.w(TAG, "Could not emit " + eventName + ": " + ex.getMessage());
         }
     }
 
