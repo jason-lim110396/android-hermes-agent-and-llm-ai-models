@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import { triggerHaptic } from '@/utils/haptics';
 import React, { useState, useEffect } from 'react';
@@ -68,6 +68,19 @@ import {
   type SessionVaultStats,
 } from '@/utils/sessionPersistence';
 
+/** True when both cooldown lists describe the same endpoints and end times. */
+function sameCooldowns(a: EndpointCooldown[], b: EndpointCooldown[]): boolean {
+  if (a.length !== b.length) return false;
+  return a.every(
+    (item, i) =>
+      item.endpoint === b[i].endpoint &&
+      (item.model || '') === (b[i].model || '') &&
+      item.until === b[i].until &&
+      item.reason === b[i].reason &&
+      item.consecutiveFailures === b[i].consecutiveFailures
+  );
+}
+
 export default function DeviceDiagnostics() {
   const hardwareProfile = useAppStore((s) => s.hardwareProfile);
   const isProfiling = useAppStore((s) => s.isProfiling);
@@ -123,14 +136,22 @@ export default function DeviceDiagnostics() {
 
   // Active Inference Endpoint Cooldowns State
   const [activeCooldowns, setActiveCooldowns] = useState<EndpointCooldown[]>(() => getAllActiveCooldowns());
+  // Clock sample for the "Ns remaining" text, refreshed once a second only
+  // while a cooldown is counting down. With no cooldowns this state never
+  // changes, so the cooldown section does no work of its own.
+  const [cooldownNow, setCooldownNow] = useState(() => Date.now());
   const [cooldownClearedNotice, setCooldownClearedNotice] = useState<string | null>(null);
 
+  // Cooldown ticker: the list itself is only replaced when it really changed
+  // (a fresh array every second re-rendered this whole screen for nothing),
+  // and it pauses while the app is backgrounded.
   useEffect(() => {
-    const timer = setInterval(() => {
+    const cancel = startVisibleInterval(() => {
       const active = getAllActiveCooldowns();
-      setActiveCooldowns(active);
+      setActiveCooldowns((prev) => (sameCooldowns(prev, active) ? prev : active));
+      if (active.length > 0) setCooldownNow(Date.now());
     }, 1000);
-    return () => clearInterval(timer);
+    return () => cancel();
   }, []);
 
   const handleClearCooldown = (cd: EndpointCooldown) => {
@@ -824,7 +845,7 @@ export default function DeviceDiagnostics() {
         {activeCooldowns.length > 0 ? (
           <div className="space-y-2">
             {activeCooldowns.map((cd, idx) => {
-              const remainingSec = Math.max(0, Math.ceil((cd.until - Date.now()) / 1000));
+              const remainingSec = Math.max(0, Math.ceil((cd.until - cooldownNow) / 1000));
               return (
                 <div key={idx} className="p-3 rounded-xl bg-zinc-950/80 border border-amber-500/30 flex items-center justify-between gap-3 text-xs">
                   <div className="min-w-0">
