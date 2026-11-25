@@ -116,16 +116,16 @@ export default function Home() {
   }, [setIsOnline, setNetworkQuality]);
 
   useEffect(() => {
+    // First, before any startup call that could throw: the app mounted, so the
+    // dead-bundle watchdog is not needed. bootWatchdog already disarmed it when
+    // this bundle started executing; this repeats it for safety.
+    disarmBootWatchdog();
     refreshHardwareProfile();
     checkCacheStatus();
     restorePersistedSessions();
     // Saved model/mode are applied only now, so the first client paint matches
     // the prerendered HTML. Reading them during render caused React #418.
     hydratePersistedPreferences();
-    // The app really mounted: hide the watchdog panel that would otherwise
-    // appear after a few seconds on a dead hydration.
-    const bootFallback = document.getElementById('hermes-boot-fallback');
-    if (bootFallback) bootFallback.style.display = 'none';
     const stopWatcher = startProactiveMemoryWatcher();
     // Android hardware back: close the top-most modal first (wired per
     // modal via useBackButtonClose), exit only when nothing is open.
