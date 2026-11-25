@@ -138,7 +138,7 @@ export default function DeviceDiagnostics() {
   const [activeCooldowns, setActiveCooldowns] = useState<EndpointCooldown[]>(() => getAllActiveCooldowns());
   // Clock sample for the "Ns remaining" text, refreshed once a second only
   // while a cooldown is counting down. With no cooldowns this state never
-  // changes, so an idle Hardware screen does no work at all.
+  // changes, so the cooldown section does no work of its own.
   const [cooldownNow, setCooldownNow] = useState(() => Date.now());
   const [cooldownClearedNotice, setCooldownClearedNotice] = useState<string | null>(null);
 
