@@ -522,7 +522,14 @@ export default function ChatView() {
     requestAnimationFrame(() => {
       // Append instead of replace: a draft the user was already typing
       // survives the share (same rule as the Insert-into-chat actions below).
-      setInputVal((prev) => (prev.trim() ? `${prev}\n\n${shared}` : shared));
+      // Skip an exact repeat: after the process is killed the persisted draft
+      // can already hold this share, and appending it again would duplicate it.
+      setInputVal((prev) => {
+        const current = prev.trim();
+        if (!current) return shared;
+        if (current === shared.trim()) return prev;
+        return `${prev}\n\n${shared}`;
+      });
       // Delivered once: clearing the store copy keeps a re-render or a tab
       // switch from pasting the same share a second time.
       setPendingComposerText(null);
