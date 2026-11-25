@@ -490,6 +490,14 @@ public class HermesSTT extends Plugin implements RecognitionListener {
                 return "server";
             case SpeechRecognizer.ERROR_SPEECH_TIMEOUT:
                 return "no_speech";
+            case SpeechRecognizer.ERROR_TOO_MANY_REQUESTS:
+                return "rate_limited";
+            case SpeechRecognizer.ERROR_SERVER_DISCONNECTED:
+                return "network";
+            case SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED:
+            case SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE:
+            case SpeechRecognizer.ERROR_CANNOT_CHECK_SUPPORT:
+                return "language_unsupported";
             default:
                 return "unknown";
         }
@@ -511,6 +519,10 @@ public class HermesSTT extends Plugin implements RecognitionListener {
                 return "The speech recognizer is busy. Try again in a moment.";
             case "server":
                 return "The speech recognition service failed.";
+            case "rate_limited":
+                return "The speech service is busy. Try again in a moment.";
+            case "language_unsupported":
+                return "This device has no speech model for the chosen language.";
             default:
                 return "Speech recognition stopped unexpectedly.";
         }

@@ -25,6 +25,8 @@ export type SpeechFailureReason =
   | 'audio'
   | 'server'
   | 'client'
+  | 'rate_limited'
+  | 'language_unsupported'
   | 'unknown'
   | 'stopped';
 
@@ -216,6 +218,8 @@ const FAILURE_MESSAGES: Record<SpeechFailureReason, string> = {
   audio: 'The microphone audio could not be captured.',
   server: 'The speech recognition service failed.',
   client: 'The speech recognizer could not start.',
+  rate_limited: 'The speech service is busy. Try again in a moment.',
+  language_unsupported: 'This device has no speech model for the chosen language.',
   unknown: 'Speech recognition stopped unexpectedly.',
   stopped: 'Voice input was stopped.',
 };
@@ -255,7 +259,6 @@ let nativeEventsBound = false;
 
 async function ensureNativeEvents(plugin: HermesSTTPlugin): Promise<void> {
   if (nativeEventsBound || typeof plugin.addListener !== 'function') return;
-  nativeEventsBound = true;
   const sessionOf = (data: Record<string, unknown>) =>
     typeof data?.session === 'number' ? data.session : undefined;
   try {
@@ -284,9 +287,11 @@ async function ensureNativeEvents(plugin: HermesSTTPlugin): Promise<void> {
         sessionOf(data)
       )
     );
+    nativeEventsBound = true;
   } catch (_) {
     // If listener binding fails the start result still reports the truth; the
-    // session simply cannot stream partials.
+    // session simply cannot stream partials. Leave the flag unset so a later
+    // start retries the binding instead of silently losing partials forever.
   }
 }
 
@@ -382,10 +387,9 @@ class NativeSpeechSession implements SpeechSession {
   }
 
   stop(): void {
-    if (!this.active && !this.startPending) return;
-    // A stop before start() resolved must cancel that start: the native
-    // plugin resolves it as started, and binding it now would leave a live
-    // recognizer with no owner.
+    // Tell the native side even when this object is not active: a continuous
+    // session can leave the recognizer armed without a JS owner, and only the
+    // plugin knows. Stopping an idle recognizer is a no-op there.
     if (this.startPending) this.suppressCallbacks = true;
     this.active = false;
     this.interimText = '';
@@ -455,9 +459,14 @@ class NativeSpeechSession implements SpeechSession {
     this.interimText = '';
     if (clean) {
       this.finalText = this.finalText ? `${this.finalText} ${clean}` : clean;
+    }
+    // Update before final: a consumer that commits the turn on onFinal and
+    // clears its draft would otherwise see the draft repopulated right after,
+    // and send the same utterance twice when the session ends.
+    this.handlers.onUpdate?.(this.getState());
+    if (clean) {
       this.handlers.onFinal?.(clean);
     }
-    this.handlers.onUpdate?.(this.getState());
   }
 
   handleError(reason: string, message?: string, session?: number) {

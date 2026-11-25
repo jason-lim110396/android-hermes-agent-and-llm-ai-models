@@ -78,6 +78,9 @@ export default function VoiceCallModal({ isOpen, onClose }: VoiceCallModalProps)
   const isGeneratingRef = useRef(isGenerating);
   const isSpeakingRef = useRef(isSpeaking);
   const userSpeechDraftRef = useRef(userSpeechDraft);
+  // True while a recognised turn is being sent. Blocks a second commit of the
+  // same utterance when the session's onEnd fires right after onFinal.
+  const turnPendingRef = useRef(false);
   const handleCommitUserSpeechRef = useRef<(text: string) => Promise<void>>(async () => {});
   const isMutedRef = useRef(isMuted);
   isMutedRef.current = isMuted;
@@ -206,6 +209,9 @@ export default function VoiceCallModal({ isOpen, onClose }: VoiceCallModalProps)
         },
         onUpdate: ({ finalText, interimText }) => {
           if (!isCurrent()) return;
+          // A turn is already being sent: do not repopulate the draft, or the
+          // session's onEnd would commit the same words a second time.
+          if (turnPendingRef.current) return;
           silenceDetectorRef.current?.reset();
           const live = `${finalText}${interimText ? (finalText ? ' ' : '') + interimText : ''}`.trim();
           if (live) {
@@ -244,7 +250,7 @@ export default function VoiceCallModal({ isOpen, onClose }: VoiceCallModalProps)
           silenceDetectorRef.current?.clear();
           recognitionRef.current = null;
           // If stopped without a final result and we still have text, commit it.
-          if (userSpeechDraftRef.current.trim().length > 0) {
+          if (!turnPendingRef.current && userSpeechDraftRef.current.trim().length > 0) {
             handleCommitUserSpeechRef.current(userSpeechDraftRef.current.trim());
           } else if (canRearm()) {
             setTimeout(() => {
@@ -336,7 +342,8 @@ export default function VoiceCallModal({ isOpen, onClose }: VoiceCallModalProps)
   }, [isOpen, startRecognitionSafe, hasSpeechRecognition]);
 
   const handleCommitUserSpeech = async (text: string) => {
-    if (!text.trim() || isGenerating) return;
+    if (!text.trim() || isGenerating || turnPendingRef.current) return;
+    turnPendingRef.current = true;
     triggerHaptic('selection');
     userSpeechDraftRef.current = '';
     setUserSpeechDraft('');
@@ -356,6 +363,8 @@ export default function VoiceCallModal({ isOpen, onClose }: VoiceCallModalProps)
       if (hasSpeechRecognition) {
         startRecognitionSafe();
       }
+    } finally {
+      turnPendingRef.current = false;
     }
   };
 
