@@ -143,12 +143,7 @@ export function startShareTargetListener(onText: (text: string) => void): () => 
     plugin
       .addListener('sharedText', (data) => {
         const text = normalizeSharedText(data?.text);
-        if (!cancelled && text) {
-          onText(text);
-          // This event is the delivery to a live app. Drain the parked copy
-          // so a later cold start cannot show the same share a second time.
-          plugin.getPendingText().catch(() => {});
-        }
+        if (!cancelled && text) onText(text);
       })
       .then((added) => {
         // Unsubscribed before the native side answered: drop it immediately so
