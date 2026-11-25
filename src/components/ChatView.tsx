@@ -459,7 +459,7 @@ export default function ChatView() {
     if (!shared) return;
     // One frame later, so the composer is laid out (and focusable) and this
     // effect's own store write cannot race the text it is inserting.
-    requestAnimationFrame(() => {
+    const frame = requestAnimationFrame(() => {
       // Append instead of replace: a draft the user was already typing
       // survives the share (same rule as the Insert-into-chat actions below).
       setInputVal((prev) => (prev.trim() ? `${prev}\n\n${shared}` : shared));
@@ -476,6 +476,9 @@ export default function ChatView() {
         // Focusing a not-yet-visible textarea is not worth an error boundary.
       }
     });
+    // An unmount before that frame must not leave the insert half-done: the
+    // store copy stays, so the next mount still gets the draft.
+    return () => cancelAnimationFrame(frame);
   }, [pendingComposerText, setPendingComposerText]);
 
   const [modelSearchQuery, setModelSearchQuery] = useState('');
