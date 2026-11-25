@@ -104,7 +104,7 @@ import { useBackButtonClose } from '@/utils/backButton';
 import MarkdownNotepadModal from './MarkdownNotepadModal';
 import QRCodeStudioModal from './QRCodeStudioModal';
 import VoiceCallModal from './VoiceCallModal';
-import { isLowMemory, isCriticalMemoryPressure } from '@/utils/memoryGuard';
+import { isLowMemory, isCriticalMemoryPressure, getHeapMemoryStats, type HeapMemoryStats } from '@/utils/memoryGuard';
 import { flushPersistNow } from '@/utils/sessionPersistence';
 import { subscribeThermalTelemetry, getThermalTelemetry, type ThermalTelemetry } from '@/utils/thermalGuard';
 import { copyToClipboardSafe, formatMessageForCopy } from '@/utils/clipboardGuard';
@@ -114,22 +114,26 @@ import { getChatFontSize, CHAT_FONT_SIZE_OPTIONS, type ChatFontSize } from '@/ut
 // Isolated real-time hardware ticker: owns its 1.5s interval and the liveTps
 // store subscription, so the full ChatView tree no longer re-renders on every
 // tick or streamed token - only this small bar does.
+const TICK_MS = 1500;
+
 const HardwareTickerBar = React.memo(function HardwareTickerBar({
   isGenerating,
   engineLabel,
   accelLabel,
-  estimatedRamGB,
   cpuCores,
 }: {
   isGenerating: boolean;
   engineLabel: string;
   accelLabel: string;
-  estimatedRamGB: number;
   cpuCores: number;
 }) {
   const liveTps = useAppStore((s) => s.liveTps);
-  const [realtimeCpuLoad, setRealtimeCpuLoad] = useState<number>(14);
-  const [realtimeRamUsedMB, setRealtimeRamUsedMB] = useState<number>(1240);
+  // Real measurements only: the WebView heap from performance.memory and the
+  // main-thread delay measured on this bar's own ticker. The old bar showed a
+  // random number as "CPU %" and an invented "RAM" total.
+  const [heapStats, setHeapStats] = useState<HeapMemoryStats | null>(null);
+  const [mainThreadLagMs, setMainThreadLagMs] = useState<number | null>(null);
+  const lastTickAtRef = useRef<number>(0);
   const [tpsHistory, setTpsHistory] = useState<number[]>([]);
   const [showTpsDetail, setShowTpsDetail] = useState<boolean>(false);
   const [genStartTime, setGenStartTime] = useState<number | null>(null);
@@ -143,8 +147,10 @@ const HardwareTickerBar = React.memo(function HardwareTickerBar({
       setTtftMs(null);
       setElapsedSec(0);
       setTpsHistory([]);
+      // Wall-clock elapsed time: counting ticks drifts when the WebView
+      // throttles timers while the app is in the background.
       const timer = setInterval(() => {
-        setElapsedSec((prev) => Math.round((prev + 0.5) * 10) / 10);
+        setElapsedSec(Math.round(((performance.now() - now) / 1000) * 10) / 10);
       }, 500);
       return () => clearInterval(timer);
     } else {
@@ -165,48 +171,65 @@ const HardwareTickerBar = React.memo(function HardwareTickerBar({
   }, [isGenerating, liveTps, ttftMs, genStartTime]);
 
   React.useEffect(() => {
-    // Visibility-gated ticker: skips CPU/RAM polling work while the Android
-    // app is backgrounded (WebView keeps JS timers alive there) and refreshes
-    // once immediately on returning to the foreground.
+    // Visibility-gated ticker: skips polling work while the Android app is
+    // backgrounded (WebView keeps JS timers alive there) and refreshes once
+    // immediately on returning to the foreground.
     const cancelTicker = startVisibleInterval(() => {
-      if (isGenerating) {
-        setRealtimeCpuLoad(Math.round(45 + Math.random() * 25));
-        setRealtimeRamUsedMB(Math.round(1800 + Math.random() * 250));
-      } else {
-        setRealtimeCpuLoad(Math.round(8 + Math.random() * 12));
-        setRealtimeRamUsedMB(Math.round(1180 + Math.random() * 80));
+      setHeapStats(getHeapMemoryStats());
+      const now = performance.now();
+      const previous = lastTickAtRef.current;
+      lastTickAtRef.current = now;
+      if (previous > 0) {
+        const drift = now - previous - TICK_MS;
+        // After a resume the first gap spans the whole background period;
+        // ignore it instead of reporting it as a stall.
+        if (drift >= 0 && drift < 3000) {
+          setMainThreadLagMs(Math.round(drift));
+        }
       }
-    }, 1500);
-    return () => cancelTicker();
-  }, [isGenerating]);
+    }, TICK_MS);
+    // Restart the drift baseline on resume so the padded gap is not measured.
+    const resetBaseline = () => {
+      lastTickAtRef.current = 0;
+    };
+    document.addEventListener('visibilitychange', resetBaseline);
+    return () => {
+      cancelTicker();
+      document.removeEventListener('visibilitychange', resetBaseline);
+    };
+  }, []);
 
   const tpsStats = calculateThroughputStats(tpsHistory.length > 0 ? tpsHistory : liveTps > 0 ? [liveTps] : []);
 
   return (
     <div className="px-3 py-1.5 bg-zinc-900/95 border-b border-zinc-800/80 backdrop-blur-md flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 text-[9px] font-mono z-10 select-none">
-      {/* RAM Usage */}
-      <div className="flex items-center gap-1.5 text-zinc-300 whitespace-nowrap min-w-0">
-        <Cpu className="w-3 h-3 text-cyan-400 shrink-0" />
-        <span className="text-zinc-400">RAM:</span>
-        <span className="text-cyan-300 font-bold">
-          {(realtimeRamUsedMB / 1024).toFixed(2)} GB
-        </span>
-        <span className="text-[9px] text-zinc-500 hidden sm:inline">
-          / {estimatedRamGB} GB
-        </span>
-      </div>
+      {/* WebView JS heap (real, when the WebView exposes it) */}
+      {heapStats && (
+        <div className="flex items-center gap-1.5 text-zinc-300 whitespace-nowrap min-w-0">
+          <Cpu className="w-3 h-3 text-cyan-400 shrink-0" />
+          <span className="text-zinc-400">Heap:</span>
+          <span className="text-cyan-300 font-bold">
+            {(heapStats.usedJSHeapMB / 1024).toFixed(2)} GB
+          </span>
+          <span className="text-[9px] text-zinc-500 hidden sm:inline">
+            / {(heapStats.jsHeapLimitMB / 1024).toFixed(1)} GB
+          </span>
+        </div>
+      )}
 
-      {/* CPU Load */}
-      <div className="flex items-center gap-1.5 text-zinc-300 whitespace-nowrap min-w-0">
-        <Gauge className="w-3 h-3 text-emerald-400 shrink-0" />
-        <span className="text-zinc-400">CPU:</span>
-        <span className={`font-bold ${realtimeCpuLoad > 50 ? 'text-amber-400' : 'text-emerald-300'}`}>
-          {realtimeCpuLoad}%
-        </span>
-        <span className="text-[9px] text-zinc-500 hidden sm:inline">
-          ({cpuCores}C)
-        </span>
-      </div>
+      {/* Main-thread delay measured on this bar's own ticker */}
+      {mainThreadLagMs !== null && (
+        <div className="flex items-center gap-1.5 text-zinc-300 whitespace-nowrap min-w-0">
+          <Gauge className="w-3 h-3 text-emerald-400 shrink-0" />
+          <span className="text-zinc-400">Lag:</span>
+          <span className={`font-bold ${mainThreadLagMs > 120 ? 'text-amber-400' : 'text-emerald-300'}`}>
+            {mainThreadLagMs}ms
+          </span>
+          <span className="text-[9px] text-zinc-500 hidden sm:inline">
+            ({cpuCores}C)
+          </span>
+        </div>
+      )}
 
       {/* Acceleration Engine & Real Speed */}
       <div
@@ -2538,7 +2561,6 @@ export default function ChatView() {
         isGenerating={isGenerating}
         engineLabel={currentModel?.engine === 'cpu-wasm' ? 'CPU:' : 'GPU:'}
         accelLabel={currentModel?.engine === 'cpu-wasm' ? 'WASM CPU' : (hardwareProfile?.hasWebGpu ? 'WebGPU' : 'WebGL2')}
-        estimatedRamGB={hardwareProfile?.estimatedRamGB || 4}
         cpuCores={hardwareProfile?.cpuCores || 8}
       />
 
