@@ -3,7 +3,10 @@ package com.boxhead.game;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.net.Uri;
+import android.util.Base64;
 import android.util.Log;
 
 import com.getcapacitor.JSObject;
@@ -12,6 +15,7 @@ import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.ArrayList;
@@ -28,6 +32,10 @@ import java.util.List;
  *
  * The text is only ever staged as a draft for the composer. Nothing here sends
  * a prompt - a share must never start an inference the user did not ask for.
+ *
+ * A photo shared from the Gallery is turned into an unsent image attachment on
+ * the same composer (the gallery's content:// URI is unreadable for the model),
+ * so "share this photo with Hermes, ask about it" works from any app.
  *
  * Delivery is exactly once, including across process death. The text is always
  * parked, and a live composer also gets a `sharedText` event for an instant
@@ -47,15 +55,26 @@ public class HermesShare extends Plugin {
     private static final String TAG = "HermesShare";
     private static final String EVENT_TEXT = "sharedText";
     private static final String EVENT_NOTICE = "sharedNotice";
-    /** A pathological share (an entire log file) must not stall the WebView. */
+    /** A pathology: an entire log file must not stall the WebView. */
     private static final int MAX_TEXT_CHARS = 100000;
     /** A gallery share can carry a whole album; keep the draft readable. */
     private static final int MAX_STREAM_URIS = 10;
+    /**
+     * Shared photos are re-encoded before they cross the bridge: a modern
+     * phone camera writes 4000 px+ JPEGs, which as a base64 data URL would
+     * freeze the WebView for seconds and eat the attachment budget.
+     */
+    private static final int MAX_IMAGE_EDGE = 1600;
+    private static final int IMAGE_JPEG_QUALITY = 85;
+    /** Above this the photo is too large to be a chat attachment. */
+    private static final int MAX_IMAGE_BYTES = 4 * 1024 * 1024;
+    private static final String EVENT_IMAGE = "sharedImage";
 
     /** Delivery records survive the process, unlike the parked text. */
     private static final String PREFS = "hermes_share_delivery";
     private static final String KIND_TEXT = "text";
     private static final String KIND_NOTICE = "notice";
+    private static final String KIND_IMAGE = "image";
     /**
      * How many recent deliveries are remembered. A task's retained SEND base
      * intent can be replayed long after newer shares arrived, so checking only
@@ -72,6 +91,16 @@ public class HermesShare extends Plugin {
     private static String pendingNotice = null;
     private static long pendingNoticeAt = 0L;
     private static String pendingNoticeFingerprint = null;
+    /**
+     * A photo shared from the Gallery, already re-encoded to a JPEG data URL.
+     * Held in memory only: the compressed bitmap is too big for
+     * SharedPreferences, and a replayed launch intent re-encodes it if the
+     * process died before the composer took it.
+     */
+    private static String pendingImageDataUrl = null;
+    private static String pendingImageName = null;
+    private static long pendingImageAt = 0L;
+    private static String pendingImageFingerprint = null;
     /** Live plugin instance: only a running bridge can be notified. */
     private static HermesShare instance = null;
     /** Application context for the delivery record; set from load()/init(). */
@@ -140,6 +169,39 @@ public class HermesShare extends Plugin {
         if (!notice.isEmpty()) recordPlaced(KIND_NOTICE, fingerprint);
         JSObject ret = new JSObject();
         ret.put("notice", notice);
+        ret.put("receivedAt", receivedAt);
+        call.resolve(ret);
+    }
+
+    /**
+     * Reads the photo a share parked (if any) exactly once.
+     *
+     * Returns an empty `dataUrl` when there is no pending photo, so a cold start
+     * with nothing to read can never invent an attachment. Taking the photo
+     * marks the share as placed, which is what stops a replayed launch intent
+     * from attaching the same gallery image twice.
+     */
+    @PluginMethod
+    public void getPendingImage(PluginCall call) {
+        String dataUrl;
+        String name;
+        long receivedAt;
+        String fingerprint;
+        synchronized (stateLock) {
+            dataUrl = pendingImageDataUrl == null ? "" : pendingImageDataUrl;
+            name = pendingImageName == null ? "" : pendingImageName;
+            receivedAt = pendingImageAt;
+            fingerprint = pendingImageFingerprint;
+            pendingImageDataUrl = null;
+            pendingImageName = null;
+            pendingImageAt = 0L;
+            pendingImageFingerprint = null;
+        }
+        if (!dataUrl.isEmpty()) recordPlaced(KIND_IMAGE, fingerprint);
+        JSObject ret = new JSObject();
+        ret.put("dataUrl", dataUrl);
+        ret.put("name", name);
+        ret.put("mimeType", "image/jpeg");
         ret.put("receivedAt", receivedAt);
         call.resolve(ret);
     }
@@ -230,11 +292,22 @@ public class HermesShare extends Plugin {
         }
 
         try {
-            if (type != null && !type.isEmpty() && !type.startsWith("text/")) {
-                // Shared media is not a chat draft; say so instead of pasting
+            boolean mediaShare = type != null && !type.isEmpty() && !type.startsWith("text/");
+            if (mediaShare) {
+                // Gallery -> Hermes: the photo becomes an attachment on the
+                // composer instead of a content:// URI the model cannot read.
+                if (type.startsWith("image/")) {
+                    if (acceptImage(intent, type, launchReplay)) return true;
+                    acceptNotice(
+                            "That photo could not be read. Try sharing it again from the Gallery.",
+                            fingerprint(action, type, ""),
+                            launchReplay);
+                    return true;
+                }
+                // Shared media Hermes cannot use; say so instead of pasting
                 // a content:// URI the model cannot use.
                 acceptNotice(
-                        "Only text and links can be shared to Hermes. Shared type: " + type,
+                        "Only text, links and photos can be shared to Hermes. Shared type: " + type,
                         fingerprint(action, type, ""),
                         launchReplay);
                 return true;
@@ -294,12 +367,55 @@ public class HermesShare extends Plugin {
     }
 
     /**
+     * Turns an image share into an unsent photo attachment.
+     *
+     * The gallery's content:// URI is unreadable for the on-device model, so
+     * the photo is decoded, reduced to a chat-sized JPEG and parked as a data
+     * URL. A caption the sharing app sent along is accepted as text as well, so
+     * "photo + words" from a Gallery share arrives complete.
+     *
+     * @return true when the image was parked or is already placed; false when
+     *     this share carries no readable image, so the caller can explain why.
+     */
+    private static boolean acceptImage(Intent intent, String type, boolean launchReplay) {
+        Uri uri = firstStreamUri(intent);
+        if (uri == null) return false;
+        String fp = fingerprint(intent.getAction(), type, uri.toString());
+        if (launchReplay && wasPlaced(KIND_IMAGE, fp)) {
+            Log.i(TAG, "duplicate image share ignored (already delivered): fingerprint="
+                    + shortFingerprint(fp));
+            return true;
+        }
+        String dataUrl = encodeStreamAsDataUrl(uri);
+        if (dataUrl == null) return false;
+
+        long seq = recordAccepted(KIND_IMAGE, fp);
+        long receivedAt = System.currentTimeMillis();
+        String name = streamDisplayName(uri);
+        synchronized (stateLock) {
+            pendingImageDataUrl = dataUrl;
+            pendingImageName = name;
+            pendingImageAt = receivedAt;
+            pendingImageFingerprint = fp;
+        }
+        Log.i(TAG, "image share accepted (" + (launchReplay ? "cold start" : "warm")
+                + "): fingerprint=" + shortFingerprint(fp) + " seq=" + seq
+                + " bytes=" + dataUrl.length());
+
+        String caption = readExtraText(intent, Intent.EXTRA_TEXT);
+        if (!caption.trim().isEmpty()) {
+            acceptText(intent.getAction(), "text/plain", caption, launchReplay);
+        }
+        emitImage(dataUrl, name, receivedAt);
+        return true;
+    }
+
+    /**
      * Parks an honest "cannot use this share" notice and, when a composer is
      * listening, emits `sharedNotice`. Same durable-park and fingerprint rules
      * as the text.
      */
-    private static void acceptNotice(String notice, String fp, boolean launchReplay) {
-        String cleaned = notice == null ? "" : notice.trim();
+    private static void acceptNotice(String notice, String fp, boolean launchReplay) {        String cleaned = notice == null ? "" : notice.trim();
         if (cleaned.isEmpty()) return;
         if (cleaned.length() > 500) cleaned = cleaned.substring(0, 500);
 
@@ -330,8 +446,10 @@ public class HermesShare extends Plugin {
         Long receivedAt = call.getLong("receivedAt");
         boolean textCleared = false;
         boolean noticeCleared = false;
+        boolean imageCleared = false;
         String textFp = null;
         String noticeFp = null;
+        String imageFp = null;
         synchronized (stateLock) {
             if (receivedAt != null && receivedAt != 0L && pendingAt == receivedAt) {
                 textFp = pendingTextFingerprint;
@@ -347,12 +465,22 @@ public class HermesShare extends Plugin {
                 pendingNoticeFingerprint = null;
                 noticeCleared = true;
             }
+            if (receivedAt != null && receivedAt != 0L && pendingImageAt == receivedAt) {
+                imageFp = pendingImageFingerprint;
+                pendingImageDataUrl = null;
+                pendingImageName = null;
+                pendingImageAt = 0L;
+                pendingImageFingerprint = null;
+                imageCleared = true;
+            }
         }
         if (textCleared) recordPlaced(KIND_TEXT, textFp);
         if (noticeCleared) recordPlaced(KIND_NOTICE, noticeFp);
+        if (imageCleared) recordPlaced(KIND_IMAGE, imageFp);
         JSObject ret = new JSObject();
         ret.put("textCleared", textCleared);
         ret.put("noticeCleared", noticeCleared);
+        ret.put("imageCleared", imageCleared);
         call.resolve(ret);
     }
 
@@ -472,6 +600,136 @@ public class HermesShare extends Plugin {
                 Log.i(TAG, "share placed in composer: fingerprint=" + shortFingerprint(fp));
             }
         }
+    }
+
+    /**
+     * Live fast path for a shared photo: the composer attaches it immediately.
+     * The parked data URL above is the durable delivery, so a bridge that is
+     * gone costs nothing.
+     */
+    private static void emitImage(String dataUrl, String name, long receivedAt) {
+        HermesShare live = instance;
+        if (live == null || live.getBridge() == null) return;
+        try {
+            if (!live.hasListeners(EVENT_IMAGE)) return;
+            JSObject payload = new JSObject();
+            payload.put("dataUrl", dataUrl);
+            payload.put("name", name);
+            payload.put("mimeType", "image/jpeg");
+            payload.put("receivedAt", receivedAt);
+            live.notifyListeners(EVENT_IMAGE, payload);
+        } catch (Exception ex) {
+            Log.w(TAG, "Could not emit " + EVENT_IMAGE + ": " + ex.getMessage());
+        }
+    }
+
+    // ---------------------------------------------------------------- image share
+
+    /** The first stream URI of a SEND intent, or null when there is none. */
+    private static Uri firstStreamUri(Intent intent) {
+        try {
+            Object extra = intent.getExtras() == null ? null : intent.getExtras().get(Intent.EXTRA_STREAM);
+            if (extra instanceof Uri) return (Uri) extra;
+            if (extra instanceof Iterable) {
+                for (Object item : (Iterable<?>) extra) {
+                    if (item instanceof Uri) return (Uri) item;
+                }
+            }
+        } catch (Exception ex) {
+            Log.w(TAG, "Could not read shared stream: " + ex.getMessage());
+        }
+        return null;
+    }
+
+    /** A readable file name for the attachment tray. */
+    private static String streamDisplayName(Uri uri) {
+        try {
+            String last = uri.getLastPathSegment();
+            if (last != null) {
+                int slash = last.lastIndexOf('/');
+                String name = slash >= 0 ? last.substring(slash + 1) : last;
+                if (!name.isEmpty()) return name;
+            }
+        } catch (Exception ignored) {
+            // A provider without a path segment: the default name is honest.
+        }
+        return "shared-photo.jpg";
+    }
+
+    /**
+     * Decodes a content:// image, scales it to chat size and returns a JPEG
+     * data URL, or null when the image cannot be read.
+     *
+     * Decoding is bounded twice: inSampleSize keeps a 50 MP photo from
+     * allocating its full bitmap, and the result is scaled to MAX_IMAGE_EDGE.
+     * An unreadable or oversized image returns null so the caller reports a
+     * real reason instead of attaching a broken image.
+     */
+    private static String encodeStreamAsDataUrl(Uri uri) {
+        Context context = appContext;
+        if (context == null) return null;
+        InputStream in = null;
+        try {
+            android.content.ContentResolver resolver = context.getContentResolver();
+            in = resolver.openInputStream(uri);
+            if (in == null) return null;
+            BitmapFactory.Options bounds = new BitmapFactory.Options();
+            bounds.inJustDecodeBounds = true;
+            BitmapFactory.decodeStream(in, null, bounds);
+            in.close();
+            in = null;
+            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null;
+
+            int sample = 1;
+            while (Math.max(bounds.outWidth, bounds.outHeight) / (sample * 2) >= MAX_IMAGE_EDGE) {
+                sample *= 2;
+            }
+            BitmapFactory.Options options = new BitmapFactory.Options();
+            options.inSampleSize = sample;
+            in = resolver.openInputStream(uri);
+            if (in == null) return null;
+            Bitmap bitmap = BitmapFactory.decodeStream(in, null, options);
+            if (bitmap == null) return null;
+
+            Bitmap scaled = fitWithin(bitmap, MAX_IMAGE_EDGE);
+            if (scaled != bitmap) bitmap.recycle();
+            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+            boolean compressed = scaled.compress(Bitmap.CompressFormat.JPEG, IMAGE_JPEG_QUALITY, out);
+            scaled.recycle();
+            byte[] bytes = out.toByteArray();
+            out.close();
+            if (!compressed || bytes.length == 0 || bytes.length > MAX_IMAGE_BYTES) {
+                Log.w(TAG, "Shared image unusable: compressed=" + compressed + " bytes=" + bytes.length);
+                return null;
+            }
+            return "data:image/jpeg;base64,"
+                    + Base64.encodeToString(bytes, Base64.NO_WRAP);
+        } catch (Exception ex) {
+            Log.w(TAG, "Could not read the shared image: " + ex.getMessage());
+            return null;
+        } catch (OutOfMemoryError oom) {
+            // A huge photo on a low-RAM phone must not take the app down.
+            Log.w(TAG, "Shared image too large for this device: " + oom.getMessage());
+            return null;
+        } finally {
+            try {
+                if (in != null) in.close();
+            } catch (Exception ignored) {
+                // Closing a provider stream that already failed is not an error.
+            }
+        }
+    }
+
+    /** Scales a bitmap down so its longest edge is at most maxEdge. */
+    private static Bitmap fitWithin(Bitmap source, int maxEdge) {
+        int width = source.getWidth();
+        int height = source.getHeight();
+        int longest = Math.max(width, height);
+        if (longest <= maxEdge) return source;
+        float scale = (float) maxEdge / (float) longest;
+        int targetWidth = Math.max(1, Math.round(width * scale));
+        int targetHeight = Math.max(1, Math.round(height * scale));
+        return Bitmap.createScaledBitmap(source, targetWidth, targetHeight, true);
     }
 
     /** action + type + text hash, stable across processes and app restarts. */

@@ -425,6 +425,8 @@ export default function ChatView() {
   const setPendingComposerText = useAppStore((s) => s.setPendingComposerText);
   const pendingShareNotice = useAppStore((s) => s.pendingShareNotice);
   const setPendingShareNotice = useAppStore((s) => s.setPendingShareNotice);
+  const pendingSharedImage = useAppStore((s) => s.pendingSharedImage);
+  const setPendingSharedImage = useAppStore((s) => s.setPendingSharedImage);
 
   const [inputVal, setInputVal] = useState('');
   const composerRef = useRef<HTMLTextAreaElement>(null);
@@ -548,6 +550,36 @@ export default function ChatView() {
     // store copy stays, so the next mount still gets the draft.
     return () => cancelAnimationFrame(frame);
   }, [pendingComposerText, setPendingComposerText]);
+
+  // Share-sheet photo: a Gallery share becomes an unsent attachment on the
+  // composer, right next to the text draft path above. Nothing is sent here -
+  // the user still chooses the photo's prompt and presses send. The store copy
+  // is cleared first so a re-render, a tab switch or a second mount cannot
+  // attach the same photo twice.
+  useEffect(() => {
+    const image = pendingSharedImage;
+    if (!image) return;
+    setPendingSharedImage(null);
+    // base64 is 4 characters per 3 bytes; the header is negligible but the
+    // padding is not, so an approximate byte count is honest enough for the tray.
+    const sizeBytes = Math.max(0, Math.round(((image.dataUrl.length - image.dataUrl.indexOf(',') - 1) * 3) / 4));
+    const added = addAttachment({
+      id: `share-image-${image.receivedAt || Date.now()}`,
+      type: 'image',
+      name: image.name || 'shared-photo.jpg',
+      dataUrl: image.dataUrl,
+      mimeType: image.mimeType || 'image/jpeg',
+      sizeBytes,
+    });
+    if (!added) {
+      // The tray already holds the maximum count or payload: say so instead of
+      // dropping the photo silently.
+      setUploadError('That photo could not be attached: the attachment tray is full. Remove an item and share the photo again.');
+      return;
+    }
+    setSharedDraftHint(true);
+    triggerHaptic('selection');
+  }, [pendingSharedImage, setPendingSharedImage, addAttachment]);
 
   const [modelSearchQuery, setModelSearchQuery] = useState('');
   const [modelCategoryFilter, setModelCategoryFilter] = useState<'all' | 'ready' | 'vision' | 'agent' | 'text' | 'code'>('all');
