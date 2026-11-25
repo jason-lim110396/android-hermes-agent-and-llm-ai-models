@@ -415,7 +415,8 @@ public class HermesShare extends Plugin {
      * listening, emits `sharedNotice`. Same durable-park and fingerprint rules
      * as the text.
      */
-    private static void acceptNotice(String notice, String fp, boolean launchReplay) {        String cleaned = notice == null ? "" : notice.trim();
+    private static void acceptNotice(String notice, String fp, boolean launchReplay) {
+        String cleaned = notice == null ? "" : notice.trim();
         if (cleaned.isEmpty()) return;
         if (cleaned.length() > 500) cleaned = cleaned.substring(0, 500);
 
