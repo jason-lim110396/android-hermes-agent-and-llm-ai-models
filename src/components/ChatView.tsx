@@ -108,6 +108,7 @@ import { isCriticalMemoryPressure, getHeapMemoryStats, type HeapMemoryStats } fr
 import { flushPersistNow } from '@/utils/sessionPersistence';
 import { subscribeThermalTelemetry, getThermalTelemetry, type ThermalTelemetry } from '@/utils/thermalGuard';
 import { copyToClipboardSafe, formatMessageForCopy } from '@/utils/clipboardGuard';
+import { canShareToApps, shareTextToApps } from '@/utils/shareTarget';
 import { calculateThroughputStats, formatThroughput } from '@/utils/tpsSampler';
 import { getChatFontSize, CHAT_FONT_SIZE_OPTIONS, type ChatFontSize } from '@/utils/fontSettings';
 
@@ -496,7 +497,7 @@ export default function ChatView() {
   const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
   // navigator.share exists on Android but not in the server renderer. Reading
   // it during render made the client message bar differ from the server HTML.
-  const [canNativeShare, setCanNativeShare] = useState(false);
+  const [canShareReply, setCanShareReply] = useState(false);
   const [activeFallbackTooltipId, setActiveFallbackTooltipId] = useState<string | null>(null);
   // Honest feedback when a picked file cannot be read (e.g. the file was moved
   // by another app, a virtual document URI, or a low-memory read failure).
@@ -807,6 +808,8 @@ export default function ChatView() {
   ];
 
   const [copyMenuMsgId, setCopyMenuMsgId] = useState<string | null>(null);
+  // True for the reply that just went out through the share sheet.
+  const [sharedMessageId, setSharedMessageId] = useState<string | null>(null);
 
   const handleCopyMessage = async (
     msgId: string,
@@ -829,6 +832,19 @@ export default function ChatView() {
       setTimeout(() => setCopiedMessageId((cur) => (cur === msgId ? null : cur)), 2000);
     }
     setCopyMenuMsgId(null);
+  };
+
+  const handleShareMessage = async (msgId: string, content: string) => {
+    const outcome = await shareTextToApps(content, 'Shared from Hermes');
+    if (outcome === 'shared') {
+      setSharedMessageId(msgId);
+      triggerHaptic('success');
+      setTimeout(() => setSharedMessageId((cur) => (cur === msgId ? null : cur)), 2000);
+      return;
+    }
+    // Cancelled: nothing left to do. No target (or the sheet refused): copy
+    // instead and let the Copy button report it, never a false "Shared".
+    if (outcome === 'unavailable') await handleCopyMessage(msgId, content);
   };
 
   const handleSpeakMessage = (msgId: string, content: string) => {
@@ -1185,7 +1201,7 @@ export default function ChatView() {
       if (Array.isArray(savedSnippets)) setCustomSnippets(savedSnippets);
     } catch (_) {}
     setNoiseGateThreshold(getStoredNoiseGateThreshold(18));
-    setCanNativeShare(typeof navigator !== 'undefined' && typeof navigator.share === 'function');
+    setCanShareReply(canShareToApps());
   }, []);
   const [showNoiseGateSettings, setShowNoiseGateSettings] = useState(false);
 
@@ -3166,27 +3182,15 @@ export default function ChatView() {
                     )}
 
                     {/* Share Message via Native Android Sheet */}
-                    {canNativeShare && (
+                    {canShareReply && (
                       <button
-                        onClick={async () => {
-                          try {
-                            await navigator.share({
-                              title: 'Hermes AI Insight',
-                              text: msg.content,
-                            });
-                            triggerHaptic(20);
-                          } catch (err: any) {
-                            if (err?.name !== 'AbortError') {
-                              handleCopyMessage(msg.id, msg.content);
-                            }
-                          }
-                        }}
-                        title="Share via Android apps"
+                        onClick={() => handleShareMessage(msg.id, msg.content)}
+                        title="Share this reply with another app"
                         className="flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-medium bg-zinc-900/80 hover:bg-zinc-800 text-zinc-400 hover:text-white border border-zinc-800/80 transition-all cursor-pointer"
                         aria-label="Share response to other apps"
                       >
                         <Share2 className="w-3 h-3 text-cyan-400" />
-                        <span>Share</span>
+                        <span>{sharedMessageId === msg.id ? 'Shared' : 'Share'}</span>
                       </button>
                     )}
 

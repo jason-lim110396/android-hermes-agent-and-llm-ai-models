@@ -102,6 +102,51 @@ public class HermesShare extends Plugin {
     }
 
     /**
+     * Opens the real Android share sheet for a reply the user wants to send
+     * somewhere else. Android WebView has no Web Share API, so the JS
+     * `navigator.share()` path never runs on the phone; without this method the
+     * reply could only be copied.
+     *
+     * Nothing leaves the app until the user picks a target in the chooser.
+     */
+    @PluginMethod
+    public void shareText(PluginCall call) {
+        String text = call.getString("text");
+        if (text == null || text.trim().isEmpty()) {
+            call.reject("There is nothing to share.");
+            return;
+        }
+        String cleaned = text.trim();
+        if (cleaned.length() > MAX_TEXT_CHARS) {
+            cleaned = cleaned.substring(0, MAX_TEXT_CHARS);
+        }
+        String subject = call.getString("subject", "Shared from Hermes");
+        try {
+            Intent send = new Intent(Intent.ACTION_SEND);
+            send.setType("text/plain");
+            send.putExtra(Intent.EXTRA_TEXT, cleaned);
+            if (subject != null && !subject.trim().isEmpty()) {
+                send.putExtra(Intent.EXTRA_SUBJECT, subject.trim());
+            }
+            Intent chooser = Intent.createChooser(send, "Share reply with");
+            if (getActivity() != null) {
+                getActivity().startActivity(chooser);
+            } else {
+                chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                getContext().startActivity(chooser);
+            }
+            JSObject ret = new JSObject();
+            ret.put("opened", true);
+            call.resolve(ret);
+        } catch (Exception ex) {
+            // No share target installed, or the activity is gone: say so so the
+            // web layer can offer the copy fallback instead of a false "shared".
+            Log.w(TAG, "Could not open the share sheet: " + ex.getMessage());
+            call.reject("Could not open the share sheet.");
+        }
+    }
+
+    /**
      * Entry point for MainActivity: onCreate (cold start, nothing to notify yet)
      * and onNewIntent (app already running, the open composer must react).
      */

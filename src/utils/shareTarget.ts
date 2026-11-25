@@ -35,6 +35,8 @@ interface HermesSharePlugin {
   getPendingNotice(): Promise<SharedNoticePayload>;
   /** Clears the parked copy that a listener already inserted. */
   acknowledgeShared(options: { receivedAt: number }): Promise<unknown>;
+  /** Opens the Android share sheet for an outgoing reply. */
+  shareText(options: { text: string; subject?: string }): Promise<{ opened: boolean }>;
   addListener(
     eventName: 'sharedText',
     listenerFunc: (data: SharedTextPayload) => void
@@ -99,8 +101,51 @@ export async function consumePendingSharedText(): Promise<string | null> {
   }
 }
 
-/** Read a parked "cannot use this share" notice once. */
-export async function consumePendingShareNotice(): Promise<string | null> {
+/** True when a reply can leave through a real share sheet on this platform. */
+export function canShareToApps(): boolean {
+  if (getSharePlugin()) return true;
+  return typeof navigator !== 'undefined' && typeof navigator.share === 'function';
+}
+
+/** Outcome of an outgoing share; only `shared` means the sheet was handed off. */
+export type ShareOutcome = 'shared' | 'cancelled' | 'unavailable';
+
+/**
+ * Hand a reply to the Android share sheet.
+ *
+ * Android WebView has no Web Share API, so `navigator.share()` is never
+ * available on the phone: the native plugin opens the real chooser. On the web
+ * build the browser share sheet is used instead. A cancelled sheet is not an
+ * error, and an unavailable one must not be reported as shared.
+ */
+export async function shareTextToApps(text: string, subject?: string): Promise<ShareOutcome> {
+  const trimmed = typeof text === 'string' ? text.trim() : '';
+  if (!trimmed) return 'unavailable';
+
+  const plugin = getSharePlugin();
+  if (plugin) {
+    try {
+      await plugin.shareText({ text: trimmed, subject });
+      return 'shared';
+    } catch {
+      return 'unavailable';
+    }
+  }
+
+  if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
+    try {
+      await navigator.share({ title: subject, text: trimmed });
+      return 'shared';
+    } catch (err) {
+      // The user closing the sheet is not a failure; offer nothing afterwards.
+      return (err as { name?: string } | null)?.name === 'AbortError' ? 'cancelled' : 'unavailable';
+    }
+  }
+
+  return 'unavailable';
+}
+
+/** Read a parked "cannot use this share" notice once. */export async function consumePendingShareNotice(): Promise<string | null> {
   const plugin = getSharePlugin();
   if (!plugin) return null;
   try {
