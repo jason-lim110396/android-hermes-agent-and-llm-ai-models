@@ -68,6 +68,17 @@ import {
   type SessionVaultStats,
 } from '@/utils/sessionPersistence';
 
+/** True when both cooldown lists describe the same endpoints and end times. */
+function sameCooldowns(a: EndpointCooldown[], b: EndpointCooldown[]): boolean {
+  if (a.length !== b.length) return false;
+  return a.every(
+    (item, i) =>
+      item.endpoint === b[i].endpoint &&
+      (item.model || '') === (b[i].model || '') &&
+      item.until === b[i].until
+  );
+}
+
 export default function DeviceDiagnostics() {
   const hardwareProfile = useAppStore((s) => s.hardwareProfile);
   const isProfiling = useAppStore((s) => s.isProfiling);
@@ -125,12 +136,17 @@ export default function DeviceDiagnostics() {
   const [activeCooldowns, setActiveCooldowns] = useState<EndpointCooldown[]>(() => getAllActiveCooldowns());
   const [cooldownClearedNotice, setCooldownClearedNotice] = useState<string | null>(null);
 
+  // Cooldown ticker: only re-render when the list actually changes. The old
+  // version stored a fresh array every second, so this screen (and every
+  // countdown child) re-rendered once a second even with no cooldowns, and it
+  // kept ticking while the app was backgrounded. Both cost battery and make
+  // scrolling stutter on a mid-range phone.
   useEffect(() => {
-    const timer = setInterval(() => {
+    const cancel = startVisibleInterval(() => {
       const active = getAllActiveCooldowns();
-      setActiveCooldowns(active);
+      setActiveCooldowns((prev) => (sameCooldowns(prev, active) ? prev : active));
     }, 1000);
-    return () => clearInterval(timer);
+    return () => cancel();
   }, []);
 
   const handleClearCooldown = (cd: EndpointCooldown) => {

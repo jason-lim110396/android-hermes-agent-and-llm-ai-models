@@ -113,6 +113,7 @@ import {
   sanitizeImportedBackup,
   SessionVaultStats,
 } from '@/utils/sessionPersistence';
+import { startVisibleInterval } from '@/utils/visibleInterval';
 
 const PROMPT_PRESETS = [
   {
@@ -211,13 +212,15 @@ export default function SettingsView() {
   const [cooldownTick, setCooldownTick] = useState(0);
 
   useEffect(() => {
-    const interval = setInterval(() => {
+    // Cooldown countdown: paused while the app is backgrounded, and it only
+    // re-renders when a cooldown is actually counting down.
+    const cancel = startVisibleInterval(() => {
       const active = getAllActiveCooldowns();
       if (active.length > 0) {
         setCooldownTick((t) => t + 1);
       }
     }, 1000);
-    return () => clearInterval(interval);
+    return () => cancel();
   }, []);
 
   const refreshStorage = async () => {
