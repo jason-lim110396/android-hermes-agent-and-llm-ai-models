@@ -23,15 +23,24 @@ public class MainActivity extends BridgeActivity {
 
     /** Native boot screen shown until the web layer has painted its first frame. */
     private View bootScreen;
-    /** How long to wait for the web signal before revealing the WebView anyway. */
-    /** Worst-case failure timeout. The web ready signal normally wins. */
-    private static final long BOOT_SCREEN_TIMEOUT_MS = 12000L;
+    /** Worst case: reveal even if the WebView never draws. */
+    private static final long BOOT_SCREEN_TIMEOUT_MS = 4000L;
+    /**
+     * After the WebView has drawn, do not keep the overlay for much longer even
+     * if the web ready signal is late: the drawn surface is already dark, so
+     * this cannot show the old white frame, and a stalled JS bundle must not
+     * leave the user staring at a splash.
+     */
+    private static final long DRAW_GRACE_MS = 800L;
+    /** One short settle after ready() so the first content frame is presented. */
+    private static final long READY_SETTLE_MS = 150L;
     private static WeakReference<MainActivity> liveActivity = new WeakReference<>(null);
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
-    private final Runnable bootTimeout = () -> dismissBootScreen(true);
+    private final Runnable bootTimeout = () -> dismissBootScreen("timeout");
+    private final Runnable drawGraceDismiss = () -> dismissBootScreen("draw+grace");
+    private final Runnable readyDismiss = () -> dismissBootScreen("ready");
     private boolean webViewDrawn = false;
     private boolean contentReady = false;
-    private boolean dismissScheduled = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -60,9 +69,10 @@ public class MainActivity extends BridgeActivity {
         // The Android system splash is gone as soon as the activity window is
         // drawn. The WebView surface can still be white for several seconds
         // after that, and a rotation was the only thing that forced it to
-        // present. A dark native screen now covers that gap; the web layer
-        // removes it after its first mounted frame and we invalidate the
-        // WebView so the already-painted frame is actually composited.
+        // present. A dark native screen now covers that gap; it goes on the
+        // web ready() signal, or 800ms after the WebView's first draw if that
+        // signal is late, and each reveal invalidates the WebView so the
+        // already-painted frame is actually composited.
         installBootScreen();
         WebView webView = getBridge() == null ? null : getBridge().getWebView();
         if (webView != null) {
@@ -77,7 +87,11 @@ public class MainActivity extends BridgeActivity {
                     webViewDrawn = true;
                     mainHandler.post(() -> {
                         android.util.Log.i("HermesBoot", "WebView reported its first draw");
-                        maybeDismissBootScreen();
+                        if (contentReady) {
+                            mainHandler.postDelayed(readyDismiss, READY_SETTLE_MS);
+                        } else {
+                            mainHandler.postDelayed(drawGraceDismiss, DRAW_GRACE_MS);
+                        }
                     });
                 }
             });
@@ -180,7 +194,11 @@ public class MainActivity extends BridgeActivity {
         activity.mainHandler.post(() -> {
             if (activity.isFinishing() || activity.isDestroyed()) return;
             activity.contentReady = true;
-            activity.maybeDismissBootScreen();
+            // A ready signal before the first draw waits for that draw; the
+            // overlay may only go once the WebView surface is actually there.
+            if (activity.webViewDrawn) {
+                activity.mainHandler.postDelayed(activity.readyDismiss, READY_SETTLE_MS);
+            }
             // Hydration can change layout after the first draw. One more
             // invalidate makes sure the presented frame follows it.
             activity.nudgeWebView();
@@ -199,21 +217,18 @@ public class MainActivity extends BridgeActivity {
     }
 
     /**
-     * Do not reveal the WebView until the native view has drawn AND the web
-     * layer reports its mounted content. The first WebView draw can still be a
-     * blank surface; requiring both is what kept the white frame from showing.
+     * Removes the native boot screen. The first WebView draw can be a blank
+     * surface, so the overlay never goes before the WebView has drawn: either
+     * on the web ready() signal (early), 800ms after that draw (fallback), or
+     * the hard timeout if the WebView never draws at all.
+     *
+     * @param reason "ready", "draw+grace" or "timeout"; logged so a gate can
+     *     tell which path actually revealed the app.
      */
-    private void maybeDismissBootScreen() {
-        if (!webViewDrawn || !contentReady || dismissScheduled) return;
-        dismissScheduled = true;
-        mainHandler.postDelayed(dismissRunnable, 150);
-    }
-
-    private final Runnable dismissRunnable = () -> dismissBootScreen(false);
-
-    private void dismissBootScreen(boolean timedOut) {
+    private void dismissBootScreen(String reason) {
         mainHandler.removeCallbacks(bootTimeout);
-        dismissScheduled = false;
+        mainHandler.removeCallbacks(drawGraceDismiss);
+        mainHandler.removeCallbacks(readyDismiss);
         View screen = bootScreen;
         if (screen == null) return;
         bootScreen = null;
@@ -225,15 +240,14 @@ public class MainActivity extends BridgeActivity {
         // Force one layout/paint pass at handover; this is the same class of
         // invalidation a rotation was performing manually.
         nudgeWebView();
-        android.util.Log.i("HermesBoot", timedOut
-                ? "boot screen timed out; revealed WebView"
-                : "web layer ready; boot screen removed and WebView invalidated");
+        android.util.Log.i("HermesBoot", "boot screen removed (" + reason + ") and WebView invalidated");
     }
 
     @Override
     public void onDestroy() {
         mainHandler.removeCallbacks(bootTimeout);
-        mainHandler.removeCallbacks(dismissRunnable);
+        mainHandler.removeCallbacks(drawGraceDismiss);
+        mainHandler.removeCallbacks(readyDismiss);
         if (liveActivity.get() == this) liveActivity = new WeakReference<>(null);
         super.onDestroy();
     }
