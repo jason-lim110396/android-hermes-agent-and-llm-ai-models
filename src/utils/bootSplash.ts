@@ -2,8 +2,8 @@
 //
 // Android can keep the WebView surface white after the system splash is gone,
 // even when the renderer has already painted. MainActivity covers that gap
-// with a dark native screen; this call removes it after React has committed
-// and painted its first frame, so the user never sees a bare white WebView.
+// with a dark native screen. The native side dismisses it on the first draw
+// plus a short grace; this ready() call is an earlier-dismiss optimisation.
 //
 // On the plain web there is no native boot screen, so this is a no-op.
 
@@ -14,8 +14,24 @@ interface HermesBootPlugin {
 }
 
 let bootPlugin: HermesBootPlugin | null = null;
+let acknowledged = false;
 
-function getBootPlugin(): HermesBootPlugin | null {
+/** Prefer the plugin object Capacitor injected into the page. */
+function getWindowPlugin(): HermesBootPlugin | null {
+  try {
+    const injected = (window as unknown as {
+      Capacitor?: { Plugins?: Record<string, { ready?: () => Promise<{ acknowledged: boolean }> }> };
+    }).Capacitor?.Plugins?.HermesBoot;
+    if (injected && typeof injected.ready === 'function') {
+      return injected as unknown as HermesBootPlugin;
+    }
+  } catch (_) {}
+  return null;
+}
+
+function getPlugin(): HermesBootPlugin | null {
+  const injected = getWindowPlugin();
+  if (injected) return injected;
   try {
     if (!Capacitor.isNativePlatform() || Capacitor.getPlatform() !== 'android') return null;
     if (!bootPlugin) bootPlugin = registerPlugin<HermesBootPlugin>('HermesBoot');
@@ -25,12 +41,45 @@ function getBootPlugin(): HermesBootPlugin | null {
   }
 }
 
-export function notifyWebViewReady(): void {
-  const plugin = getBootPlugin();
-  if (!plugin) return;
+/** Only dev builds log: a release launch must not spam logcat. */
+const debugLog: (...parts: unknown[]) => void =
+  process.env.NODE_ENV === 'production' ? () => {} : (...parts) => console.warn('[HermesBoot]', ...parts);
+
+function attempt(attemptNumber: number): void {
+  if (acknowledged) return;
+  const plugin = getPlugin();
   try {
-    plugin.ready().catch(() => {});
-  } catch {
-    // A missing bridge only means the native timeout will reveal the WebView.
+    debugLog(
+      'ready attempt=' + attemptNumber,
+      'native=' + Capacitor.isNativePlatform(),
+      'platform=' + Capacitor.getPlatform(),
+      'injected=' + Boolean(getWindowPlugin()),
+      'plugin=' + Boolean(plugin)
+    );
+  } catch (_) {}
+
+  if (!plugin) {
+    if (attemptNumber < 6) setTimeout(() => attempt(attemptNumber + 1), 400);
+    return;
   }
+
+  try {
+    plugin
+      .ready()
+      .then((result) => {
+        acknowledged = true;
+        debugLog('ready acknowledged', JSON.stringify(result));
+      })
+      .catch((error) => {
+        debugLog('ready attempt ' + attemptNumber + ' failed: ' + String(error));
+        if (attemptNumber < 6) setTimeout(() => attempt(attemptNumber + 1), 400);
+      });
+  } catch (error) {
+    debugLog('ready threw: ' + String(error));
+    if (attemptNumber < 6) setTimeout(() => attempt(attemptNumber + 1), 400);
+  }
+}
+
+export function notifyWebViewReady(): void {
+  attempt(0);
 }

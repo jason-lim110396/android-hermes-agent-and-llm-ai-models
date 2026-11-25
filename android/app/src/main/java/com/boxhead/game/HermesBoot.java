@@ -19,6 +19,7 @@ public class HermesBoot extends Plugin {
 
     @PluginMethod
     public void ready(PluginCall call) {
+        android.util.Log.i("HermesBoot", "ready() reached native");
         MainActivity.onWebViewReady();
         call.resolve(new JSObject().put("acknowledged", true));
     }
