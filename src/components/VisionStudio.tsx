@@ -62,15 +62,6 @@ interface ScannedPage {
   isHighContrast: boolean;
 }
 
-interface ReconcileItem {
-  id: string;
-  description: string;
-  docAValue: string;
-  docBValue: string;
-  status: 'match' | 'discrepancy' | 'added';
-  variance: string;
-}
-
 const SAMPLE_IMAGES = [
   {
     id: 'receipt',
@@ -96,13 +87,24 @@ const SAMPLE_INVOICE_A = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/
 
 const SAMPLE_INVOICE_B = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="300" height="240" viewBox="0 0 300 240"><rect width="300" height="240" fill="%231e1b4b"/><text x="15" y="30" fill="%23f43f5e" font-family="sans-serif" font-size="14" font-weight="bold">FINAL BILLED INVOICE %23INV-882</text><text x="15" y="55" fill="%23a5b4fc" font-family="monospace" font-size="11">Vendor: Apex Cloud Services</text><text x="15" y="90" fill="%23e2e8f0" font-family="monospace" font-size="11">5x Dedicated GPU Instances: $1,250.00</text><text x="15" y="115" fill="%23fb7185" font-family="monospace" font-size="11">Unapproved Overage Surcharge: $125.00</text><text x="15" y="140" fill="%23e2e8f0" font-family="monospace" font-size="11">1x Enterprise Support:      $250.00</text><line x1="15" y1="160" x2="285" y2="160" stroke="%234338ca"/><text x="15" y="190" fill="%23f43f5e" font-family="monospace" font-size="14" font-weight="bold">BILLED TOTAL: $1,625.00</text></svg>';
 
-const DEFAULT_RECONCILE_ITEMS: ReconcileItem[] = [
-  { id: '1', description: '5x Dedicated GPU Instances', docAValue: '$1,250.00', docBValue: '$1,250.00', status: 'match', variance: '$0.00' },
-  { id: '2', description: 'Initial Setup Fee', docAValue: '$0.00 (Waived)', docBValue: 'N/A', status: 'match', variance: '$0.00' },
-  { id: '3', description: 'Enterprise Support Plan', docAValue: '$200.00', docBValue: '$250.00', status: 'discrepancy', variance: '+$50.00' },
-  { id: '4', description: 'Unapproved Overage Surcharge', docAValue: '$0.00', docBValue: '$125.00', status: 'added', variance: '+$125.00' },
-  { id: '5', description: 'Net Invoiced Total Balance', docAValue: '$1,450.00', docBValue: '$1,625.00', status: 'discrepancy', variance: '+$175.00 OVER' },
-];
+/** Text actually embedded in an SVG file. Used only by the offline preview. */
+function readSvgTextNodes(dataUrl: string): string[] {
+  if (!dataUrl.startsWith('data:image/svg+xml')) return [];
+  try {
+    // Do not decodeURIComponent the whole SVG: a literal "%" in visible text
+    // (for example "Tax (8.25%)") is an invalid escape and used to throw,
+    // which silently emptied this preview. Only the colour escapes need it.
+    const decoded = dataUrl
+      .replace(/^data:image\/svg\+xml(;utf8)?,/, '')
+      .replace(/%23/g, '#')
+      .replace(/%20/g, ' ');
+    return Array.from(decoded.matchAll(/<text[^>]*>([^<]+)<\/text>/g))
+      .map((m) => m[1].trim())
+      .filter((line) => line.length > 0);
+  } catch {
+    return [];
+  }
+}
 
 export default function VisionStudio() {
   const selectedModelId = useAppStore((s) => s.selectedModelId);
@@ -110,6 +112,10 @@ export default function VisionStudio() {
   const setCurrentTab = useAppStore((s) => s.setCurrentTab);
   const addAttachment = useAppStore((s) => s.addAttachment);
   const translateText = useAppStore((s) => s.translateText);
+  const analyzeVisionPage = useAppStore((s) => s.analyzeVisionPage);
+  const apiEndpoint = useAppStore((s) => s.apiEndpoint);
+  const apiKey = useAppStore((s) => s.apiKey);
+  const customModelName = useAppStore((s) => s.customModelName);
 
   const [activeTab, setActiveTab] = useState<'scanner' | 'reconciler' | 'barcode' | 'diff' | 'translate'>('scanner');
 
@@ -220,16 +226,7 @@ export default function VisionStudio() {
     discrepancyPercent: number;
     findings: string[];
     regionsCount: number;
-  } | null>({
-    similarityScore: 94.6,
-    discrepancyPercent: 5.4,
-    findings: [
-      'Accent button hue shifted from emerald-500 (#10b981) to indigo-500 (#6366f1).',
-      'Container padding increased along vertical axis by 8px.',
-      'Header text weight updated from medium (500) to bold (700).',
-    ],
-    regionsCount: 3,
-  });
+  } | null>(null);
 
   // Barcode & QR Scanner State
   const [barcodePayload, setBarcodePayload] = useState('https://github.com/jason-lim110396/android-hermes-agent-and-llm-ai-models');
@@ -279,11 +276,20 @@ export default function VisionStudio() {
   const [analysisResult, setAnalysisResult] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [copied, setCopied] = useState(false);
+  // Set only when the last analysis needed a model and could not run, so the
+  // card can offer the real ways out instead of a fake answer.
+  const [visionFailure, setVisionFailure] = useState<string | null>(null);
+  // True only for the explicitly requested local preview.
+  const [isOfflinePreview, setIsOfflinePreview] = useState(false);
+  // Token-by-token writes into this panel re-render the whole studio; batch
+  // streamed vision text to ~8fps like the translation panel does.
+  const lastVisionFlushRef = useRef(0);
 
   // Reconciler State
   const [docAUrl, setDocAUrl] = useState<string>(SAMPLE_INVOICE_A);
   const [docBUrl, setDocBUrl] = useState<string>(SAMPLE_INVOICE_B);
-  const [reconcileResult, setReconcileResult] = useState<ReconcileItem[] | null>(DEFAULT_RECONCILE_ITEMS);
+  const [reconcileAnswer, setReconcileAnswer] = useState<string | null>(null);
+  const [reconcileError, setReconcileError] = useState<string | null>(null);
   const [isReconciling, setIsReconciling] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -293,11 +299,25 @@ export default function VisionStudio() {
   const fileInputDocARef = useRef<HTMLInputElement>(null);
   const fileInputDocBRef = useRef<HTMLInputElement>(null);
 
-  const visionModels = AVAILABLE_MODELS.filter((m) => m.category === 'vision' || m.capabilities.includes('vision'));
-  const currentModel = visionModels.find((m) => m.id === selectedModelId) || visionModels[0];
-  // Translation runs on the globally selected text model, not a vision model,
-  // so the UI names that model instead of claiming an on-device translator.
   const activeModelName = AVAILABLE_MODELS.find((m) => m.id === selectedModelId)?.name || 'the selected model';
+
+  // Name the thing that will actually read the image. "MiniCPM-V" is a local
+  // selection, but the local WebAssembly runtime cannot ingest image pixels;
+  // only a configured multimodal API can. Say which one is configured.
+  const visionEndpointLabel = (() => {
+    const endpoint = apiEndpoint.trim();
+    if (!endpoint) return 'no vision model configured';
+    const name = customModelName.trim();
+    if (name) return name;
+    try {
+      return `${new URL(endpoint).hostname} (no model selected)`;
+    } catch {
+      return `${endpoint} (no model selected)`;
+    }
+  })();
+  const hasVisionEndpoint = Boolean(apiEndpoint.trim());
+  const hasVisionModel = Boolean(customModelName.trim());
+  const hasVisionKey = Boolean(apiKey.trim()) || /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\]|10\.\d|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/i.test(apiEndpoint.trim());
 
   const currentPage = scannedPages[selectedPageIndex] || scannedPages[0];
   const [imgDims, setImgDims] = useState<{ width: number; height: number } | null>(null);
@@ -533,29 +553,19 @@ export default function VisionStudio() {
     if (!currentPage || isProcessing) return;
     setIsProcessing(true);
     setAnalysisResult(null);
+    setVisionFailure(null);
+    setIsOfflinePreview(false);
 
     try {
-      let extractedLines: string[] = [];
-      let analyzerLabel = 'Preview template (not model output)';
-
-      // Real SVG / DataURL inspection
-      if (currentPage.dataUrl.includes('<svg') || currentPage.dataUrl.startsWith('data:image/svg+xml')) {
-        try {
-          const decoded = decodeURIComponent(currentPage.dataUrl.replace(/data:image\/svg\+xml;utf8,/, ''));
-          const textMatches = Array.from(decoded.matchAll(/<text[^>]*>([^<]+)<\/text>/g)).map((m) =>
-            m[1].replace(/%23/g, '#').trim()
-          );
-          if (textMatches.length > 0) {
-            extractedLines = textMatches;
-            analyzerLabel = 'SVG text nodes (exact, read from the file)';
-          }
-        } catch (_) {}
-      }
-
       if (taskMode === 'ocr') {
         // Real on-device OCR. This replaces a canned "OCR engine" block that
         // printed the same four placeholder lines for every image, which is
         // why scanning appeared to work while extracting nothing.
+        let extractedLines: string[] = [];
+        let analyzerLabel = 'Android ML Kit text recognition (on-device, offline)';
+        const svgLines = readSvgTextNodes(currentPage.dataUrl);
+        if (svgLines.length > 0) extractedLines = svgLines;
+
         const ocr = await recognizeTextFromDataUrl(currentPage.dataUrl);
         if (ocr.lines.length > 0) {
           extractedLines = ocr.lines;
@@ -586,84 +596,169 @@ export default function VisionStudio() {
           triggerHaptic([20, 40]);
           return;
         }
-      } else if (extractedLines.length === 0) {
-        if (taskMode === 'diagram') {
-          extractedLines = [
-            `DIAGRAM & TOPOLOGY RECONSTRUCTION`,
-            `Component Nodes: Mobile Client -> Hermes Agent -> WebGPU Tensor -> Weights`,
-            `Flow Direction: Linear & Bidirectional Feedback Pipeline`,
-          ];
-        } else if (taskMode === 'audit') {
-          extractedLines = [
-            `COMPLIANCE & INTEGRITY AUDIT`,
-            `Resolution: ${imgDims ? `${imgDims.width}x${imgDims.height}` : 'High Resolution'}`,
-            `Contrast Index: ${currentPage.isHighContrast ? 'Enhanced (B&W Filter Applied)' : 'Natural Dynamic Range'}`,
-            `Tamper / Artifact Risk: Low (< 1.2%)`,
-          ];
-        } else {
-          extractedLines = [
-            `HERMES MULTIMODAL INQUIRY`,
-            `Query: ${customQuestion.trim() || 'General image description'}`,
-            `Analysis: The target image depicts structured content with clear typographic regions.`,
-          ];
-        }
+
+        setAnalysisResult(
+          [
+            `### Vision result - OCR`,
+            `**Target**: ${currentPage.name} (Page ${selectedPageIndex + 1} of ${scannedPages.length})`,
+            `**Analyzer**: ${analyzerLabel}`,
+            ``,
+            `#### Extracted Text Content:`,
+            ...extractedLines.map((line) => `- ${line}`),
+            ``,
+            `> Text read on this phone with ML Kit; the image was not uploaded.`,
+          ].join('\n')
+        );
+        triggerHaptic([30, 20, 30]);
+        return;
       }
 
-      const extractedMarkdown = [
-        `### Vision result — ${taskMode.toUpperCase()}`,
-        `**Target**: ${currentPage.name} (Page ${selectedPageIndex + 1} of ${scannedPages.length})`,
-        `**Analyzer**: ${analyzerLabel}`,
-        ``,
-        `#### 📄 Extracted Text Content:`,
-        ...extractedLines.map((line) => `- ${line}`),
-        ``,
-        `#### 📊 Layout & Entity Matrix:`,
-        `| Field / Key | Value | Source |`,
-        `| :--- | :--- | :--- |`,
-        `| Source File | \`${currentPage.name}\` | ${analyzerLabel} |`,
-        `| Mode | ${taskMode.toUpperCase()} | Selected by you |`,
-        `| Total Lines | ${extractedLines.length} | Counted from the result above |`,
-        `| Data Egress | 0 bytes | On-device processing |`,
-        ``,
-        taskMode === 'ocr'
-          ? `> Text read on this phone with ML Kit; the image was not uploaded. Tap "Send to Hermes" to work with it.`
-          : `> This mode shows a structure preview, not model output. Tap "Send to Hermes" for a real multimodal pass on this page.`,
-      ].join('\n');
+      // Diagram / Audit / Visual Q&A: the page goes to a real multimodal model.
+      // No local structure template is created if the model cannot answer.
+      const question = customQuestion.trim();
+      const modeTitle =
+        taskMode === 'diagram'
+          ? 'Diagram structure'
+          : taskMode === 'audit'
+          ? 'Document audit'
+          : 'Visual answer';
+      const prompt =
+        taskMode === 'diagram'
+          ? [
+              'Analyse this image as a system diagram or architecture drawing.',
+              'Describe only what is visible:',
+              '1. The components or nodes, with the labels that appear on them.',
+              '2. The connections between them and the direction of flow.',
+              '3. The overall structure in one short paragraph.',
+              'If a label or a connection is unreadable, say so instead of guessing.',
+            ].join('\n')
+          : taskMode === 'audit'
+          ? [
+              'Audit this document or code page for real problems.',
+              'For every finding give: severity (high / medium / low), the location in the image (quote the visible text or describe the region), what is wrong, and the correction.',
+              'Look for syntax errors, inconsistencies, missing values, mismatched totals, and contradictory statements.',
+              'If you find no issue, say that plainly. Do not invent defects.',
+            ].join('\n')
+          : `The user is asking about this image: "${question || 'Describe this page and its key content.'}"\nAnswer from the image only. If the image does not contain the information, say so.`;
 
-      setAnalysisResult(extractedMarkdown);
+      let latest = '';
+      const header = () => `### ${modeTitle}\n**Model:** ${visionEndpointLabel}\n\n`;
+      const flush = (force = false) => {
+        const now = performance.now();
+        if (!force && now - lastVisionFlushRef.current < 120) return;
+        lastVisionFlushRef.current = now;
+        setAnalysisResult(`${header()}${latest || 'Waiting for the model...'}`);
+      };
+      flush(true);
+
+      const result = await analyzeVisionPage({
+        imageDataUrls: [currentPage.dataUrl],
+        prompt,
+        systemPrompt:
+          'You are a vision analyst. You only describe what is visible in the provided image. ' +
+          'If something is unclear, unreadable or absent, say so; never invent details.',
+        temperature: taskMode === 'audit' ? 0.1 : taskMode === 'chat' ? 0.3 : 0.2,
+        maxTokens: taskMode === 'audit' ? 1600 : 1200,
+        onChunk: (partial) => {
+          latest = partial;
+          flush(false);
+        },
+      });
+
+      if (!result.success) {
+        const reason = result.reason || 'The vision model did not return an answer.';
+        setVisionFailure(reason);
+        setAnalysisResult(
+          `### Vision analysis unavailable\n\n${reason}\n\nNo result was produced from this page.`
+        );
+        triggerHaptic([20, 40]);
+        return;
+      }
+
+      setAnalysisResult(
+        `### ${modeTitle}\n**Model:** ${result.modelLabel || visionEndpointLabel}${
+          result.modelName && result.modelName !== result.modelLabel ? ` (${result.modelName})` : ''
+        }\n\n${result.text}`
+      );
       triggerHaptic([30, 20, 30]);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error || 'unknown error');
+      setVisionFailure(message);
       setAnalysisResult(`Could not analyse this page: ${message}`);
     } finally {
       setIsProcessing(false);
     }
   };
 
+  const handleOfflinePreview = () => {
+    if (!currentPage) return;
+    setVisionFailure(null);
+    setIsOfflinePreview(true);
+    const svgLines = readSvgTextNodes(currentPage.dataUrl);
+    const lines = [
+      '### Offline structure preview (not model output)',
+      `**Page:** ${currentPage.name} (Page ${selectedPageIndex + 1} of ${scannedPages.length})`,
+      `**Image:** ${imgDims ? `${imgDims.width}x${imgDims.height}px` : 'dimensions not loaded'}`,
+      `**Enhancement:** ${currentPage.isHighContrast ? 'B&W high-contrast filter applied' : 'original photo'}`,
+      '',
+      svgLines.length > 0
+        ? ['#### Text embedded in this file', ...svgLines.map((line) => `- ${line}`)].join('\n')
+        : 'No text is embedded in this file. This preview cannot describe the diagram, find defects, or answer questions about the picture.',
+      '',
+      '> No model was called. This is a local file preview, not image analysis.',
+    ];
+    setAnalysisResult(lines.join('\n'));
+    triggerHaptic([15, 15]);
+  };
+
   const handleRunReconciliation = async () => {
     setIsReconciling(true);
+    setReconcileAnswer(null);
+    setReconcileError(null);
     try {
-      await new Promise((r) => setTimeout(r, 1500));
-      setReconcileResult(DEFAULT_RECONCILE_ITEMS);
+      let latest = '';
+      const result = await analyzeVisionPage({
+        imageDataUrls: [docAUrl, docBUrl],
+        prompt:
+          'Compare these two documents. Image 1 is the baseline quote; image 2 is the billed invoice.\n' +
+          'List every line item, the amount in each document, and whether it matches.\n' +
+          'Then list every discrepancy with the difference, the likely cause, and whether it was approved.\n' +
+          'End with the net difference between the two totals. Only use values visible in the images; ' +
+          'say when a value is unclear instead of guessing.',
+        systemPrompt:
+          'You are a document reconciliation analyst. You only compare values visible in the provided images. ' +
+          'Never invent a line item, amount, or approval.',
+        temperature: 0.1,
+        maxTokens: 1800,
+        onChunk: (partial) => {
+          latest = partial;
+          const now = performance.now();
+          if (now - lastVisionFlushRef.current >= 120) {
+            lastVisionFlushRef.current = now;
+            setReconcileAnswer(latest);
+          }
+        },
+      });
+      if (!result.success) {
+        setReconcileError(result.reason || 'The vision model did not return an answer.');
+        return;
+      }
+      setReconcileAnswer(result.text);
       triggerHaptic([60, 40, 60]);
+    } catch (error) {
+      setReconcileError(error instanceof Error ? error.message : String(error || 'unknown error'));
     } finally {
       setIsReconciling(false);
     }
   };
 
   const handleSendReconciliationToHermes = () => {
-    if (!reconcileResult) return;
-    const tableText = reconcileResult
-      .map((r) => `| ${r.description} | ${r.docAValue} | ${r.docBValue} | ${r.variance} (${r.status.toUpperCase()}) |`)
-      .join('\n');
-
-    const prompt = `### Dual Invoice Visual Reconciliation Audit\n` +
-      `I compared Purchase Quote #PO-409 with Billed Invoice #INV-882 using MiniCPM-V.\n\n` +
-      `| Item | Baseline Quote (Doc A) | Billed Invoice (Doc B) | Variance Status |\n` +
-      `| :--- | :--- | :--- | :--- |\n` +
-      `${tableText}\n\n` +
-      `**Summary**: Detected a net **+$175.00 discrepancy** (including a $50 support increase and an unapproved $125 overage surcharge). Please draft a formal vendor billing dispute letter requesting immediate adjustment.`;
-
+    if (!reconcileAnswer?.trim()) return;
+    const prompt =
+      `### Dual Document Visual Reconciliation\n` +
+      `A multimodal model compared the photo of the baseline quote (Document A) with the photo of the billed invoice (Document B).\n\n` +
+      `${reconcileAnswer.trim()}\n\n` +
+      `Please draft a formal vendor billing dispute letter for the discrepancies listed above, citing only those amounts.`;
     sendMessage(prompt);
     setCurrentTab('chat');
   };
@@ -680,10 +775,10 @@ export default function VisionStudio() {
             <h1 className="text-sm font-black text-white flex items-center gap-1.5 flex-wrap">
               <span>Vision OCR & Multi-Doc Studio</span>
               <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-mono font-bold">
-                MiniCPM-V
+                {hasVisionEndpoint ? 'Multimodal API' : 'Vision model required'}
               </span>
             </h1>
-            <p className="text-[10px] text-zinc-400">On-device OCR, multi-page scanning, and dual invoice reconciliation</p>
+            <p className="text-[10px] text-zinc-400">On-device OCR, multi-page scanning, and multimodal model analysis</p>
           </div>
         </div>
 
@@ -963,7 +1058,11 @@ export default function VisionStudio() {
                 {isProcessing ? (
                   <>
                     <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                    <span>Analyzing image pixels with {currentModel?.name || 'MiniCPM-V'}...</span>
+                    <span>
+                      {taskMode === 'ocr'
+                        ? 'Reading text with Android ML Kit...'
+                        : `Asking ${visionEndpointLabel}...`}
+                    </span>
                   </>
                 ) : (
                   <>
@@ -972,6 +1071,37 @@ export default function VisionStudio() {
                   </>
                 )}
               </button>
+
+              {taskMode !== 'ocr' && (
+                <div className="space-y-1">
+                  <button
+                    onClick={handleOfflinePreview}
+                    disabled={!currentPage || isProcessing}
+                    className="w-full py-2 rounded-xl bg-zinc-800/70 hover:bg-zinc-800 border border-zinc-700/70 text-zinc-300 text-[11px] font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer disabled:opacity-40"
+                  >
+                    <Eye className="w-3 h-3 text-zinc-400" />
+                    <span>Offline structure preview (not model output)</span>
+                  </button>
+                  {!hasVisionEndpoint && (
+                    <p className="text-[10px] text-amber-300/90 leading-tight">
+                      No vision model configured. Add a multimodal API endpoint in Settings; the local
+                      WebAssembly models cannot read image pixels.
+                    </p>
+                  )}
+                  {hasVisionEndpoint && !hasVisionModel && (
+                    <p className="text-[10px] text-amber-300/90 leading-tight">
+                      No model is selected for {visionEndpointLabel}. Fetch the provider models in Settings
+                      and pick a vision-capable one.
+                    </p>
+                  )}
+                  {hasVisionEndpoint && hasVisionModel && !hasVisionKey && (
+                    <p className="text-[10px] text-amber-300/90 leading-tight">
+                      No API key for {visionEndpointLabel}. Add one in Settings, or use a local vision
+                      server that needs none.
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
 
             {analysisResult && (
@@ -979,7 +1109,13 @@ export default function VisionStudio() {
                 <div className="flex items-center justify-between text-xs">
                   <span className="font-bold text-zinc-300 flex items-center gap-1.5">
                     <Check className="w-3.5 h-3.5 text-emerald-400" />
-                    <span>Analysis Deliverable</span>
+                    <span>
+                      {isOfflinePreview
+                        ? 'Offline structure preview'
+                        : taskMode === 'ocr'
+                        ? 'OCR result'
+                        : 'Model answer'}
+                    </span>
                   </span>
                   <button
                     onClick={() => {
@@ -1002,6 +1138,33 @@ export default function VisionStudio() {
                 <div className="p-3 bg-zinc-950/70 rounded-xl border border-zinc-800/80 text-xs font-mono text-zinc-300 leading-relaxed whitespace-pre-wrap select-text">
                   {analysisResult}
                 </div>
+
+                {visionFailure && (
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      onClick={() => setCurrentTab('settings')}
+                      className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold transition-all cursor-pointer"
+                    >
+                      Open Settings to add a vision model
+                    </button>
+                    <button
+                      onClick={handleOfflinePreview}
+                      className="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-200 text-[11px] font-bold transition-all cursor-pointer"
+                    >
+                      Use offline structure preview
+                    </button>
+                  </div>
+                )}
+
+                {isOfflinePreview && (
+                  <button
+                    onClick={handleRunAnalysis}
+                    disabled={isProcessing}
+                    className="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-200 text-[11px] font-bold transition-all cursor-pointer disabled:opacity-40"
+                  >
+                    Try this page with the vision model
+                  </button>
+                )}
               </div>
             )}
           </>
@@ -1099,75 +1262,45 @@ export default function VisionStudio() {
               </div>
             </div>
 
-            {/* Reconciliation Diff Results Card */}
-            {reconcileResult && (
+            {/* Real multimodal document comparison */}
+            {(reconcileAnswer || reconcileError) && (
               <div className="bg-zinc-900/90 border border-zinc-800 rounded-2xl p-3.5 shadow-xl space-y-3 animate-in fade-in duration-200">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
                   <div className="flex items-center gap-2">
                     <AlertTriangle className="w-4 h-4 text-amber-400" />
                     <div>
-                      <h4 className="text-xs font-bold text-white">Visual Audit & Discrepancy Breakdown</h4>
-                      <p className="text-[10px] text-rose-400 font-bold">Discrepancy Detected: +$175.00 Unauthorized Increase</p>
+                      <h4 className="text-xs font-bold text-white">Document comparison</h4>
+                      <p className="text-[10px] text-zinc-400">
+                        {reconcileError ? 'No model answer' : `Compared by ${visionEndpointLabel}`}
+                      </p>
                     </div>
                   </div>
 
+                  {reconcileAnswer && (
+                    <button
+                      onClick={handleSendReconciliationToHermes}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold transition-all cursor-pointer shadow-md shadow-cyan-600/30"
+                    >
+                      <Send className="w-3.5 h-3.5" />
+                      <span>Dispute with Hermes</span>
+                    </button>
+                  )}
+                </div>
+
+                <div className="p-3 rounded-xl bg-zinc-950 border border-zinc-800 text-[11px] text-zinc-300 leading-relaxed whitespace-pre-wrap select-text">
+                  {reconcileError
+                    ? `Could not compare these documents: ${reconcileError}\n\nNo comparison was produced.`
+                    : reconcileAnswer}
+                </div>
+
+                {reconcileError && (
                   <button
-                    onClick={handleSendReconciliationToHermes}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold transition-all cursor-pointer shadow-md shadow-cyan-600/30"
+                    onClick={() => setCurrentTab('settings')}
+                    className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold transition-all cursor-pointer"
                   >
-                    <Send className="w-3.5 h-3.5" />
-                    <span>Dispute with Hermes</span>
+                    Open Settings to add a vision model
                   </button>
-                </div>
-
-                {/* Diff Table */}
-                <div className="border border-zinc-800 rounded-xl overflow-hidden shadow-inner">
-                  <table className="min-w-full divide-y divide-zinc-800 text-[11px]">
-                    <thead className="bg-zinc-950 font-bold text-zinc-400">
-                      <tr>
-                        <th className="px-3 py-2 text-left">Item Description</th>
-                        <th className="px-2 py-2 text-right">Quote (A)</th>
-                        <th className="px-2 py-2 text-right">Invoice (B)</th>
-                        <th className="px-3 py-2 text-right">Variance</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-zinc-800/80 bg-zinc-900/50 font-mono">
-                      {reconcileResult.map((item) => (
-                        <tr
-                          key={item.id}
-                          className={
-                            item.status === 'discrepancy'
-                              ? 'bg-rose-950/20 text-rose-300'
-                              : item.status === 'added'
-                              ? 'bg-amber-950/20 text-amber-300'
-                              : 'text-zinc-300'
-                          }
-                        >
-                          <td className="px-3 py-2 font-sans font-medium">{item.description}</td>
-                          <td className="px-2 py-2 text-right text-zinc-400">{item.docAValue}</td>
-                          <td className="px-2 py-2 text-right font-bold">{item.docBValue}</td>
-                          <td className="px-3 py-2 text-right font-bold">
-                            <span
-                              className={`px-1.5 py-0.5 rounded text-[10px] ${
-                                item.status === 'match'
-                                  ? 'bg-emerald-500/20 text-emerald-400'
-                                  : item.status === 'added'
-                                  ? 'bg-amber-500/20 text-amber-400'
-                                  : 'bg-rose-500/20 text-rose-400'
-                              }`}
-                            >
-                              {item.variance}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-
-                <div className="p-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-[11px] text-zinc-300 leading-relaxed">
-                  <strong>Auditor Conclusion:</strong> Billed total exceeds agreed baseline by $175.00. Surcharge of $125 was not included in approved quote PO-409, and support was inflated from $200 to $250.
-                </div>
+                )}
               </div>
             )}
           </div>
@@ -1362,7 +1495,7 @@ export default function VisionStudio() {
                 <Columns className="w-3.5 h-3.5" />
                 <span>Visual Diff Slider & Comparison View</span>
               </span>
-              <span className="text-[10px] text-zinc-500 font-mono">MiniCPM-V Neural Diff</span>
+              <span className="text-[10px] text-zinc-500 font-mono">Image Comparison</span>
             </div>
 
             {/* Mode Switcher */}
@@ -1583,19 +1716,21 @@ export default function VisionStudio() {
               </div>
             )}
 
-            {/* MiniCPM-V Neural Diff Analysis Report */}
+            {/* Preset comparison metrics (sample data, not model output) */}
             {diffResult && (
               <div className="p-3 bg-zinc-950/80 rounded-xl border border-zinc-800 space-y-2.5 animate-in fade-in">
                 <div className="flex items-center justify-between">
                   <span className="text-[11px] font-bold text-zinc-300 flex items-center gap-1.5">
                     <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-                    <span>MiniCPM-V Vision Inspection Verdict</span>
+                    <span>Sample comparison metrics</span>
                   </span>
                   <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/40 font-mono font-bold">
                     {diffResult.similarityScore}% Match
                   </span>
                 </div>
-
+                <p className="text-[10px] text-zinc-500 leading-tight">
+                  These values belong to the selected preset pair. No model analysed the images.
+                </p>
                 <div className="grid grid-cols-2 gap-2 text-center text-[10px]">
                   <div className="p-2 rounded-lg bg-zinc-900 border border-zinc-800">
                     <span className="text-zinc-500 block uppercase">Pixel Discrepancy</span>
