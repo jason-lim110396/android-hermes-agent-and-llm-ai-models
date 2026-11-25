@@ -19,24 +19,25 @@ import {
   ChevronDown,
   ChevronUp,
 } from 'lucide-react';
-import { useAppStore, type Attachment } from '@/appStore';
+import { useAppStore } from '@/appStore';
 import { triggerHaptic } from '@/utils/haptics';
 import { useBackButtonClose } from '@/utils/backButton';
 import {
-  attachGuardedRecognition,
   createSilenceDetector,
   type SilenceDetector,
-  type RecognitionLike,
 } from '@/utils/voiceSession';
 import {
   speakGuarded,
   cancelSpeech,
   onSpeakingChange,
-  hasSpeechSynthesis,
   playWebAudioSpeechChime,
   createSpeechUtterance,
 } from '@/utils/speechGuard';
-import { isSpeechRecognitionPermissionDenied } from '@/utils/nativeAppSettings';
+import {
+  createSpeechInputSession,
+  hasSpeechInput,
+  type SpeechSession,
+} from '@/utils/speechRecognition';
 
 type CallState = 'connecting' | 'listening' | 'thinking' | 'speaking';
 
@@ -67,13 +68,10 @@ export default function VoiceCallModal({ isOpen, onClose }: VoiceCallModalProps)
   const [userSpeechDraft, setUserSpeechDraft] = useState('');
   const [assistantText, setAssistantText] = useState('');
   const [permissionError, setPermissionError] = useState<string | null>(null);
-  const [isPushToTalkActive, setIsPushToTalkActive] = useState(false);
   const [showQuickInput, setShowQuickInput] = useState(false);
   const [manualInputText, setManualInputText] = useState('');
 
-  const recognitionRef = useRef<any>(null);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const audioChunksRef = useRef<Blob[]>([]);
+  const recognitionRef = useRef<SpeechSession | null>(null);
   const sessionTokenRef = useRef(0);
   const silenceDetectorRef = useRef<SilenceDetector | null>(null);
   const isOpenRef = useRef(isOpen);
@@ -91,10 +89,8 @@ export default function VoiceCallModal({ isOpen, onClose }: VoiceCallModalProps)
     userSpeechDraftRef.current = userSpeechDraft;
   }, [isOpen, isGenerating, isSpeaking, userSpeechDraft]);
 
-  // Check if browser has SpeechRecognition support
-  const hasSpeechRecognition =
-    typeof window !== 'undefined' &&
-    Boolean((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition);
+  // Native recognizer on the installed app, Web Speech API on desktop.
+  const hasSpeechRecognition = hasSpeechInput();
 
   // Android hardware back button handler
   useBackButtonClose(isOpen, () => {
@@ -189,114 +185,107 @@ export default function VoiceCallModal({ isOpen, onClose }: VoiceCallModalProps)
     if (typeof window === 'undefined' || !isOpenRef.current) return;
     if (isMutedRef.current) return;
 
-    const SpeechRecognition =
-      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    // Stop any previous session before starting the next one.
+    const previous = recognitionRef.current;
+    recognitionRef.current = null;
+    previous?.abort();
 
-    if (!SpeechRecognition) {
-      // On Android WebViews without Web Speech API, switch gracefully to Push-to-Talk mode
-      setCallState('listening');
-      return;
-    }
+    sessionTokenRef.current += 1;
+    const currentToken = sessionTokenRef.current;
+    const isCurrent = () => sessionTokenRef.current === currentToken;
 
-    try {
-      if (recognitionRef.current) {
-        try {
-          recognitionRef.current.abort();
-        } catch (_) {}
-      }
+    const canRearm = () =>
+      isOpenRef.current && !isMutedRef.current && !isGeneratingRef.current && !isSpeakingRef.current;
 
-      sessionTokenRef.current += 1;
-      const currentToken = sessionTokenRef.current;
-      const isCurrent = () => sessionTokenRef.current === currentToken;
-
-      const recognition = new SpeechRecognition();
-      recognition.continuous = false;
-      recognition.interimResults = true;
-      recognition.lang = 'en-US';
-
-      silenceDetectorRef.current = createSilenceDetector(1600, () => {
-        if (!isCurrent()) return;
-        try {
-          recognition.stop();
-        } catch (_) {}
-      });
-
-      attachGuardedRecognition(recognition as RecognitionLike, isCurrent, {
+    const session = createSpeechInputSession(
+      {
         onStart: () => {
+          if (!isCurrent()) return;
           setPermissionError(null);
           setCallState('listening');
         },
-        onResult: (event) => {
+        onUpdate: ({ finalText, interimText }) => {
+          if (!isCurrent()) return;
           silenceDetectorRef.current?.reset();
-          let transcript = '';
-          let isFinal = false;
-
-          for (let i = event.resultIndex; i < event.results.length; i++) {
-            const res = event.results[i];
-            if (res && res[0]) {
-              transcript += res[0].transcript;
-              if (res.isFinal) isFinal = true;
-            }
-          }
-
-          if (transcript.trim()) {
-            userSpeechDraftRef.current = transcript;
-            setUserSpeechDraft(transcript);
-          }
-
-          if (isFinal && transcript.trim().length > 0) {
-            handleCommitUserSpeechRef.current(transcript.trim());
+          const live = `${finalText}${interimText ? (finalText ? ' ' : '') + interimText : ''}`.trim();
+          if (live) {
+            userSpeechDraftRef.current = live;
+            setUserSpeechDraft(live);
           }
         },
-        onError: (err) => {
-          if (err.error === 'not-allowed') {
+        onFinal: (text) => {
+          if (!isCurrent()) return;
+          const clean = text.trim();
+          if (!clean) return;
+          userSpeechDraftRef.current = clean;
+          setUserSpeechDraft(clean);
+          handleCommitUserSpeechRef.current(clean);
+        },
+        onError: (failure) => {
+          if (!isCurrent()) return;
+          silenceDetectorRef.current?.clear();
+          if (failure.reason === 'permission_denied') {
             setPermissionError('Microphone permission denied. Tap orb or use quick input to chat.');
-          } else if (err.error !== 'no-speech' && err.error !== 'aborted') {
-            // Transient error: re-arm if still listening
-            if (isOpenRef.current && !isMutedRef.current && !isGeneratingRef.current && !isSpeakingRef.current) {
-              setTimeout(() => {
-                if (
-                  isCurrent() &&
-                  isOpenRef.current &&
-                  !isMutedRef.current &&
-                  !isGeneratingRef.current &&
-                  !isSpeakingRef.current
-                ) {
-                  startRecognitionSafe();
-                }
-              }, 400);
-            }
+            return;
           }
+          if (failure.recoverable) {
+            // Silence/no-match is normal in a call. The session's onEnd event
+            // re-arms it; re-arming here too would start two sessions and the
+            // second would fail as busy.
+            return;
+          }
+          // No recognizer, network or audio failure: say what happened and
+          // offer the text input instead of pretending to listen.
+          setPermissionError(failure.message);
+          setShowQuickInput(true);
         },
         onEnd: () => {
+          if (!isCurrent()) return;
           silenceDetectorRef.current?.clear();
-          // If stopped without final and we still have text, commit it
+          recognitionRef.current = null;
+          // If stopped without a final result and we still have text, commit it.
           if (userSpeechDraftRef.current.trim().length > 0) {
             handleCommitUserSpeechRef.current(userSpeechDraftRef.current.trim());
-          } else if (isOpenRef.current && !isMutedRef.current && !isGeneratingRef.current && !isSpeakingRef.current) {
-            // Auto-rearm
+          } else if (canRearm()) {
             setTimeout(() => {
-              if (
-                isCurrent() &&
-                isOpenRef.current &&
-                !isMutedRef.current &&
-                !isGeneratingRef.current &&
-                !isSpeakingRef.current
-              ) {
-                startRecognitionSafe();
-              }
+              if (isCurrent() && canRearm()) startRecognitionSafe();
             }, 300);
           }
         },
-      });
+      },
+      { lang: 'en-US', continuous: false }
+    );
 
-      recognitionRef.current = recognition;
-      recognition.start();
-    } catch (e: any) {
-      if (isSpeechRecognitionPermissionDenied(e)) {
-        setPermissionError('Microphone permission blocked. Tap orb or use quick input to chat.');
-      }
+    recognitionRef.current = session;
+    // The native recognizer stops itself at end-of-speech and reports onEnd;
+    // the silence timer is only needed by the browser engine, which can stay
+    // in a live-but-silent state. Timer-stopping the native session made it
+    // stop and restart every couple of seconds on a quiet microphone.
+    if (session.engine === 'web') {
+      silenceDetectorRef.current = createSilenceDetector(1600, () => {
+        if (isCurrent()) session.stop();
+      });
+    } else {
+      silenceDetectorRef.current = null;
     }
+
+    session.start().then((result) => {
+      if (!isCurrent()) {
+        session.abort();
+        return;
+      }
+      if (!result.started) {
+        recognitionRef.current = null;
+        silenceDetectorRef.current?.clear();
+        setCallState('listening');
+        if (result.reason === 'permission_denied') {
+          setPermissionError('Microphone permission blocked. Tap orb or use quick input to chat.');
+        } else {
+          setPermissionError(result.message || 'Voice input is unavailable.');
+          setShowQuickInput(true);
+        }
+      }
+    });
   }, []);
 
   // Initial connect when modal opens
@@ -339,12 +328,6 @@ export default function VoiceCallModal({ isOpen, onClose }: VoiceCallModalProps)
       if (recognitionRef.current) {
         try {
           recognitionRef.current.abort();
-        } catch (_) {}
-      }
-      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-        try {
-          mediaRecorderRef.current.stream.getTracks().forEach((t) => t.stop());
-          mediaRecorderRef.current.stop();
         } catch (_) {}
       }
       silenceDetectorRef.current?.clear();
@@ -417,98 +400,29 @@ export default function VoiceCallModal({ isOpen, onClose }: VoiceCallModalProps)
         recognitionRef.current.abort();
       } catch (_) {}
     }
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      try {
-        mediaRecorderRef.current.stream.getTracks().forEach((t) => t.stop());
-        mediaRecorderRef.current.stop();
-      } catch (_) {}
-    }
     silenceDetectorRef.current?.clear();
     cancelSpeech();
     onClose();
   };
 
-  // Push-to-Talk or Orb Tap Interaction
-  const handleOrbClick = async () => {
+  // Orb tap: re-arm the recognizer, or offer text input when voice is
+  // unavailable. It never records audio that can never become text.
+  const handleOrbClick = () => {
     if (callState === 'speaking') {
       handleInterrupt();
       return;
     }
+    if (callState !== 'listening') return;
 
-    if (callState === 'listening') {
-      if (!hasSpeechRecognition) {
-        if (!isPushToTalkActive) {
-          // Real voice microphone capture via MediaRecorder
-          if (typeof navigator !== 'undefined' && navigator.mediaDevices?.getUserMedia) {
-            try {
-              const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-              const recorder = new MediaRecorder(stream);
-              mediaRecorderRef.current = recorder;
-              audioChunksRef.current = [];
-              recorder.ondataavailable = (e) => {
-                if (e.data && e.data.size > 0) audioChunksRef.current.push(e.data);
-              };
-              recorder.start(100);
-              setIsPushToTalkActive(true);
-              triggerHaptic('selection');
-              setUserSpeechDraft('Recording your voice... Tap orb when finished');
-            } catch (_) {
-              setPermissionError('Microphone access denied. Tap a quick prompt or type below.');
-              setShowQuickInput(true);
-            }
-          } else {
-            setShowQuickInput(true);
-          }
-        } else {
-          // Stop real voice recording and commit
-          setIsPushToTalkActive(false);
-          triggerHaptic('success');
-          setUserSpeechDraft('Processing voice message...');
-          const recorder = mediaRecorderRef.current;
-          if (recorder && recorder.state !== 'inactive') {
-            recorder.onstop = () => {
-              try {
-                recorder.stream.getTracks().forEach((t) => t.stop());
-              } catch (_) {}
-              const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-              audioChunksRef.current = [];
-              mediaRecorderRef.current = null;
-              if (blob.size > 0) {
-                const reader = new FileReader();
-                reader.onloadend = () => {
-                  const dataUrl = reader.result as string;
-                  const att: Attachment = {
-                    id: `voice-call-${Date.now()}`,
-                    type: 'audio',
-                    name: 'Voice Call Audio Note',
-                    dataUrl,
-                    mimeType: 'audio/webm',
-                    sizeBytes: blob.size,
-                    durationSec: 3,
-                  };
-                  useAppStore.getState().addAttachment(att);
-                  handleCommitUserSpeech('Voice call question (audio attached)');
-                };
-                reader.readAsDataURL(blob);
-              } else {
-                handleCommitUserSpeech('Voice call inquiry');
-              }
-            };
-            try {
-              recorder.stop();
-            } catch (_) {
-              handleCommitUserSpeech('Voice call inquiry');
-            }
-          } else {
-            handleCommitUserSpeech('Voice call inquiry');
-          }
-        }
-      } else {
-        // Re-arm speech recognition
-        triggerHaptic('selection');
-        startRecognitionSafe();
-      }
+    triggerHaptic('selection');
+    if (hasSpeechRecognition) {
+      startRecognitionSafe();
+      return;
     }
+    setPermissionError(
+      'Voice input needs the installed Android app. Type below to chat on this device.'
+    );
+    setShowQuickInput(true);
   };
 
   const handleSendManualInput = () => {
@@ -535,7 +449,7 @@ export default function VoiceCallModal({ isOpen, onClose }: VoiceCallModalProps)
           </span>
           {!hasSpeechRecognition && (
             <span className="hidden sm:inline-block px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/30 text-[9px] font-mono text-amber-300">
-              Tap-to-Talk
+              Text input only
             </span>
           )}
         </div>
@@ -612,10 +526,10 @@ export default function VoiceCallModal({ isOpen, onClose }: VoiceCallModalProps)
               <>
                 <AudioLines className="w-12 h-12 text-cyan-400 animate-pulse" />
                 <span className="text-xs font-bold text-cyan-300 mt-2">
-                  {isPushToTalkActive ? 'Recording...' : 'Listening...'}
+                  Listening...
                 </span>
                 <span className="text-[10px] text-zinc-400">
-                  {hasSpeechRecognition ? 'Speak naturally' : 'Tap orb to talk'}
+                  {hasSpeechRecognition ? 'Speak naturally' : 'Voice input unavailable'}
                 </span>
               </>
             )}
@@ -668,7 +582,7 @@ export default function VoiceCallModal({ isOpen, onClose }: VoiceCallModalProps)
               <p className="text-[11px] text-zinc-500 italic">
                 {hasSpeechRecognition
                   ? 'Hands-free voice mode active · Speak whenever ready'
-                  : 'Tap-to-Talk active · Tap orb or pick prompt below'}
+                  : 'Voice input unavailable here · tap orb or use quick input'}
               </p>
             )}
           </div>

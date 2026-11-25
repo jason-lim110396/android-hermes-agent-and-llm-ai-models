@@ -44,6 +44,12 @@
         <intent>
             <action android:name="android.intent.action.TTS_SERVICE" />
         </intent>
+        <!-- Same class of bug for speech-to-text: without this the app cannot
+             see the installed recognition service, so SpeechRecognizer reports
+             no recognizer even though one is present. -->
+        <intent>
+            <action android:name="android.speech.RecognitionService" />
+        </intent>
     </queries>
 
     <!-- Permissions -->
