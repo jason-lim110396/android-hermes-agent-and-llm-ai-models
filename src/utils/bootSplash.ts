@@ -41,21 +41,20 @@ function getPlugin(): HermesBootPlugin | null {
   }
 }
 
+/** Only dev builds log: a release launch must not spam logcat. */
+const debugLog: (...parts: unknown[]) => void =
+  process.env.NODE_ENV === 'production' ? () => {} : (...parts) => console.warn('[HermesBoot]', ...parts);
+
 function attempt(attemptNumber: number): void {
   if (acknowledged) return;
   const plugin = getPlugin();
   try {
-    console.warn(
-      '[HermesBoot] ready attempt=' +
-        attemptNumber +
-        ' native=' +
-        Capacitor.isNativePlatform() +
-        ' platform=' +
-        Capacitor.getPlatform() +
-        ' injected=' +
-        Boolean(getWindowPlugin()) +
-        ' plugin=' +
-        Boolean(plugin)
+    debugLog(
+      'ready attempt=' + attemptNumber,
+      'native=' + Capacitor.isNativePlatform(),
+      'platform=' + Capacitor.getPlatform(),
+      'injected=' + Boolean(getWindowPlugin()),
+      'plugin=' + Boolean(plugin)
     );
   } catch (_) {}
 
@@ -69,14 +68,14 @@ function attempt(attemptNumber: number): void {
       .ready()
       .then((result) => {
         acknowledged = true;
-        console.warn('[HermesBoot] ready acknowledged ' + JSON.stringify(result));
+        debugLog('ready acknowledged', JSON.stringify(result));
       })
       .catch((error) => {
-        console.warn('[HermesBoot] ready attempt ' + attemptNumber + ' failed: ' + String(error));
+        debugLog('ready attempt ' + attemptNumber + ' failed: ' + String(error));
         if (attemptNumber < 6) setTimeout(() => attempt(attemptNumber + 1), 400);
       });
   } catch (error) {
-    console.warn('[HermesBoot] ready threw: ' + String(error));
+    debugLog('ready threw: ' + String(error));
     if (attemptNumber < 6) setTimeout(() => attempt(attemptNumber + 1), 400);
   }
 }
