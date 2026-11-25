@@ -90,7 +90,10 @@ public class MainActivity extends BridgeActivity {
         title.setTextSize(26);
         title.setLetterSpacing(0.16f);
         title.setGravity(Gravity.CENTER);
-        column.addView(title);
+        // Full width: letterSpacing adds a trailing space that wrap_content
+        // measures without, which clipped the last letter ("HERME").
+        column.addView(title, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         TextView subtitle = new TextView(this);
         subtitle.setText("Starting on-device AI");
