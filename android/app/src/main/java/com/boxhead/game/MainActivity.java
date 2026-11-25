@@ -1,6 +1,5 @@
 package com.boxhead.game;
 
-import android.content.Intent;
 import android.graphics.Color;
 import android.os.Bundle;
 import android.os.Handler;
@@ -40,14 +39,9 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(HermesTTS.class);
         registerPlugin(HermesOCR.class);
         registerPlugin(HermesSTT.class);
-        registerPlugin(HermesShare.class);
         registerPlugin(HermesBoot.class);
         super.onCreate(savedInstanceState);
         liveActivity = new WeakReference<>(this);
-        // A share-sheet launch arrives as this activity's intent, not as a
-        // launcher intent. Hand it to the share plugin before the web layer
-        // asks for it, so the first getPendingText() finds the text.
-        HermesShare.handleIntent(getIntent());
 
         // The Android system splash is gone as soon as the activity window is
         // drawn. The WebView surface can still be white for several seconds
@@ -89,6 +83,11 @@ public class MainActivity extends BridgeActivity {
         LinearLayout column = new LinearLayout(this);
         column.setOrientation(LinearLayout.VERTICAL);
         column.setGravity(Gravity.CENTER_HORIZONTAL);
+        // A wrap_content column is narrower than the letter-spaced title, which
+        // clipped the last letter ("HERME"). Full width, with side padding so
+        // the title never touches the screen edge.
+        int columnPad = (int) (24 * getResources().getDisplayMetrics().density);
+        column.setPadding(columnPad, 0, columnPad, 0);
 
         TextView title = new TextView(this);
         title.setText("HERMES");
@@ -96,8 +95,6 @@ public class MainActivity extends BridgeActivity {
         title.setTextSize(26);
         title.setLetterSpacing(0.16f);
         title.setGravity(Gravity.CENTER);
-        // Full width: letterSpacing adds a trailing space that wrap_content
-        // measures without, which clipped the last letter ("HERME").
         column.addView(title, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
@@ -107,12 +104,12 @@ public class MainActivity extends BridgeActivity {
         subtitle.setTextSize(12);
         subtitle.setGravity(Gravity.CENTER);
         LinearLayout.LayoutParams subtitleParams = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         subtitleParams.topMargin = (int) (10 * getResources().getDisplayMetrics().density);
         column.addView(subtitle, subtitleParams);
 
         FrameLayout.LayoutParams columnParams = new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         columnParams.gravity = Gravity.CENTER;
         screen.addView(column, columnParams);
 
@@ -179,15 +176,5 @@ public class MainActivity extends BridgeActivity {
         mainHandler.removeCallbacks(bootTimeout);
         if (liveActivity.get() == this) liveActivity = new WeakReference<>(null);
         super.onDestroy();
-    }
-
-    @Override
-    protected void onNewIntent(Intent intent) {
-        super.onNewIntent(intent);
-        // A share that arrives while the app is already open (launchMode
-        // singleTask): keep it as the current intent and hand the text over
-        // without a restart.
-        setIntent(intent);
-        HermesShare.handleIntent(intent);
     }
 }
