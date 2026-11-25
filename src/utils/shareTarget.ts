@@ -2,9 +2,12 @@
 //
 // When the user shares a link or a note from another app and picks Hermes,
 // Android delivers an ACTION_SEND intent to MainActivity instead of a
-// launcher intent. The native `HermesShare` plugin parks that text and, if
-// the app is already running, emits `sharedText`. Both paths land here: the
-// text becomes an unsent draft in the Chat composer, never an auto-send.
+// launcher intent. The native `HermesShare` plugin keeps the text parked and,
+// when a composer is already listening, also emits `sharedText` for an instant
+// insert. Both paths land here: the text becomes an unsent draft in the Chat
+// composer, never an auto-send. The parked copy is cleared by whichever path
+// took it - a read through getPendingText(), or an acknowledgement after the
+// event was inserted - so one share becomes one draft.
 //
 // On the plain web (desktop preview, QA harness) there is no share intent to
 // read. Every helper is then a harmless no-op that returns no text, so the UI
@@ -30,6 +33,8 @@ export interface SharedNoticePayload {
 interface HermesSharePlugin {
   getPendingText(): Promise<SharedTextPayload>;
   getPendingNotice(): Promise<SharedNoticePayload>;
+  /** Clears the parked copy that a listener already inserted. */
+  acknowledgeShared(options: { receivedAt: number }): Promise<unknown>;
   addListener(
     eventName: 'sharedText',
     listenerFunc: (data: SharedTextPayload) => void
@@ -60,6 +65,21 @@ function normalizeSharedText(text: unknown): string | null {
   if (typeof text !== 'string') return null;
   const trimmed = text.trim();
   return trimmed.length > 0 ? trimmed : null;
+}
+
+/**
+ * Tell the native side a listener inserted the share with this `receivedAt`,
+ * so the parked copy is not handed out a second time. Best effort: a failed
+ * acknowledgement only risks the native side keeping a copy that the next
+ * read would consume, never a lost or duplicated draft on this page.
+ */
+function acknowledgeShared(plugin: HermesSharePlugin, receivedAt: unknown): void {
+  if (typeof receivedAt !== 'number' || receivedAt <= 0) return;
+  try {
+    plugin.acknowledgeShared({ receivedAt }).catch(() => {});
+  } catch {
+    // A bridge that is already gone has nothing left to clear.
+  }
 }
 
 /**
@@ -103,7 +123,12 @@ export function startShareNoticeListener(onNotice: (notice: string) => void): ()
     plugin
       .addListener('sharedNotice', (data) => {
         const notice = normalizeSharedText(data?.notice);
-        if (!cancelled && notice) onNotice(notice);
+        if (!cancelled && notice) {
+          onNotice(notice);
+          // Inserted once: clear the parked copy so a later mount or a cold
+          // start cannot show the same notice again.
+          acknowledgeShared(plugin, data?.receivedAt);
+        }
       })
       .then((added) => {
         if (cancelled) {
@@ -143,7 +168,12 @@ export function startShareTargetListener(onText: (text: string) => void): () => 
     plugin
       .addListener('sharedText', (data) => {
         const text = normalizeSharedText(data?.text);
-        if (!cancelled && text) onText(text);
+        if (!cancelled && text) {
+          onText(text);
+          // The parked copy is the fallback for a listener that outlived its
+          // page; once this page inserted the share, drop it natively.
+          acknowledgeShared(plugin, data?.receivedAt);
+        }
       })
       .then((added) => {
         // Unsubscribed before the native side answered: drop it immediately so
