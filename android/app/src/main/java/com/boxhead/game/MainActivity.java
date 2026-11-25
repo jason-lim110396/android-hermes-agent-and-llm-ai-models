@@ -1,5 +1,6 @@
 package com.boxhead.game;
 
+import android.content.Intent;
 import android.graphics.Color;
 import android.os.Bundle;
 import android.os.Handler;
@@ -39,9 +40,14 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(HermesTTS.class);
         registerPlugin(HermesOCR.class);
         registerPlugin(HermesSTT.class);
+        registerPlugin(HermesShare.class);
         registerPlugin(HermesBoot.class);
         super.onCreate(savedInstanceState);
         liveActivity = new WeakReference<>(this);
+        // A share-sheet launch arrives as this activity's intent, not as a
+        // launcher intent. Hand it to the share plugin before the web layer
+        // asks for it, so the first getPendingText() finds the text.
+        HermesShare.handleIntent(getIntent());
 
         // The Android system splash is gone as soon as the activity window is
         // drawn. The WebView surface can still be white for several seconds
@@ -173,5 +179,15 @@ public class MainActivity extends BridgeActivity {
         mainHandler.removeCallbacks(bootTimeout);
         if (liveActivity.get() == this) liveActivity = new WeakReference<>(null);
         super.onDestroy();
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        // A share that arrives while the app is already open (launchMode
+        // singleTask): keep it as the current intent and hand the text over
+        // without a restart.
+        setIntent(intent);
+        HermesShare.handleIntent(intent);
     }
 }

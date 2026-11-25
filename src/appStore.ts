@@ -187,6 +187,19 @@ interface AppStore {
   addAttachment: (att: Attachment) => boolean;
   removeAttachment: (id: string) => void;
   clearAttachments: () => void;
+  /**
+   * Text handed over by the Android share sheet. The Chat tab moves it into
+   * the composer as an unsent draft and clears it, so a share is delivered
+   * once and is never sent without the user pressing send.
+   */
+  pendingComposerText: string | null;
+  setPendingComposerText: (text: string | null) => void;
+  /**
+   * Honest reason the last Android share could not become a draft (for
+   * example an image-only share). Shown as a dismissible notice in Chat.
+   */
+  pendingShareNotice: string | null;
+  setPendingShareNotice: (notice: string | null) => void;
   sendMessage: (userText: string, options?: { isLive?: boolean }) => Promise<void>;
   /**
    * Translate text with the model and endpoint the user already configured.
@@ -1563,6 +1576,13 @@ export const useAppStore = create<AppStore>((set, get) => {
 
   pendingAttachments: [],
   isGenerating: false,
+
+  // Android share sheet -> composer. Kept in the store (not in ChatView) so a
+  // share that lands while another tab is open still reaches the composer.
+  pendingComposerText: null,
+  setPendingComposerText: (text) => set({ pendingComposerText: text }),
+  pendingShareNotice: null,
+  setPendingShareNotice: (notice) => set({ pendingShareNotice: notice }),
 
   addAttachment: (att) => {
     // A batch camera pick can push dozens of multi-MB base64 strings into a

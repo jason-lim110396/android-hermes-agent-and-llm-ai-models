@@ -20,6 +20,7 @@ import { useAppStore, NavigationTab } from '@/appStore';
 import { holdWakeLock, releaseWakeLock } from '@/utils/wakeLock';
 import { initAndroidBackButton } from '@/utils/backButton';
 import { startVisibleInterval } from '@/utils/visibleInterval';
+import { consumePendingSharedText, consumePendingShareNotice, startShareNoticeListener, startShareTargetListener } from '@/utils/shareTarget';
 import { startProactiveMemoryWatcher } from '@/utils/memoryGuard';
 import { notifyWebViewReady } from '@/utils/bootSplash';
 import { disarmBootWatchdog } from '@/utils/bootWatchdog';
@@ -63,6 +64,8 @@ const BenchmarkStudio = dynamic(() => import('@/components/BenchmarkStudio'), { 
 export default function Home() {
   const currentTab = useAppStore((s) => s.currentTab);
   const setCurrentTab = useAppStore((s) => s.setCurrentTab);
+  const setPendingComposerText = useAppStore((s) => s.setPendingComposerText);
+  const setPendingShareNotice = useAppStore((s) => s.setPendingShareNotice);
   const refreshHardwareProfile = useAppStore((s) => s.refreshHardwareProfile);
   const isGenerating = useAppStore((s) => s.isGenerating);
   const isSpeaking = useAppStore((s) => s.isSpeaking);
@@ -144,6 +147,37 @@ export default function Home() {
     const timer = setTimeout(() => notifyWebViewReady(), 400);
     return () => clearTimeout(timer);
   }, []);
+
+  // Android share sheet: a text/link shared from another app becomes an
+  // unsent draft in the Chat composer. Consume whatever launched the app, then
+  // stay subscribed for shares that arrive while it is already open.
+  useEffect(() => {
+    let cancelled = false;
+    const stageSharedText = (text: string) => {
+      if (cancelled) return;
+      setCurrentTab('chat');
+      setPendingShareNotice(null);
+      setPendingComposerText(text);
+    };
+    const stageShareNotice = (notice: string) => {
+      if (cancelled) return;
+      setCurrentTab('chat');
+      setPendingShareNotice(notice);
+    };
+    consumePendingSharedText().then((text) => {
+      if (text) stageSharedText(text);
+    });
+    consumePendingShareNotice().then((notice) => {
+      if (notice) stageShareNotice(notice);
+    });
+    const stopListening = startShareTargetListener(stageSharedText);
+    const stopNotices = startShareNoticeListener(stageShareNotice);
+    return () => {
+      cancelled = true;
+      stopListening();
+      stopNotices();
+    };
+  }, [setCurrentTab, setPendingComposerText, setPendingShareNotice]);
 
   const studioTabs: { id: NavigationTab; label: string; icon: any; color: string }[] = [
     { id: 'chat', label: 'Hermes Agent', icon: Bot, color: 'from-cyan-500 to-blue-600' },
