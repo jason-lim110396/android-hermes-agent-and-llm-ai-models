@@ -1,6 +1,8 @@
 package com.boxhead.game;
 
+import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.net.Uri;
 import android.util.Log;
 
@@ -10,6 +12,8 @@ import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -25,12 +29,17 @@ import java.util.List;
  * The text is only ever staged as a draft for the composer. Nothing here sends
  * a prompt - a share must never start an inference the user did not ask for.
  *
- * Delivery is exactly once. The text is always parked, and a live composer
- * also gets a `sharedText` event for an instant insert. The parked copy is
- * cleared only when that composer acknowledges the event (or when a reader
- * takes it through getPendingText), so a WebView reload that outlives the
- * native listener cannot swallow the share - and an acknowledged event cannot
- * be inserted twice from the parked copy.
+ * Delivery is exactly once, including across process death. The text is always
+ * parked, and a live composer also gets a `sharedText` event for an instant
+ * insert. The parked copy is cleared only when that composer acknowledges the
+ * event (or when a reader takes it through getPendingText).
+ *
+ * A delivery fingerprint (action + type + text hash) is written to
+ * SharedPreferences as soon as the share is accepted, and marked "placed" when
+ * the text reaches the composer. A task that Android recreates after the
+ * process was killed is relaunched with its retained SEND base intent; the
+ * fingerprint recognises that intent as already delivered and drops it, so the
+ * same text is not inserted a second time.
  */
 @CapacitorPlugin(name = "HermesShare")
 public class HermesShare extends Plugin {
@@ -43,24 +52,50 @@ public class HermesShare extends Plugin {
     /** A gallery share can carry a whole album; keep the draft readable. */
     private static final int MAX_STREAM_URIS = 10;
 
+    /** Delivery records survive the process, unlike the parked text. */
+    private static final String PREFS = "hermes_share_delivery";
+    private static final String KIND_TEXT = "text";
+    private static final String KIND_NOTICE = "notice";
+    /**
+     * How many recent deliveries are remembered. A task's retained SEND base
+     * intent can be replayed long after newer shares arrived, so checking only
+     * the most recent one would deliver an older share again.
+     */
+    private static final int MAX_DELIVERIES = 16;
+
     private static final Object stateLock = new Object();
     private static String pendingText = null;
     private static long pendingAt = 0L;
+    /** Fingerprint of the parked text, used to mark it placed natively. */
+    private static String pendingTextFingerprint = null;
     /** Honest message for a share Hermes cannot use (e.g. an image only). */
     private static String pendingNotice = null;
     private static long pendingNoticeAt = 0L;
+    private static String pendingNoticeFingerprint = null;
     /** Live plugin instance: only a running bridge can be notified. */
     private static HermesShare instance = null;
+    /** Application context for the delivery record; set from load()/init(). */
+    private static Context appContext = null;
     /**
-     * The last intent that was already handled. BridgeActivity.load() calls
-     * onNewIntent(getIntent()) and onCreate also hands over the same intent, so
-     * a cold start reaches handleIntent twice; the second call is a no-op.
+     * The last intent that was already handled in this process.
+     *
+     * BridgeActivity.load() calls onNewIntent(getIntent()) and onCreate also
+     * hands over the same intent, so a cold start reaches handleIntent twice;
+     * the second call is a no-op. This is deliberately process-local: after a
+     * process death the persisted fingerprint does the deduplication instead.
      */
-    private static java.lang.ref.WeakReference<Intent> lastHandledIntent = new java.lang.ref.WeakReference<>(null);
+    private static Intent lastHandledIntent = null;
+
+    /** Called from MainActivity.onCreate before the first intent is handled. */
+    public static void init(Context context) {
+        if (context == null) return;
+        appContext = context.getApplicationContext();
+    }
 
     @Override
     public void load() {
         instance = this;
+        init(getContext());
     }
 
     @Override
@@ -73,12 +108,16 @@ public class HermesShare extends Plugin {
     public void getPendingText(PluginCall call) {
         String text;
         long receivedAt;
+        String fingerprint;
         synchronized (stateLock) {
             text = pendingText == null ? "" : pendingText;
             receivedAt = pendingAt;
+            fingerprint = pendingTextFingerprint;
             pendingText = null;
             pendingAt = 0L;
+            pendingTextFingerprint = null;
         }
+        if (!text.isEmpty()) recordPlaced(KIND_TEXT, fingerprint);
         JSObject ret = new JSObject();
         ret.put("text", text);
         ret.put("receivedAt", receivedAt);
@@ -89,12 +128,16 @@ public class HermesShare extends Plugin {
     public void getPendingNotice(PluginCall call) {
         String notice;
         long receivedAt;
+        String fingerprint;
         synchronized (stateLock) {
             notice = pendingNotice == null ? "" : pendingNotice;
             receivedAt = pendingNoticeAt;
+            fingerprint = pendingNoticeFingerprint;
             pendingNotice = null;
             pendingNoticeAt = 0L;
+            pendingNoticeFingerprint = null;
         }
+        if (!notice.isEmpty()) recordPlaced(KIND_NOTICE, fingerprint);
         JSObject ret = new JSObject();
         ret.put("notice", notice);
         ret.put("receivedAt", receivedAt);
@@ -149,108 +192,131 @@ public class HermesShare extends Plugin {
     /**
      * Entry point for MainActivity: onCreate (cold start, nothing to notify yet)
      * and onNewIntent (app already running, the open composer must react).
+     *
+     * @param launchReplay true when Android is replaying this activity's launch
+     *     intent (a task recreated after process death, or Capacitor's
+     *     load() -> onNewIntent(getIntent()) call). Only a launch replay may be
+     *     dropped as a duplicate; a genuine warm share always delivers, even
+     *     when it repeats the same text.
+     * @return true when the intent was a share/process-text intent Hermes owns.
      */
-    public static void handleIntent(Intent intent) {
-        if (intent == null) return;
+    public static boolean handleIntent(Intent intent, boolean launchReplay) {
+        if (intent == null) return false;
         String action;
         try {
             action = intent.getAction();
         } catch (Exception ex) {
             Log.w(TAG, "Could not read intent action: " + ex.getMessage());
-            return;
+            return false;
         }
-        if (action == null) return;
-        synchronized (stateLock) {
-            // Marked only after the action was read, so a transient read failure
-            // above can still be retried with the same intent.
-            if (lastHandledIntent.get() == intent) return;
-            lastHandledIntent = new java.lang.ref.WeakReference<>(intent);
-        }
-        try {
-            if (Intent.ACTION_SEND.equals(action)) {
-                if (!isTextShare(intent)) return;
-                String text = readSendText(intent);
-                if (text == null || text.trim().isEmpty()) {
-                    setPendingNotice("That app shared no text Hermes can use. Share a link or some text instead.");
-                } else {
-                    setPendingText(text);
-                }
-            } else if (Intent.ACTION_PROCESS_TEXT.equals(action)) {
-                // "Translate"/"Proofread" style selections carry the marked text.
-                if (!isTextShare(intent)) return;
-                String text = readExtraText(intent, Intent.EXTRA_PROCESS_TEXT);
-                if (text == null || text.trim().isEmpty()) {
-                    setPendingNotice("The selected text was empty, so there was nothing to draft.");
-                } else {
-                    setPendingText(text);
-                }
-            }
-        } catch (Exception ex) {
-            // A malformed share from a third-party app must never crash us.
-            Log.w(TAG, "Could not read shared intent: " + ex.getMessage());
-        }
-    }
+        if (action == null) return false;
+        boolean isSend = Intent.ACTION_SEND.equals(action);
+        boolean isProcessText = Intent.ACTION_PROCESS_TEXT.equals(action);
+        if (!isSend && !isProcessText) return false;
 
-    /**
-     * Shared media (an image, video or PDF) is not a chat draft. Say so
-     * instead of pasting a content:// URI the model cannot use or silently
-     * doing nothing.
-     */
-    private static boolean isTextShare(Intent intent) {
+        synchronized (stateLock) {
+            // BridgeActivity.load() replays the launch intent, and onCreate
+            // hands over the same object again. Handle each object once.
+            if (lastHandledIntent == intent) return false;
+            lastHandledIntent = intent;
+        }
+
         String type;
         try {
             type = intent.getType();
         } catch (Exception ex) {
             Log.w(TAG, "Could not read intent type: " + ex.getMessage());
-            return true;
+            type = null;
         }
-        if (type == null || type.isEmpty() || type.startsWith("text/")) return true;
-        setPendingNotice("Only text and links can be shared to Hermes. Shared type: " + type);
-        return false;
+
+        try {
+            if (type != null && !type.isEmpty() && !type.startsWith("text/")) {
+                // Shared media is not a chat draft; say so instead of pasting
+                // a content:// URI the model cannot use.
+                acceptNotice(
+                        "Only text and links can be shared to Hermes. Shared type: " + type,
+                        fingerprint(action, type, ""),
+                        launchReplay);
+                return true;
+            }
+            String text = isSend
+                    ? readSendText(intent)
+                    : readExtraText(intent, Intent.EXTRA_PROCESS_TEXT);
+            if (text == null || text.trim().isEmpty()) {
+                acceptNotice(
+                        isSend
+                                ? "That app shared no text Hermes can use. Share a link or some text instead."
+                                : "The selected text was empty, so there was nothing to draft.",
+                        fingerprint(action, type, ""),
+                        launchReplay);
+            } else {
+                acceptText(action, type, text, launchReplay);
+            }
+        } catch (Exception ex) {
+            // A malformed share from a third-party app must never crash us.
+            Log.w(TAG, "Could not read shared intent: " + ex.getMessage());
+        }
+        return true;
     }
 
     /**
      * Parks a shared text and, when a composer is listening, emits `sharedText`
      * for an instant insert.
      *
-     * The parked copy always stays until the web layer takes it: a listener can
-     * outlive the page that registered it (a WebView reload keeps Capacitor's
-     * listener map), so an emit is not proof that anyone received the text. A
-     * live composer acknowledges the event and that clears the copy, which is
-     * what keeps a reload from inserting the same share a second time.
-     *
-     * A blank share is ignored rather than stored: some apps send an
-     * ACTION_SEND with no EXTRA_TEXT, and that must not wipe the draft.
+     * The fingerprint is persisted before anything is parked: a task recreated
+     * after process death comes back with the same retained SEND intent, and
+     * that fingerprint is what stops the text from being delivered twice. The
+     * record is marked placed once the composer took the text, so a delivery
+     * that never reached the page is still retried on the next cold start.
      */
-    public static void setPendingText(String text) {
+    private static void acceptText(String action, String type, String text, boolean launchReplay) {
         String cleaned = text == null ? "" : text.trim();
         if (cleaned.length() > MAX_TEXT_CHARS) {
             cleaned = cleaned.substring(0, MAX_TEXT_CHARS);
         }
         if (cleaned.isEmpty()) return;
 
+        String fp = fingerprint(action, type, cleaned);
+        if (launchReplay && wasPlaced(KIND_TEXT, fp)) {
+            Log.i(TAG, "duplicate share ignored (already delivered): fingerprint=" + shortFingerprint(fp));
+            return;
+        }
+        long seq = recordAccepted(KIND_TEXT, fp);
         long receivedAt = System.currentTimeMillis();
         synchronized (stateLock) {
             pendingText = cleaned;
             pendingAt = receivedAt;
+            pendingTextFingerprint = fp;
         }
+        Log.i(TAG, "share accepted (" + (launchReplay ? "cold start" : "warm")
+                + "): fingerprint=" + shortFingerprint(fp) + " seq=" + seq);
         emit(EVENT_TEXT, "text", cleaned, receivedAt);
     }
 
     /**
      * Parks an honest "cannot use this share" notice and, when a composer is
-     * listening, emits `sharedNotice`. Same durable-park rule as the text.
+     * listening, emits `sharedNotice`. Same durable-park and fingerprint rules
+     * as the text.
      */
-    public static void setPendingNotice(String notice) {
+    private static void acceptNotice(String notice, String fp, boolean launchReplay) {
         String cleaned = notice == null ? "" : notice.trim();
         if (cleaned.isEmpty()) return;
         if (cleaned.length() > 500) cleaned = cleaned.substring(0, 500);
 
+        if (launchReplay && wasPlaced(KIND_NOTICE, fp)) {
+            Log.i(TAG, "duplicate share notice ignored (already delivered): fingerprint="
+                    + shortFingerprint(fp));
+            return;
+        }
+        long seq = recordAccepted(KIND_NOTICE, fp);
         long receivedAt = System.currentTimeMillis();
         synchronized (stateLock) {
             pendingNotice = cleaned;
             pendingNoticeAt = receivedAt;
+            pendingNoticeFingerprint = fp;
         }
+        Log.i(TAG, "share notice (" + (launchReplay ? "cold start" : "warm")
+                + "): fingerprint=" + shortFingerprint(fp) + " seq=" + seq);
         emit(EVENT_NOTICE, "notice", cleaned, receivedAt);
     }
 
@@ -264,18 +330,26 @@ public class HermesShare extends Plugin {
         Long receivedAt = call.getLong("receivedAt");
         boolean textCleared = false;
         boolean noticeCleared = false;
+        String textFp = null;
+        String noticeFp = null;
         synchronized (stateLock) {
             if (receivedAt != null && receivedAt != 0L && pendingAt == receivedAt) {
+                textFp = pendingTextFingerprint;
                 pendingText = null;
                 pendingAt = 0L;
+                pendingTextFingerprint = null;
                 textCleared = true;
             }
             if (receivedAt != null && receivedAt != 0L && pendingNoticeAt == receivedAt) {
+                noticeFp = pendingNoticeFingerprint;
                 pendingNotice = null;
                 pendingNoticeAt = 0L;
+                pendingNoticeFingerprint = null;
                 noticeCleared = true;
             }
         }
+        if (textCleared) recordPlaced(KIND_TEXT, textFp);
+        if (noticeCleared) recordPlaced(KIND_NOTICE, noticeFp);
         JSObject ret = new JSObject();
         ret.put("textCleared", textCleared);
         ret.put("noticeCleared", noticeCleared);
@@ -302,6 +376,128 @@ public class HermesShare extends Plugin {
             Log.w(TAG, "Could not emit " + eventName + ": " + ex.getMessage());
         }
     }
+
+    // ---------------------------------------------------------------- delivery record
+
+    private static SharedPreferences prefs() {
+        Context context = appContext;
+        if (context == null) return null;
+        try {
+            return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        } catch (Exception ex) {
+            Log.w(TAG, "Could not open delivery record: " + ex.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Recent deliveries, newest first, as `fingerprint|placedFlag` entries.
+     * A bounded list is enough: the retained SEND intent is replayed only when
+     * this one task is recreated, so it is always near the front.
+     */
+    private static String historyKey(String kind) {
+        return kind + "_history";
+    }
+
+    /** True only when this exact share already reached the composer. */
+    private static boolean wasPlaced(String kind, String fp) {
+        if (fp == null) return false;
+        SharedPreferences p = prefs();
+        if (p == null) return false;
+        for (String entry : p.getString(historyKey(kind), "").split(";")) {
+            int sep = entry.lastIndexOf('|');
+            if (sep <= 0) continue;
+            if (entry.substring(0, sep).equals(fp)) {
+                return "1".equals(entry.substring(sep + 1));
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Records the accepted share at the front of the history and bumps the
+     * monotonic delivery counter. Uses commit() so the record is on disk
+     * before the process can die; the write is tiny and a share is rare.
+     */
+    private static long recordAccepted(String kind, String fp) {
+        SharedPreferences p = prefs();
+        if (p == null || fp == null) return 0L;
+        synchronized (stateLock) {
+            StringBuilder history = new StringBuilder(fp).append("|0");
+            int kept = 0;
+            for (String entry : p.getString(historyKey(kind), "").split(";")) {
+                if (entry.isEmpty()) continue;
+                // A retry after a process death keeps exactly one entry.
+                if (entry.startsWith(fp + "|")) continue;
+                if (kept >= MAX_DELIVERIES - 1) break;
+                history.append(';').append(entry);
+                kept++;
+            }
+            long seq = p.getLong(kind + "_seq", 0L) + 1L;
+            boolean ok = p.edit()
+                    .putString(kind + "_fingerprint", fp)
+                    .putString(historyKey(kind), history.toString())
+                    .putLong(kind + "_seq", seq)
+                    .putLong(kind + "_at", System.currentTimeMillis())
+                    .commit();
+            if (!ok) Log.w(TAG, "Could not persist the " + kind + " delivery fingerprint");
+            return seq;
+        }
+    }
+
+    /** Marks the share placed once its text/notice reached the composer. */
+    private static void recordPlaced(String kind, String fp) {
+        if (fp == null) return;
+        SharedPreferences p = prefs();
+        if (p == null) return;
+        synchronized (stateLock) {
+            String previous = p.getString(historyKey(kind), "");
+            StringBuilder history = new StringBuilder();
+            boolean changed = false;
+            for (String entry : previous.split(";")) {
+                if (entry.isEmpty()) continue;
+                int sep = entry.lastIndexOf('|');
+                String entryFp = sep > 0 ? entry.substring(0, sep) : entry;
+                boolean placed = sep > 0 && "1".equals(entry.substring(sep + 1));
+                if (entryFp.equals(fp) && !placed) {
+                    placed = true;
+                    changed = true;
+                }
+                if (history.length() > 0) history.append(';');
+                history.append(entryFp).append('|').append(placed ? '1' : '0');
+            }
+            if (!changed) return;
+            boolean ok = p.edit().putString(historyKey(kind), history.toString()).commit();
+            if (ok) {
+                Log.i(TAG, "share placed in composer: fingerprint=" + shortFingerprint(fp));
+            }
+        }
+    }
+
+    /** action + type + text hash, stable across processes and app restarts. */
+    private static String fingerprint(String action, String type, String text) {
+        String raw = (action == null ? "" : action)
+                + "|" + (type == null ? "" : type)
+                + "|" + (text == null ? "" : text);
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(raw.getBytes(StandardCharsets.UTF_8));
+            StringBuilder hex = new StringBuilder(hash.length * 2);
+            for (byte b : hash) hex.append(String.format("%02x", b));
+            return hex.toString();
+        } catch (Exception ex) {
+            // No SHA-256 on an unusual runtime: still stable within a process.
+            Log.w(TAG, "Could not hash the share: " + ex.getMessage());
+            return Integer.toHexString(raw.hashCode());
+        }
+    }
+
+    private static String shortFingerprint(String fp) {
+        if (fp == null) return "none";
+        return fp.length() <= 12 ? fp : fp.substring(0, 12);
+    }
+
+    // ---------------------------------------------------------------- intent reading
 
     /** EXTRA_TEXT, or the stream URIs when the share carried no caption. */
     private static String readSendText(Intent intent) {
