@@ -89,7 +89,6 @@ import { abortAllInference } from '@/inferenceEngine';
 import { isPermissionDeniedError } from '@/utils/nativeAppSettings';
 import PermissionDeniedNotice from './PermissionDeniedNotice';
 import {
-  attachGuardedRecognition,
   voiceChunkBelongsToCurrentNote,
   createSilenceDetector,
   SilenceDetector,
@@ -97,6 +96,10 @@ import {
   getStoredNoiseGateThreshold,
   setStoredNoiseGateThreshold,
 } from '@/utils/voiceSession';
+import {
+  createSpeechInputSession,
+  type SpeechSession,
+} from '@/utils/speechRecognition';
 import { useBackButtonClose } from '@/utils/backButton';
 import MarkdownNotepadModal from './MarkdownNotepadModal';
 import QRCodeStudioModal from './QRCodeStudioModal';
@@ -791,7 +794,7 @@ export default function ChatView() {
   const galleryInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
-  const recognitionRef = useRef<any>(null);
+  const recognitionRef = useRef<SpeechSession | null>(null);
 
   // Mobile UX: soft keyboard awareness (Capacitor Android WebView) + jump-to-latest tracking
   const [keyboardHeight, setKeyboardHeight] = useState(0);
@@ -1090,6 +1093,11 @@ export default function ChatView() {
   // Microphone permanently denied (Android auto-denies silently after that):
   // the composer shows an honest notice with the app-settings way out.
   const [micPermissionDenied, setMicPermissionDenied] = useState(false);
+  // Real recognizer failure text (no service, network, audio). Shown above the
+  // recording bar instead of silently sending an untranscribed note.
+  const [speechInputError, setSpeechInputError] = useState<string | null>(null);
+  // True only after the recognizer announced it is really listening.
+  const [speechListening, setSpeechListening] = useState(false);
   const [activeAudioPlayingId, setActiveAudioPlayingId] = useState<string | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -1226,45 +1234,64 @@ export default function ChatView() {
       }
     } catch (_) {}
 
-    // 1. Initialize Real Speech-to-Text in parallel with safe error handlers.
-    // The instance is captured per-request: if a newer request supersedes this
-    // one, only this request's own recognition is stopped below, never the
-    // live session of the newer request.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let rec: any = null;
-    if (SpeechRec) {
-      try {
-        rec = new SpeechRec();
-        rec.lang = 'en-US';
-        rec.continuous = true;
-        rec.interimResults = true;
-        // Only this request's live session may write the composer. Stop/cancel/
-        // send/unmount all bump voiceRequestIdRef, so a late onresult from the
-        // previous recognition can no longer refill the input or overwrite a
-        // newer session's transcript.
-        attachGuardedRecognition(rec, isCurrent, {
-          onResult: (event) => {
-            const transcript = Array.from(event.results)
-              .map((res) => res[0].transcript)
-              .join(' ');
-            currentTranscriptRef.current = transcript;
-            setInputVal(transcript);
-            if (isAutoSendOnSilence) {
-              silenceDetectorRef.current?.reset();
-            }
-          },
-          onError: (event) => {
-            console.warn('SpeechRecognition notice:', event?.error);
-          },
-        });
-        rec.start();
-      } catch (e) {
-        console.warn('SpeechRecognition initialization notice:', e);
-        rec = null;
-      }
-    }
+    // 1. Real speech-to-text through the native recognizer, or the browser's
+    // Web Speech API on desktop. Android System WebView has no
+    // `SpeechRecognition` at all; `HermesSTT` drives
+    // android.speech.SpeechRecognizer instead, so dictation finally produces
+    // text inside the installed app.
+    setSpeechInputError(null);
+    setSpeechListening(false);
+    const speechSession = createSpeechInputSession(
+      {
+        onStart: () => {
+          if (!isCurrent()) return;
+          setSpeechListening(true);
+          setSpeechInputError(null);
+        },
+        onUpdate: ({ finalText, interimText }) => {
+          if (!isCurrent()) return;
+          const live = `${finalText}${interimText ? (finalText ? ' ' : '') + interimText : ''}`.trim();
+          currentTranscriptRef.current = finalText;
+          if (live) setInputVal(live);
+          if (isAutoSendOnSilence) silenceDetectorRef.current?.reset();
+        },
+        onFinal: (text) => {
+          if (!isCurrent()) return;
+          const clean = text.trim();
+          if (!clean) return;
+          currentTranscriptRef.current = currentTranscriptRef.current
+            ? `${currentTranscriptRef.current} ${clean}`
+            : clean;
+          setInputVal(currentTranscriptRef.current);
+        },
+        onError: (failure) => {
+          if (!isCurrent()) return;
+          setSpeechListening(false);
+          if (failure.reason === 'permission_denied') {
+            setMicPermissionDenied(true);
+            return;
+          }
+          // The audio note keeps recording: it is still real. Be explicit that
+          // no transcript was produced and why, instead of sending placeholder
+          // text as if it were the user's words.
+          if (failure.reason !== 'no_speech' && failure.reason !== 'no_match') {
+            setSpeechInputError(failure.message);
+          }
+          console.warn('Speech input notice:', failure.message);
+        },
+        onEnd: () => {
+          if (!isCurrent()) return;
+          setSpeechListening(false);
+          recognitionRef.current = null;
+        },
+      },
+      { lang: 'en-US', continuous: true }
+    );
+    // Recognition deliberately starts only after getUserMedia succeeds (below).
+    // Starting it here opened a second permission request alongside the media
+    // one; when the media request failed, the abort could not cancel a start
+    // that was still waiting on the system dialog, and the recognizer switched
+    // the microphone on after the note had already been abandoned.
 
     // 2. Initialize MediaStream & MediaRecorder with safety timeout to prevent WebView thread ANR
     let hasAudioStream = false;
@@ -1301,9 +1328,7 @@ export default function ChatView() {
           // stream: the microphone track would stay live in the background.
           if (!isCurrent()) {
             releaseStream(stream);
-            if (rec) {
-              try { rec.stop(); } catch (_) {}
-            }
+            speechSession.abort();
             return;
           }
           hasAudioStream = true;
@@ -1387,10 +1412,8 @@ export default function ChatView() {
       // Whatever failed, this request owns no recorder: stop its recognition
       // and get out. Falling through would show the recording bar with a null
       // MediaRecorder, and the user's entire note would be silently discarded
-      // on Send. The token bump ignores this attempt's late onresult as well.
-      if (rec) {
-        try { rec.stop(); } catch (_) {}
-      }
+      // on Send. The token bump ignores this attempt's late callbacks as well.
+      speechSession.abort();
       voiceRequestIdRef.current++;
       if (isPermissionDeniedError(err)) {
         // The native dialog fired at this moment of use; a denial here means
@@ -1405,18 +1428,33 @@ export default function ChatView() {
     // Never enter the recording UI without a live recorder (getUserMedia
     // missing entirely also lands here).
     if (!hasAudioStream) {
-      if (rec) {
-        try { rec.stop(); } catch (_) {}
-      }
+      speechSession.abort();
       voiceRequestIdRef.current++;
       alert('Microphone unavailable. Voice note was not started.');
       return;
     }
 
     // Commit: this request now owns the live recognition session.
-    recognitionRef.current = rec;
+    recognitionRef.current = speechSession;
     setIsRecordingVoice(true);
     setMicPermissionDenied(false);
+
+    // The recorder has the microphone now, so the recognizer can start with
+    // no competing permission dialog. A failure here still leaves the audio
+    // note recording and is shown as an honest transcription error.
+    speechSession.start().then((result) => {
+      if (!isCurrent()) {
+        speechSession.abort();
+        return;
+      }
+      if (!result.started) {
+        if (result.reason === 'permission_denied') {
+          setMicPermissionDenied(true);
+        } else {
+          setSpeechInputError(result.message || 'Voice input is unavailable.');
+        }
+      }
+    });
 
     // Recording seconds ticker
     if (voiceTimerRef.current) clearInterval(voiceTimerRef.current);
@@ -1451,6 +1489,8 @@ export default function ChatView() {
     setInputVal('');
     setIsRecordingVoice(false);
     setRecordDurationSec(0);
+    setSpeechListening(false);
+    setSpeechInputError(null);
   };
 
   // Finish recording and send directly to LLM with audio voice note attachment!
@@ -1527,7 +1567,9 @@ export default function ChatView() {
       } catch (_) {}
     }
 
-    const transcribedPrompt = currentTranscriptRef.current.trim() || inputVal.trim() || '🎙️ Voice note recorded for Hermes agent analysis';
+    const transcribedPrompt = currentTranscriptRef.current.trim() || inputVal.trim() || (
+      audioDataUrl ? '[Voice note attached - the speech recognizer produced no transcript]' : ''
+    );
 
     // If audio blob was recorded, attach as voice note
     if (audioDataUrl) {
@@ -1558,6 +1600,7 @@ export default function ChatView() {
 
     setIsRecordingVoice(false);
     setRecordDurationSec(0);
+    setSpeechListening(false);
     setInputVal('');
 
     // Trigger instant message dispatch to LLM!
@@ -3810,6 +3853,21 @@ export default function ChatView() {
                 </div>
               </div>
             )}
+
+            {/* Live recognizer state: listening / partial / error reason.
+                The transcript is otherwise hidden because the composer is
+                replaced by this recording bar. */}
+            <div className="px-1.5 text-[11px] leading-tight min-h-[1.1rem] truncate">
+              {speechInputError ? (
+                <span className="text-amber-300">{speechInputError}</span>
+              ) : inputVal.trim() ? (
+                <span className="text-cyan-200">&ldquo;{inputVal.trim()}&rdquo;</span>
+              ) : speechListening ? (
+                <span className="text-zinc-500 italic">Listening... speak now</span>
+              ) : (
+                <span className="text-zinc-500 italic">Microphone recording; waiting for the speech recognizer.</span>
+              )}
+            </div>
 
             {/* WhatsApp-Style Voice Recording Bar */}
             <div className="relative flex items-center justify-between gap-2 bg-gradient-to-r from-zinc-950 via-zinc-900 to-zinc-950 border border-emerald-500/40 rounded-2xl px-3 py-2 shadow-2xl">

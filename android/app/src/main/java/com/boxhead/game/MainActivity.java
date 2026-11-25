@@ -13,6 +13,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(HermesAppSettings.class);
         registerPlugin(HermesTTS.class);
         registerPlugin(HermesOCR.class);
+        registerPlugin(HermesSTT.class);
         super.onCreate(savedInstanceState);
         // Deliberately no startup permission prompt. Capacitor's bridge asks
         // for each permission at the moment the feature needs it - camera

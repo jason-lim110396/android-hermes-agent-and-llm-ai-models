@@ -40,10 +40,15 @@ import {
 import { useAppStore } from '@/appStore';
 import { AVAILABLE_MODELS } from '@/models';
 import { speakGuarded, createSpeechUtterance } from '@/utils/speechGuard';
-import { isSpeechRecognitionPermissionDenied } from '@/utils/nativeAppSettings';
+import {
+  createSpeechInputSession,
+  getSpeechInputEngine,
+  type SpeechFailure,
+  type SpeechSession,
+} from '@/utils/speechRecognition';
 import PermissionDeniedNotice from './PermissionDeniedNotice';
 import VoiceCallModal from './VoiceCallModal';
-import { attachGuardedRecognition, createSilenceDetector, type SilenceDetector } from '@/utils/voiceSession';
+import { createSilenceDetector, type SilenceDetector } from '@/utils/voiceSession';
 import { startVisibleInterval } from '@/utils/visibleInterval';
 
 interface VoicePreset {
@@ -99,6 +104,8 @@ export default function VoiceStudio() {
   // first denial): the STT card shows an honest notice with the settings way
   // out instead of failing without a word.
   const [dictationPermissionDenied, setDictationPermissionDenied] = useState(false);
+  const [dictationError, setDictationError] = useState<string | null>(null);
+  const [speechEngineLabel, setSpeechEngineLabel] = useState('Checking voice input...');
   const [transcribedText, setTranscribedText] = useState('');
   // Live partial from the recognizer: shown as a transient preview while
   // speaking, committed to transcribedText only when a result is final.
@@ -338,7 +345,7 @@ export default function VoiceStudio() {
   const [silenceTimeoutSec, setSilenceTimeoutSec] = useState<number>(3);
   const silenceDetectorRef = useRef<SilenceDetector | null>(null);
 
-  const recognitionRef = useRef<any>(null);
+  const recognitionRef = useRef<SpeechSession | null>(null);
   // Incremented on every start/stop/unmount. A stopped recognition can still
   // deliver a late onstart/onresult/onend; only the matching token may mutate
   // the recording UI or the transcript.
@@ -349,10 +356,19 @@ export default function VoiceStudio() {
   const clonerCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const animFrameRef = useRef<number | null>(null);
   const clonerAnimFrameRef = useRef<number | null>(null);
-  const mediaRecorderRef = useRef<any>(null);
-  const audioChunksRef = useRef<Blob[]>([]);
 
   // Listen for speech synthesis voices loaded on Android WebViews
+  useEffect(() => {
+    const engine = getSpeechInputEngine();
+    setSpeechEngineLabel(
+      engine === 'native'
+        ? 'Android speech recognizer'
+        : engine === 'web'
+        ? 'Browser speech recognition'
+        : 'Voice input unavailable in this browser'
+    );
+  }, []);
+
   useEffect(() => {
     if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
     const updateVoices = () => {
@@ -671,27 +687,11 @@ export default function VoiceStudio() {
 
   const handleToggleRecord = () => {
     if (isRecording) {
-      if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-        try {
-          mediaRecorderRef.current.stop();
-        } catch (_) {}
-        mediaRecorderRef.current = null;
-        setIsRecording(false);
-        triggerHaptic([30]);
-        return;
-      }
-
       silenceDetectorRef.current?.clear();
-      // Invalidate this session before stopping it: WebViews can deliver the
-      // stopped recognition's onend after a new recording has started, and
-      // the old unguarded handler flipped isRecording false while the new
-      // microphone session was still live.
       recognitionRequestIdRef.current++;
       const stopped = recognitionRef.current;
       recognitionRef.current = null;
-      if (stopped) {
-        try { stopped.stop(); } catch (_) {}
-      }
+      if (stopped) stopped.stop();
       setIsRecording(false);
       setInterimText('');
       triggerHaptic([30]);
@@ -700,132 +700,99 @@ export default function VoiceStudio() {
 
     if (typeof window === 'undefined') return;
 
-    // A previous recognition that never announced onstart (isRecording stayed
-    // false) would otherwise keep the microphone live alongside the new one.
-    // Invalidate and stop it before a second session starts.
+    // A previous session that never announced onstart would otherwise keep
+    // the microphone live alongside the new one.
     if (recognitionRef.current) {
       silenceDetectorRef.current?.clear();
       recognitionRequestIdRef.current++;
       const previous = recognitionRef.current;
       recognitionRef.current = null;
-      try { previous.stop(); } catch (_) {}
+      previous.abort();
     }
 
-    const SpeechRecognition =
-      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-
-    if (!SpeechRecognition) {
-      // Graceful MediaRecorder Audio Fallback for Android WebView
-      if (typeof navigator !== 'undefined' && navigator.mediaDevices?.getUserMedia) {
-        navigator.mediaDevices
-          .getUserMedia({ audio: true })
-          .then((stream) => {
-            const mediaRecorder = new MediaRecorder(stream);
-            mediaRecorderRef.current = mediaRecorder;
-            audioChunksRef.current = [];
-            mediaRecorder.ondataavailable = (e) => {
-              if (e.data && e.data.size > 0) audioChunksRef.current.push(e.data);
-            };
-            mediaRecorder.onstop = () => {
-              stream.getTracks().forEach((track) => track.stop());
-              setIsRecording(false);
-              const noteText = 'Hermes voice capture recorded: audio transcribed and ready for autonomous agent execution.';
-              setTranscribedText((prev) => (prev ? `${prev} ${noteText}` : noteText));
-            };
-            mediaRecorder.start();
-            setIsRecording(true);
-            triggerHaptic([40]);
-          })
-          .catch(() => {
-            setDictationPermissionDenied(true);
-          });
-      } else {
-        // Safe simulated input fallback
-        setIsRecording(true);
-        setTimeout(() => {
-          setIsRecording(false);
-          setTranscribedText((prev) =>
-            prev
-              ? `${prev} Welcome to Hermes Autonomous Agent on Android.`
-              : 'Welcome to Hermes Autonomous Agent on Android.'
-          );
-        }, 1500);
-      }
-      return;
-    }
-    // A fresh attempt clears any stale denied notice.
     setDictationPermissionDenied(false);
+    setDictationError(null);
 
-    try {
-      triggerHaptic([40]);
-      const recognition = new SpeechRecognition();
-      recognition.continuous = true;
-      recognition.interimResults = true;
-      recognition.lang = 'en-US';
+    const requestId = ++recognitionRequestIdRef.current;
+    const isCurrent = () => recognitionRequestIdRef.current === requestId;
+    let session: SpeechSession | null = null;
 
-      const requestId = ++recognitionRequestIdRef.current;
-      const isCurrent = () =>
-        recognitionRequestIdRef.current === requestId && recognitionRef.current === recognition;
-
-      silenceDetectorRef.current?.clear();
-      if (silenceTimeoutSec > 0) {
-        silenceDetectorRef.current = createSilenceDetector(silenceTimeoutSec * 1000, () => {
-          if (isCurrent()) {
-            handleToggleRecord();
-          }
-        });
-        silenceDetectorRef.current.reset();
-      }
-
-      attachGuardedRecognition(recognition, isCurrent, {
-        onStart: () => setIsRecording(true),
-        // Only the current recognition may end the current recording UI.
-        onEnd: () => {
-          silenceDetectorRef.current?.clear();
-          recognitionRef.current = null;
-          setIsRecording(false);
-        },
-        onError: (event) => {
-          silenceDetectorRef.current?.clear();
-          recognitionRef.current = null;
-          setIsRecording(false);
-          // A denied microphone used to fail completely silently here: the
-          // button just flipped back with no explanation. Name it.
-          if (isSpeechRecognitionPermissionDenied(event)) {
-            setDictationPermissionDenied(true);
-          }
-        },
-        onResult: (event) => {
-          silenceDetectorRef.current?.reset();
-          // Android speech engines fire onresult repeatedly with growing
-          // partials while interimResults is on; appending every firing
-          // duplicated each fragment into the transcript ("hell hello wor
-          // hello world"). Only final results are committed; the live
-          // partial is shown as a transient preview line instead.
-          let finalChunk = '';
-          let interimChunk = '';
-          for (let i = event.resultIndex; i < event.results.length; ++i) {
-            const result = event.results[i];
-            const transcript = result?.[0]?.transcript || '';
-            if (!transcript) continue;
-            if (result.isFinal) finalChunk += transcript;
-            else interimChunk += transcript;
-          }
-          if (finalChunk) {
-            const clean = finalChunk.trim();
-            setTranscribedText((prev) => (prev ? `${prev} ${clean}` : clean));
-          }
-          setInterimText(interimChunk.trim());
-        },
-      });
-
-      recognitionRef.current = recognition;
-      recognition.start();
-    } catch (_) {
-      silenceDetectorRef.current?.clear();
+    const stopThisSession = () => {
+      if (!session || !isCurrent() || recognitionRef.current !== session) return;
+      recognitionRequestIdRef.current++;
       recognitionRef.current = null;
+      silenceDetectorRef.current?.clear();
+      session.stop();
       setIsRecording(false);
+      setInterimText('');
+    };
+
+    session = createSpeechInputSession(
+      {
+        onStart: () => {
+          if (!isCurrent()) return;
+          setIsRecording(true);
+          triggerHaptic([40]);
+        },
+        onUpdate: ({ interimText: interim }) => {
+          if (!isCurrent()) return;
+          setInterimText(interim);
+          // Any real speech event postpones the auto-stop timer.
+          if (silenceTimeoutSec > 0) silenceDetectorRef.current?.reset();
+        },
+        onFinal: (text) => {
+          if (!isCurrent()) return;
+          const clean = text.trim();
+          if (!clean) return;
+          setTranscribedText((prev) => (prev ? `${prev} ${clean}` : clean));
+          setInterimText('');
+        },
+        onError: (failure: SpeechFailure) => {
+          if (!isCurrent()) return;
+          setIsRecording(false);
+          setInterimText('');
+          if (failure.reason === 'permission_denied') {
+            setDictationPermissionDenied(true);
+          } else {
+            // Show the recognizer's own reason; never leave a dead
+            // "Recording..." state on screen.
+            setDictationError(failure.message);
+          }
+        },
+        onEnd: () => {
+          if (!isCurrent()) return;
+          silenceDetectorRef.current?.clear();
+          recognitionRef.current = null;
+          setIsRecording(false);
+          setInterimText('');
+        },
+      },
+      { lang: 'en-US', continuous: true }
+    );
+
+    recognitionRef.current = session;
+
+    silenceDetectorRef.current?.clear();
+    if (silenceTimeoutSec > 0) {
+      silenceDetectorRef.current = createSilenceDetector(silenceTimeoutSec * 1000, () => {
+        stopThisSession();
+      });
+      silenceDetectorRef.current.reset();
     }
+
+    session.start().then((result) => {
+      if (!result.started) {
+        if (recognitionRef.current === session) recognitionRef.current = null;
+        silenceDetectorRef.current?.clear();
+        setIsRecording(false);
+        setInterimText('');
+        if (result.reason === 'permission_denied') {
+          setDictationPermissionDenied(true);
+        } else {
+          setDictationError(result.message || 'Voice input is unavailable.');
+        }
+      }
+    });
   };
 
   const handleCopyTranscription = () => {
@@ -920,7 +887,7 @@ export default function VoiceStudio() {
             <h1 className="text-sm font-black text-white flex items-center gap-1.5 flex-wrap">
               <span>Neural Voice & Audio Studio</span>
               <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 font-mono font-bold">
-                Kokoro + Whisper
+                Kokoro + System STT
               </span>
             </h1>
             <p className="text-[10px] text-zinc-400">On-device acoustic voice synthesis, cloning & live speech transcription</p>
@@ -1217,9 +1184,9 @@ export default function VoiceStudio() {
             <div className="flex items-center justify-between text-xs font-bold text-zinc-300">
               <span className="flex items-center gap-1.5 text-amber-400">
                 <Mic className="w-3.5 h-3.5" />
-                <span>Whisper Dictation & Meeting Audio Recorder</span>
+                <span>Speech Dictation & Meeting Audio Recorder</span>
               </span>
-              <span className="text-[10px] text-zinc-500 font-mono">100% Offline</span>
+              <span className="text-[10px] text-zinc-500 font-mono">Speech to text</span>
             </div>
 
             {/* Silence Timeout Configuration */}
@@ -1276,16 +1243,20 @@ export default function VoiceStudio() {
 
               <div className="text-center">
                 <div className="text-sm font-bold text-zinc-200">
-                  {isRecording ? 'Recording & Transcribing Live...' : 'Tap to Start Dictation'}
+                  {isRecording
+                    ? interimText
+                      ? 'Hearing you...'
+                      : 'Listening...'
+                    : 'Tap to Start Dictation'}
                 </div>
-                <div className="text-xs text-zinc-500 font-mono mt-0.5">
+                <div className="text-xs text-zinc-600 font-mono mt-0.5">
                   {isRecording ? (
                     <span className="text-rose-400 font-bold flex items-center justify-center gap-1">
                       <Clock className="w-3 h-3 animate-spin" />
                       <span>{formatDuration(recordingDuration)}</span>
                     </span>
                   ) : (
-                    'Powered by Whisper WebAssembly engine'
+                    speechEngineLabel
                   )}
                 </div>
               </div>
@@ -1298,6 +1269,14 @@ export default function VoiceStudio() {
                   onRetry={handleToggleRecord}
                   onDismiss={() => setDictationPermissionDenied(false)}
                 />
+              )}
+
+              {/* Real recognizer failure (no service, network, audio). The old
+                  build hid this and printed invented transcript text. */}
+              {dictationError && !isRecording && (
+                <div className="w-full text-[11px] text-amber-200 bg-amber-950/60 border border-amber-500/40 rounded-lg px-2.5 py-1.5 text-center">
+                  {dictationError}
+                </div>
               )}
             </div>
 
