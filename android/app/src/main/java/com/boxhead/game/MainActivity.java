@@ -1,5 +1,6 @@
 package com.boxhead.game;
 
+import android.content.Intent;
 import android.graphics.Color;
 import android.os.Bundle;
 import android.os.Handler;
@@ -39,9 +40,14 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(HermesTTS.class);
         registerPlugin(HermesOCR.class);
         registerPlugin(HermesSTT.class);
+        registerPlugin(HermesShare.class);
         registerPlugin(HermesBoot.class);
         super.onCreate(savedInstanceState);
         liveActivity = new WeakReference<>(this);
+        // A share-sheet launch arrives as this activity's intent, not as a
+        // launcher intent. Hand it to the share plugin before the web layer
+        // asks for it, so the first getPendingText() finds the text.
+        HermesShare.handleIntent(getIntent());
 
         // The Android system splash is gone as soon as the activity window is
         // drawn. The WebView surface can still be white for several seconds
@@ -118,11 +124,22 @@ public class MainActivity extends BridgeActivity {
         bootScreen = screen;
     }
 
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        // A share that arrives while the app is already open (launchMode
+        // singleTask): keep it as the current intent and hand the text over
+        // without a restart.
+        setIntent(intent);
+        HermesShare.handleIntent(intent);
+    }
+
     /** Called from HermesBoot.ready() on the Capacitor plugin thread. */
     static void onWebViewReady() {
         MainActivity activity = liveActivity.get();
         if (activity == null) return;
         activity.mainHandler.post(() -> {
+            if (activity.isFinishing() || activity.isDestroyed()) return;
             activity.contentReady = true;
             activity.maybeDismissBootScreen();
             // Hydration can change layout after the first draw. One more
@@ -132,6 +149,7 @@ public class MainActivity extends BridgeActivity {
     }
 
     private void nudgeWebView() {
+        if (isFinishing() || isDestroyed()) return;
         WebView webView = getBridge() == null ? null : getBridge().getWebView();
         if (webView == null) return;
         webView.requestLayout();
@@ -149,8 +167,10 @@ public class MainActivity extends BridgeActivity {
     private void maybeDismissBootScreen() {
         if (!webViewDrawn || !contentReady || dismissScheduled) return;
         dismissScheduled = true;
-        mainHandler.postDelayed(() -> dismissBootScreen(false), 150);
+        mainHandler.postDelayed(dismissRunnable, 150);
     }
+
+    private final Runnable dismissRunnable = () -> dismissBootScreen(false);
 
     private void dismissBootScreen(boolean timedOut) {
         mainHandler.removeCallbacks(bootTimeout);
@@ -174,6 +194,7 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onDestroy() {
         mainHandler.removeCallbacks(bootTimeout);
+        mainHandler.removeCallbacks(dismissRunnable);
         if (liveActivity.get() == this) liveActivity = new WeakReference<>(null);
         super.onDestroy();
     }
