@@ -808,8 +808,6 @@ export default function ChatView() {
   ];
 
   const [copyMenuMsgId, setCopyMenuMsgId] = useState<string | null>(null);
-  // True for the reply that just went out through the share sheet.
-  const [sharedMessageId, setSharedMessageId] = useState<string | null>(null);
 
   const handleCopyMessage = async (
     msgId: string,
@@ -836,14 +834,13 @@ export default function ChatView() {
 
   const handleShareMessage = async (msgId: string, content: string) => {
     const outcome = await shareTextToApps(content, 'Shared from Hermes');
+    // The chooser itself is the confirmation: it opens on top of the app, so
+    // there is no honest "sent" state to show afterwards. A cancelled sheet
+    // needs no follow-up, and no target at all falls back to the copy button.
     if (outcome === 'shared') {
-      setSharedMessageId(msgId);
       triggerHaptic('success');
-      setTimeout(() => setSharedMessageId((cur) => (cur === msgId ? null : cur)), 2000);
       return;
     }
-    // Cancelled: nothing left to do. No target (or the sheet refused): copy
-    // instead and let the Copy button report it, never a false "Shared".
     if (outcome === 'unavailable') await handleCopyMessage(msgId, content);
   };
 
@@ -3190,7 +3187,7 @@ export default function ChatView() {
                         aria-label="Share response to other apps"
                       >
                         <Share2 className="w-3 h-3 text-cyan-400" />
-                        <span>{sharedMessageId === msg.id ? 'Shared' : 'Share'}</span>
+                        <span>Share</span>
                       </button>
                     )}
 
@@ -3739,11 +3736,13 @@ export default function ChatView() {
                     setShowQuickActions(false);
                     const lastAssistantMsg = messages.filter((m) => m.role === 'assistant').at(-1);
                     const textToShare = lastAssistantMsg?.content || 'Hermes Autonomous AI on Android: 100% on-device neural inference with zero cloud dependency.';
-                    if (typeof navigator !== 'undefined' && navigator.share) {
-                      navigator.share({ title: 'Hermes AI Share', text: textToShare }).catch(() => {});
-                    } else if (typeof navigator !== 'undefined' && navigator.clipboard) {
-                      navigator.clipboard.writeText(textToShare);
-                    }
+                    // One share path for the whole app: navigator.share does
+                    // not exist in the Android WebView, so this used to fall
+                    // straight to a silent clipboard write on the phone.
+                    void shareTextToApps(textToShare, 'Hermes AI Share').then((outcome) => {
+                      if (outcome !== 'unavailable') return;
+                      void copyToClipboardSafe(textToShare, { saveToVault: true });
+                    });
                   }}
                   title="Share last response to WhatsApp / Telegram / Android apps"
                   className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-left text-xs font-bold text-zinc-300 hover:bg-zinc-800 transition-all cursor-pointer"
@@ -4403,9 +4402,9 @@ export default function ChatView() {
                         </button>
                         <button
                           onClick={() => {
-                            if (typeof navigator !== 'undefined' && navigator.share) {
-                              navigator.share({ title: 'Saved Insight', text: msg.content }).catch(() => {});
-                            }
+                            void shareTextToApps(msg.content, 'Saved Insight').then((outcome) => {
+                              if (outcome === 'unavailable') void handleCopyMessage(msg.id, msg.content);
+                            });
                           }}
                           className="flex items-center gap-1 text-[10px] text-zinc-400 hover:text-white px-2 py-1 rounded bg-zinc-900 border border-zinc-800 cursor-pointer"
                         >

@@ -145,7 +145,8 @@ export async function shareTextToApps(text: string, subject?: string): Promise<S
   return 'unavailable';
 }
 
-/** Read a parked "cannot use this share" notice once. */export async function consumePendingShareNotice(): Promise<string | null> {
+/** Read a parked "cannot use this share" notice once. */
+export async function consumePendingShareNotice(): Promise<string | null> {
   const plugin = getSharePlugin();
   if (!plugin) return null;
   try {
