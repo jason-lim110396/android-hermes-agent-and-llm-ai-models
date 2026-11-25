@@ -50,7 +50,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             fontFamily: 'system-ui, -apple-system, Segoe UI, sans-serif',
             inset: 0,
             justifyContent: 'center',
+            opacity: 0,
             position: 'fixed',
+            visibility: 'hidden',
             zIndex: 2147483647,
           }}
         >
@@ -81,6 +83,19 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             </a>
           </div>
         </div>
+
+        {/* Inline so the watchdog still hides correctly when the JS/CSS
+            chunks 404; an external stylesheet would leave display:flex
+            visible from the first paint. Animation overrides the inline
+            visibility/opacity after 7 seconds. */}
+        <style>{`
+          #hermes-boot-fallback {
+            animation: hermes-boot-watchdog 0s linear 7s forwards;
+          }
+          @keyframes hermes-boot-watchdog {
+            to { visibility: visible; opacity: 1; }
+          }
+        `}</style>
       </body>
     </html>
   );

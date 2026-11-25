@@ -76,19 +76,3 @@ html.high-contrast-mode textarea:focus-visible {
   outline: 2px solid #06b6d4 !important;
   outline-offset: 2px !important;
 }
-
-/* First-launch watchdog. The app's mount effect hides this panel. If React
-   fails to hydrate, it becomes visible after 7 seconds instead of leaving a
-   blank WebView. Visibility-only animation, so it never blocks a healthy app. */
-#hermes-boot-fallback {
-  visibility: hidden;
-  opacity: 0;
-  animation: hermes-boot-watchdog 0s linear 7s forwards;
-}
-
-@keyframes hermes-boot-watchdog {
-  to {
-    visibility: visible;
-    opacity: 1;
-  }
-}

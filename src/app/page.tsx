@@ -21,6 +21,8 @@ import { holdWakeLock, releaseWakeLock } from '@/utils/wakeLock';
 import { initAndroidBackButton } from '@/utils/backButton';
 import { startVisibleInterval } from '@/utils/visibleInterval';
 import { startProactiveMemoryWatcher } from '@/utils/memoryGuard';
+import { notifyWebViewReady } from '@/utils/bootSplash';
+import { disarmBootWatchdog } from '@/utils/bootWatchdog';
 import {
   DEFAULT_NETWORK_TELEMETRY,
   getNetworkTelemetry,
@@ -133,6 +135,15 @@ export default function Home() {
       stopWatcher();
     };
   }, [refreshHardwareProfile, checkCacheStatus, restorePersistedSessions, hydratePersistedPreferences]);
+
+  // Tell the native boot screen that React has committed. This is a fallback
+  // signal for the case where the WebView's own draw callback is delayed; a
+  // short timeout is used because requestAnimationFrame is paused while the
+  // page has not been presented, which was exactly the broken state.
+  useEffect(() => {
+    const timer = setTimeout(() => notifyWebViewReady(), 400);
+    return () => clearTimeout(timer);
+  }, []);
 
   const studioTabs: { id: NavigationTab; label: string; icon: any; color: string }[] = [
     { id: 'chat', label: 'Hermes Agent', icon: Bot, color: 'from-cyan-500 to-blue-600' },
