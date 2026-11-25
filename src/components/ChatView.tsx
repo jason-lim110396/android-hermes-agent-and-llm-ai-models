@@ -111,7 +111,13 @@ import { copyToClipboardSafe, formatMessageForCopy } from '@/utils/clipboardGuar
 import { canShareToApps, shareTextToApps } from '@/utils/shareTarget';
 import { calculateThroughputStats, formatThroughput } from '@/utils/tpsSampler';
 import { getChatFontSize, CHAT_FONT_SIZE_OPTIONS, type ChatFontSize } from '@/utils/fontSettings';
-import { loadComposerDraft, saveComposerDraft, clearComposerDraft } from '@/utils/composerDraft';
+import {
+  loadComposerDraft,
+  loadLegacyComposerDraft,
+  clearLegacyComposerDraft,
+  saveComposerDraft,
+  clearComposerDraft,
+} from '@/utils/composerDraft';
 
 // Isolated real-time hardware ticker: owns its 1.5s interval and the liveTps
 // store subscription, so the full ChatView tree no longer re-renders on every
@@ -434,11 +440,16 @@ export default function ChatView() {
   // erase a stored draft or write an empty value over it.
   const draftRef = useRef<string | null>(null);
 
+  // The conversation the composer currently belongs to. Drafts are stored per
+  // session, so this is also the key every save/flush below writes to.
+  const composerSessionId = operatingMode === 'agent' ? activeAgentSessionId : activeChatSessionId;
+  const draftSessionRef = useRef(composerSessionId);
+
   // Clears the stored draft and the ref together: a flush that lands between a
   // send and the next debounced save must not write the sent prompt back.
   const discardComposerDraft = () => {
     draftRef.current = '';
-    clearComposerDraft();
+    clearComposerDraft(draftSessionRef.current);
   };
 
   // Restore an unsent draft left behind by a killed WebView, after mount and
@@ -447,7 +458,15 @@ export default function ChatView() {
   // hydration mismatch already fixed for bookmarks). The composer simply
   // starts empty and fills one tick later, as if the user had typed it.
   useEffect(() => {
-    const storedDraft = loadComposerDraft();
+    const sessionId = draftSessionRef.current;
+    // A draft written by the previous build sits under one global key; the
+    // restored conversation adopts it once, so upgrading does not lose it.
+    const legacyDraft = loadLegacyComposerDraft();
+    if (legacyDraft) {
+      saveComposerDraft(sessionId, legacyDraft);
+      clearLegacyComposerDraft();
+    }
+    const storedDraft = loadComposerDraft(sessionId) || legacyDraft;
     if (!storedDraft) return;
     // Only fill an empty composer, and keep the ref in step with it so a
     // hide/reload before the save effect runs still flushes the real text.
@@ -455,13 +474,30 @@ export default function ChatView() {
     setInputVal((prev) => (prev.trim() ? prev : storedDraft));
   }, []);
 
+  // Switching conversation swaps the composer text with it: a prompt started
+  // in one chat must never follow the user into another, and coming back
+  // restores what was typed there. The outgoing text is parked under its own
+  // session before the ref moves, so the save effect below cannot write it
+  // over the incoming draft.
+  useEffect(() => {
+    const previousSession = draftSessionRef.current;
+    if (previousSession === composerSessionId) return;
+    if (draftRef.current !== null) saveComposerDraft(previousSession, draftRef.current);
+    draftSessionRef.current = composerSessionId;
+    const nextDraft = loadComposerDraft(composerSessionId);
+    draftRef.current = nextDraft;
+    setInputVal(nextDraft);
+    setSharedDraftHint(false);
+  }, [composerSessionId]);
+
   // Keep the stored draft in sync with the composer, one write per typing
   // pause instead of one per keystroke (localStorage is synchronous on the
   // WebView thread). The ref holds the latest text so the flush below can
   // write it without a pending timer.
   useEffect(() => {
     draftRef.current = inputVal;
-    const timer = setTimeout(() => saveComposerDraft(inputVal), 500);
+    const sessionId = draftSessionRef.current;
+    const timer = setTimeout(() => saveComposerDraft(sessionId, inputVal), 500);
     return () => clearTimeout(timer);
   }, [inputVal]);
 
@@ -473,7 +509,7 @@ export default function ChatView() {
   useEffect(() => {
     const flushDraft = () => {
       if (draftRef.current === null) return;
-      saveComposerDraft(draftRef.current);
+      saveComposerDraft(draftSessionRef.current, draftRef.current);
     };
     const onVisibilityChange = () => {
       if (document.visibilityState === 'hidden') flushDraft();
@@ -2560,7 +2596,7 @@ export default function ChatView() {
                       // restart - dropping it here would be the very data loss
                       // this draft storage fixes. Only a leftover key behind an
                       // already-empty composer is stale and worth removing.
-                      if (!inputVal.trim()) clearComposerDraft();
+                      if (!inputVal.trim()) clearComposerDraft(draftSessionRef.current);
                     }}
                     title="Clear current session messages"
                     className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-left text-xs font-bold text-rose-300 hover:bg-rose-950/40 transition-all cursor-pointer"
