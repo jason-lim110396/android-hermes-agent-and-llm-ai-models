@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 import { useAppStore, NavigationTab } from '@/appStore';
 import { holdWakeLock, releaseWakeLock } from '@/utils/wakeLock';
-import { initAndroidBackButton } from '@/utils/backButton';
+import { initAndroidBackButton, pushBackHandler } from '@/utils/backButton';
 import { startVisibleInterval } from '@/utils/visibleInterval';
 import { consumePendingSharedText, consumePendingShareNotice, startShareNoticeListener, startShareTargetListener } from '@/utils/shareTarget';
 import { startProactiveMemoryWatcher } from '@/utils/memoryGuard';
@@ -90,6 +90,18 @@ export default function Home() {
       releaseWakeLock();
     }
   }, [hasRunningTasks]);
+
+  // Android hardware back on a secondary tab returns to the Chat tab instead
+  // of closing the whole app. Back previously exited from every screen unless a
+  // modal was open, so a photo being edited in Image Studio, a workflow being
+  // filled in, or a settings change could cost the user the whole app with one
+  // stray press - the opposite of the "up one screen" behavior every other
+  // Android app has. The tab switcher is the root, so back at Chat still exits.
+  // A modal opened inside a tab registers after this and therefore closes first.
+  useEffect(() => {
+    if (currentTab === 'chat') return;
+    return pushBackHandler(() => setCurrentTab('chat'));
+  }, [currentTab, setCurrentTab]);
 
   // Network connectivity telemetry
   // First paint must match the prerendered HTML exactly. The real connection
