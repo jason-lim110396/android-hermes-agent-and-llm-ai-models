@@ -10,7 +10,7 @@ import {
   FallbackHop,
 } from './utils/modelFallback';
 import { speakGuarded, createSpeechUtterance } from './utils/speechGuard';
-import { redactSensitiveMessages } from './utils/sensitiveContent';
+import { redactSensitiveMessages, type RedactableMessage } from './utils/sensitiveContent';
 import { getThermalYieldDelay } from './utils/thermalGuard';
 import { triggerMemoryCleanupHint } from './utils/memoryGuard';
 import {
@@ -190,7 +190,7 @@ class RemoteTimeoutError extends Error {
 /** One streaming chat-completions call against a single OpenAI-compatible endpoint. */
 async function streamChatCompletion(
   candidate: FallbackEndpoint,
-  payload: { systemPrompt: string; messages: { role: string; content: string }[]; temperature: number; maxTokens: number },
+  payload: { systemPrompt: string; messages: RedactableMessage[]; temperature: number; maxTokens: number },
   signal: AbortSignal,
   onStreamChunk: (chunk: string) => void
 ): Promise<string> {
@@ -528,7 +528,7 @@ function recordFallbackHop(
 async function executeRemoteFallbackChain(
   candidates: FallbackEndpoint[],
   payload: {
-    messages: { role: string; content: string }[];
+    messages: RedactableMessage[];
     systemPrompt: string;
     temperature: number;
     maxTokens: number;
@@ -977,6 +977,154 @@ export async function releaseActiveModelEngines(): Promise<void> {
 }
 
 // REAL LLM INFERENCE DISPATCHER
+export interface VisionInferenceOptions {
+  imageDataUrls: string[];
+  prompt: string;
+  systemPrompt: string;
+  temperature?: number;
+  maxTokens?: number;
+  config?: InferenceBackendConfig;
+  signal?: AbortSignal;
+  onStreamChunk: (text: string) => void;
+}
+
+export interface VisionInferenceResult {
+  success: boolean;
+  text: string;
+  /** Human label of the endpoint that actually answered, for the UI. */
+  modelLabel?: string;
+  modelName?: string;
+  reason?: string;
+}
+
+function describeVisionFailure(error: RemoteEndpointError): string {
+  const detail = (error.detail || '').trim();
+  if (error.status === 401 || error.status === 403) {
+    return `The vision model rejected the API key (${error.status}). Check the key in Settings.`;
+  }
+  if (error.status === 404) {
+    return `The vision endpoint or model was not found (404). ${detail}`.trim();
+  }
+  if (error.status === 429) {
+    return describeLimitFailure(error.status, detail);
+  }
+  if (error.status === 400 || error.status === 422) {
+    if (/image|vision|multimodal|content type|modality/i.test(detail)) {
+      return `The configured model does not accept image input. Pick a vision-capable model.${detail ? ` (${detail})` : ''}`;
+    }
+  }
+  return detail || `${error.message} (HTTP ${error.status})`;
+}
+
+/**
+ * Send one or more images to an OpenAI-compatible multimodal model.
+ *
+ * This is deliberately separate from callRealLLMInference: a text-only
+ * on-device model cannot read the picture, so falling through to it would
+ * produce an answer that looks like image analysis but never saw the image.
+ * A failure here is returned as a failure for the UI to explain.
+ */
+export async function callVisionInference({
+  imageDataUrls,
+  prompt,
+  systemPrompt,
+  temperature = 0.2,
+  maxTokens = 1400,
+  config,
+  signal,
+  onStreamChunk,
+}: VisionInferenceOptions): Promise<VisionInferenceResult> {
+  const images = (imageDataUrls || []).filter(
+    (url): url is string => typeof url === 'string' && url.startsWith('data:image/')
+  );
+  if (images.length === 0) {
+    return { success: false, text: '', reason: 'No page image was available to analyse.' };
+  }
+
+  const endpoint = config?.apiEndpoint?.trim();
+  const candidates: FallbackEndpoint[] = [];
+  if (endpoint) {
+    candidates.push({
+      label: config?.customModelName || 'vision endpoint',
+      endpoint,
+      apiKey: config?.apiKey,
+      model: config?.customModelName || 'gpt-4o-mini',
+    });
+  }
+  if (config?.fallbacks) candidates.push(...config.fallbacks);
+  if (candidates.length === 0) {
+    return {
+      success: false,
+      text: '',
+      reason: 'No multimodal endpoint is configured. Add a vision-capable API model in Settings.',
+    };
+  }
+
+  const controller = new AbortController();
+  activeInferenceAbortController = controller;
+  if (signal) {
+    if (signal.aborted) throw new Error('Task stopped by user');
+    signal.addEventListener('abort', () => {
+      try { controller.abort(); } catch {}
+    }, { once: true });
+  }
+
+  const answered: { label?: string; model?: string } = {};
+  const visionConfig: InferenceBackendConfig = {
+    ...(config || { backendType: 'api' }),
+    onAnsweredModel: (info) => {
+      answered.label = info.label;
+      answered.model = info.model;
+      try { config?.onAnsweredModel?.(info); } catch {}
+    },
+    // Never announce a fall-through to an on-device model here: this call has
+    // no text-only fallback, and that notice would be false.
+    onRemoteChainExhausted: undefined,
+  };
+
+  const content = [
+    { type: 'text', text: prompt },
+    ...images.map((url) => ({ type: 'image_url', image_url: { url } })),
+  ];
+  const messages: RedactableMessage[] = [{ role: 'user', content }];
+
+  try {
+    const result = await executeRemoteFallbackChain(
+      candidates,
+      { messages, systemPrompt, temperature, maxTokens },
+      visionConfig,
+      controller.signal,
+      onStreamChunk,
+      undefined
+    );
+    if (result.success && result.text) {
+      return {
+        success: true,
+        text: result.text,
+        modelLabel: answered.label || candidates[0].label,
+        modelName: answered.model || candidates[0].model,
+      };
+    }
+    const failure = result.lastFailure;
+    const reason =
+      failure instanceof RemoteEndpointError
+        ? describeVisionFailure(failure)
+        : failure?.message || 'The vision request returned no answer.';
+    return { success: false, text: '', reason };
+  } catch (error) {
+    if (controller.signal.aborted) throw error;
+    return {
+      success: false,
+      text: '',
+      reason: error instanceof Error ? error.message : String(error || 'unknown error'),
+    };
+  } finally {
+    if (activeInferenceAbortController === controller) {
+      activeInferenceAbortController = null;
+    }
+  }
+}
+
 export async function callRealLLMInference({
   messages,
   modelId,

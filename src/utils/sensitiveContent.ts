@@ -26,6 +26,18 @@ export interface SensitiveContentResult {
   redactionCount: number;
 }
 
+/** One part of an OpenAI-compatible multimodal user message. */
+export interface RedactableContentPart {
+  type: string;
+  text?: string;
+  [key: string]: unknown;
+}
+
+export type RedactableMessage = {
+  role: string;
+  content: string | RedactableContentPart[];
+};
+
 export function redactSensitiveContent(input: string): SensitiveContentResult {
   let text = input;
   let redactionCount = 0;
@@ -42,14 +54,31 @@ export function redactSensitiveContent(input: string): SensitiveContentResult {
 }
 
 export function redactSensitiveMessages(
-  messages: { role: string; content: string }[],
+  messages: RedactableMessage[],
   systemPrompt: string
-): { messages: { role: string; content: string }[]; systemPrompt: string; redactionCount: number } {
+): { messages: RedactableMessage[]; systemPrompt: string; redactionCount: number } {
   const system = redactSensitiveContent(systemPrompt);
-  const sanitizedMessages = messages.map((message) => redactSensitiveContent(message.content));
+  let redactionCount = system.redactionCount;
+  const sanitizedMessages = messages.map((message) => {
+    if (typeof message.content === 'string') {
+      const result = redactSensitiveContent(message.content);
+      redactionCount += result.redactionCount;
+      return { ...message, content: result.text };
+    }
+    // Multimodal content: redact the text parts, leave image parts untouched.
+    const content = message.content.map((part) => {
+      if (part.type === 'text' && typeof part.text === 'string') {
+        const result = redactSensitiveContent(part.text);
+        redactionCount += result.redactionCount;
+        return { ...part, text: result.text };
+      }
+      return part;
+    });
+    return { ...message, content };
+  });
   return {
     systemPrompt: system.text,
-    messages: messages.map((message, index) => ({ ...message, content: sanitizedMessages[index].text })),
-    redactionCount: system.redactionCount + sanitizedMessages.reduce((total, result) => total + result.redactionCount, 0),
+    messages: sanitizedMessages,
+    redactionCount,
   };
 }

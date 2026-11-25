@@ -5,6 +5,7 @@ import { DeviceHardwareProfile, profileMobileHardware } from './deviceProfiler';
 import { AgentStep, AGENT_TOOLS } from './agentTools';
 import {
   callRealLLMInference,
+  callVisionInference,
   getOrInitWebLLMEngine,
   downloadModelWeightsOnly,
   isModelCached,
@@ -13,6 +14,7 @@ import {
   getLastImageGenerationMeta,
   abortAllInference,
   releaseActiveModelEngines,
+  type VisionInferenceResult,
 } from './inferenceEngine';
 import { abortActiveCpuDownloads } from './wasmInferenceEngine';
 import {
@@ -186,6 +188,19 @@ interface AppStore {
    * callers can show the reason instead of passing it off as a translation.
    */
   translateText: (text: string, targetLanguage: string, onChunk?: (partial: string) => void) => Promise<string>;
+  /**
+   * Analyse one or more page images with the configured multimodal API model.
+   * Returns an honest failure when no endpoint/key is configured; it never
+   * falls back to a text-only model that cannot see the image.
+   */
+  analyzeVisionPage: (args: {
+    imageDataUrls: string[];
+    prompt: string;
+    systemPrompt: string;
+    temperature?: number;
+    maxTokens?: number;
+    onChunk?: (partial: string) => void;
+  }) => Promise<VisionInferenceResult>;
   stopAllRunningTasks: () => void;
 
   // Performance & Power Efficiency Mode
@@ -1390,6 +1405,61 @@ export const useAppStore = create<AppStore>((set, get) => {
       const reason = error instanceof Error ? error.message : String(error || 'unknown error');
       return `⚠️ Translation failed: ${reason}`;
     }
+  },
+
+  analyzeVisionPage: async ({
+    imageDataUrls,
+    prompt,
+    systemPrompt,
+    temperature = 0.2,
+    maxTokens = 1400,
+    onChunk,
+  }) => {
+    const { apiEndpoint, apiKey, customModelName } = get();
+    const endpoint = (apiEndpoint || '').trim();
+    if (!endpoint) {
+      return {
+        success: false,
+        text: '',
+        reason:
+          'Vision analysis needs a multimodal model. Add a vision-capable API endpoint in Settings. ' +
+          'The on-device WebAssembly models in this build cannot read image pixels.',
+      };
+    }
+    if (!(customModelName || '').trim()) {
+      return {
+        success: false,
+        text: '',
+        reason:
+          'No model is selected for this endpoint. Fetch the provider models in Settings and pick a vision-capable one.',
+      };
+    }
+    // Local servers (Ollama, vLLM, LM Studio) usually need no key. A hosted
+    // provider does, and sending an unauthenticated request would only earn a
+    // 401 that looks like a broken app.
+    const isLocalEndpoint = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\]|10\.\d|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/i.test(endpoint);
+    if (!(apiKey || '').trim() && !isLocalEndpoint) {
+      return {
+        success: false,
+        text: '',
+        reason:
+          'No API key is configured for the vision model. Add a key in Settings, or point the endpoint at a local vision server that needs none.',
+      };
+    }
+    return callVisionInference({
+      imageDataUrls,
+      prompt,
+      systemPrompt,
+      temperature,
+      maxTokens,
+      config: {
+        backendType: 'api',
+        apiEndpoint: endpoint,
+        apiKey: apiKey || undefined,
+        customModelName: customModelName || undefined,
+      },
+      onStreamChunk: (chunk) => onChunk?.(chunk),
+    });
   },
 
   stopSpeaking: () => {
