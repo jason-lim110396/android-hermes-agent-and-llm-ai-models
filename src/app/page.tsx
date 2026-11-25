@@ -22,6 +22,7 @@ import { initAndroidBackButton } from '@/utils/backButton';
 import { startVisibleInterval } from '@/utils/visibleInterval';
 import { startProactiveMemoryWatcher } from '@/utils/memoryGuard';
 import {
+  DEFAULT_NETWORK_TELEMETRY,
   getNetworkTelemetry,
   subscribeNetworkChanges,
   type NetworkTelemetry,
@@ -68,6 +69,9 @@ export default function Home() {
 
   const checkCacheStatus = useAppStore((s) => s.checkCacheStatus);
   const restorePersistedSessions = useAppStore((s) => s.restorePersistedSessions);
+  const hydratePersistedPreferences = useAppStore((s) => s.hydratePersistedPreferences);
+  const setIsOnline = useAppStore((s) => s.setIsOnline);
+  const setNetworkQuality = useAppStore((s) => s.setNetworkQuality);
 
   const isDownloadingAny = Object.values(downloads).some((d) => d.isDownloading);
   const hasRunningTasks = isGenerating || isSpeaking || isDownloadingAny;
@@ -83,26 +87,43 @@ export default function Home() {
   }, [hasRunningTasks]);
 
   // Network connectivity telemetry
-  const [networkInfo, setNetworkInfo] = React.useState<NetworkTelemetry>(() => getNetworkTelemetry());
+  // First paint must match the prerendered HTML exactly. The real connection
+  // details (4G, 50 ms) are client-only, so they are applied after mount.
+  const [networkInfo, setNetworkInfo] = React.useState<NetworkTelemetry>(DEFAULT_NETWORK_TELEMETRY);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const unsub = subscribeNetworkChanges((telemetry) => {
+    const applyTelemetry = (telemetry: NetworkTelemetry) => {
       setNetworkInfo(telemetry);
+      // The store starts optimistic so server and client markup match; the
+      // real state is applied here, after hydration.
+      setIsOnline(telemetry.isOnline);
+      setNetworkQuality(telemetry.quality);
+    };
+    applyTelemetry(getNetworkTelemetry());
+    const unsub = subscribeNetworkChanges((telemetry) => {
+      applyTelemetry(telemetry);
     });
     const cancelInterval = startVisibleInterval(() => {
-      setNetworkInfo(getNetworkTelemetry());
+      applyTelemetry(getNetworkTelemetry());
     }, 5000);
     return () => {
       unsub();
       cancelInterval();
     };
-  }, []);
+  }, [setIsOnline, setNetworkQuality]);
 
   useEffect(() => {
     refreshHardwareProfile();
     checkCacheStatus();
     restorePersistedSessions();
+    // Saved model/mode are applied only now, so the first client paint matches
+    // the prerendered HTML. Reading them during render caused React #418.
+    hydratePersistedPreferences();
+    // The app really mounted: hide the watchdog panel that would otherwise
+    // appear after a few seconds on a dead hydration.
+    const bootFallback = document.getElementById('hermes-boot-fallback');
+    if (bootFallback) bootFallback.style.display = 'none';
     const stopWatcher = startProactiveMemoryWatcher();
     // Android hardware back: close the top-most modal first (wired per
     // modal via useBackButtonClose), exit only when nothing is open.
@@ -111,7 +132,7 @@ export default function Home() {
     return () => {
       stopWatcher();
     };
-  }, [refreshHardwareProfile, checkCacheStatus, restorePersistedSessions]);
+  }, [refreshHardwareProfile, checkCacheStatus, restorePersistedSessions, hydratePersistedPreferences]);
 
   const studioTabs: { id: NavigationTab; label: string; icon: any; color: string }[] = [
     { id: 'chat', label: 'Hermes Agent', icon: Bot, color: 'from-cyan-500 to-blue-600' },

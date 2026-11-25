@@ -452,6 +452,9 @@ export default function ChatView() {
   const [isScrolledDown, setIsScrolledDown] = useState(false);
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
+  // navigator.share exists on Android but not in the server renderer. Reading
+  // it during render made the client message bar differ from the server HTML.
+  const [canNativeShare, setCanNativeShare] = useState(false);
   const [activeFallbackTooltipId, setActiveFallbackTooltipId] = useState<string | null>(null);
   // Honest feedback when a picked file cannot be read (e.g. the file was moved
   // by another app, a virtual document URI, or a low-memory read failure).
@@ -460,15 +463,10 @@ export default function ChatView() {
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [thermalTelemetry, setThermalTelemetry] = useState<ThermalTelemetry>(() => getThermalTelemetry());
 
-  // Starred Bookmarks State
-  const [starredMessageIds, setStarredMessageIds] = useState<string[]>(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        return JSON.parse(window.localStorage.getItem('hermes_starred_msgs') || '[]');
-      } catch (_) {}
-    }
-    return [];
-  });
+  // Persisted bookmark ids are applied after mount. Reading localStorage in
+  // the initializer made the first client render differ from the prerendered
+  // HTML whenever the user had bookmarks.
+  const [starredMessageIds, setStarredMessageIds] = useState<string[]>([]);
   const [showBookmarksDrawer, setShowBookmarksDrawer] = useState(false);
   const [bookmarkSearchQuery, setBookmarkSearchQuery] = useState('');
 
@@ -494,7 +492,7 @@ export default function ChatView() {
   const [isNotepadOpen, setIsNotepadOpen] = useState(false);
   const [isQRCodeStudioOpen, setIsQRCodeStudioOpen] = useState(false);
   const [isVoiceCallOpen, setIsVoiceCallOpen] = useState(false);
-  const [chatFontSize] = useState<ChatFontSize>(() => getChatFontSize());
+  const [chatFontSize, setChatFontSizeState] = useState<ChatFontSize>('normal');
   const activeFontSizeOption = CHAT_FONT_SIZE_OPTIONS.find((o) => o.id === chatFontSize) || CHAT_FONT_SIZE_OPTIONS[1];
 
   // AI Code Playground & Sandbox State
@@ -700,14 +698,7 @@ export default function ChatView() {
   useBackButtonClose(showMoreTools, () => setShowMoreTools(false));
   useBackButtonClose(showQuickActions, () => setShowQuickActions(false));
 
-  const [customSnippets, setCustomSnippets] = useState<PromptSnippet[]>(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        return JSON.parse(window.localStorage.getItem('hermes_custom_snippets') || '[]');
-      } catch (_) {}
-    }
-    return [];
-  });
+  const [customSnippets, setCustomSnippets] = useState<PromptSnippet[]>([]);
   const [isAddingSnippet, setIsAddingSnippet] = useState(false);
   const [newSnippetTitle, setNewSnippetTitle] = useState('');
   const [newSnippetDirective, setNewSnippetDirective] = useState('');
@@ -1137,7 +1128,23 @@ export default function ChatView() {
   const [waveformBars, setWaveformBars] = useState<number[]>([25, 45, 60, 35, 70, 50, 85, 60, 45, 75, 50, 65, 35]);
   const [isAutoSendOnSilence, setIsAutoSendOnSilence] = useState(true);
   const [currentAudioDb, setCurrentAudioDb] = useState<number>(0);
-  const [noiseGateThreshold, setNoiseGateThreshold] = useState<number>(() => getStoredNoiseGateThreshold(18));
+  const [noiseGateThreshold, setNoiseGateThreshold] = useState<number>(18);
+
+  // Apply persisted preferences after hydration so the first paint matches the
+  // server HTML. These values only feed controls/drawers, never the boot UI.
+  useEffect(() => {
+    try {
+      const savedStarred = JSON.parse(window.localStorage.getItem('hermes_starred_msgs') || '[]');
+      if (Array.isArray(savedStarred)) setStarredMessageIds(savedStarred);
+    } catch (_) {}
+    setChatFontSizeState(getChatFontSize());
+    try {
+      const savedSnippets = JSON.parse(window.localStorage.getItem('hermes_custom_snippets') || '[]');
+      if (Array.isArray(savedSnippets)) setCustomSnippets(savedSnippets);
+    } catch (_) {}
+    setNoiseGateThreshold(getStoredNoiseGateThreshold(18));
+    setCanNativeShare(typeof navigator !== 'undefined' && typeof navigator.share === 'function');
+  }, []);
   const [showNoiseGateSettings, setShowNoiseGateSettings] = useState(false);
 
   const cleanupAudioVisualizer = () => {
@@ -3115,7 +3122,7 @@ export default function ChatView() {
                     )}
 
                     {/* Share Message via Native Android Sheet */}
-                    {typeof navigator !== 'undefined' && typeof navigator.share === 'function' && (
+                    {canNativeShare && (
                       <button
                         onClick={async () => {
                           try {
