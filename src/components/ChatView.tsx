@@ -110,6 +110,7 @@ import { subscribeThermalTelemetry, getThermalTelemetry, type ThermalTelemetry }
 import { copyToClipboardSafe, formatMessageForCopy } from '@/utils/clipboardGuard';
 import { calculateThroughputStats, formatThroughput } from '@/utils/tpsSampler';
 import { getChatFontSize, CHAT_FONT_SIZE_OPTIONS, type ChatFontSize } from '@/utils/fontSettings';
+import { loadComposerDraft, saveComposerDraft, clearComposerDraft } from '@/utils/composerDraft';
 
 // Isolated real-time hardware ticker: owns its 1.5s interval and the liveTps
 // store subscription, so the full ChatView tree no longer re-renders on every
@@ -426,6 +427,48 @@ export default function ChatView() {
 
   const [inputVal, setInputVal] = useState('');
   const composerRef = useRef<HTMLTextAreaElement>(null);
+
+  // Restore an unsent draft left behind by a killed WebView, after mount and
+  // never in the initializer: reading localStorage during the first render
+  // would make the client HTML differ from the prerendered export (the
+  // hydration mismatch already fixed for bookmarks). The composer simply
+  // starts empty and fills one tick later, as if the user had typed it.
+  useEffect(() => {
+    const storedDraft = loadComposerDraft();
+    if (!storedDraft) return;
+    // Only fill an empty composer. A share that landed during startup already
+    // put its own text here (it appends on the next frame) and must not be
+    // overwritten by this restore.
+    setInputVal((prev) => (prev.trim() ? prev : storedDraft));
+  }, []);
+
+  // Keep the stored draft in sync with the composer, one write per typing
+  // pause instead of one per keystroke (localStorage is synchronous on the
+  // WebView thread). The ref holds the latest text so the flush below can
+  // write it without a pending timer.
+  const draftRef = useRef('');
+  useEffect(() => {
+    draftRef.current = inputVal;
+    const timer = setTimeout(() => saveComposerDraft(inputVal), 500);
+    return () => clearTimeout(timer);
+  }, [inputVal]);
+
+  // Android can stop JS timers the moment the app is hidden and then kill the
+  // process, which would drop the last keys typed before the user switched
+  // away. Flush whenever the app leaves the foreground.
+  useEffect(() => {
+    const flushDraft = () => saveComposerDraft(draftRef.current);
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') flushDraft();
+    };
+    window.addEventListener('pagehide', flushDraft);
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => {
+      window.removeEventListener('pagehide', flushDraft);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+  }, []);
+
   // True after a share landed in the composer, until the user dismisses the
   // "review and send" hint above it.
   const [sharedDraftHint, setSharedDraftHint] = useState(false);
@@ -1552,6 +1595,9 @@ export default function ChatView() {
     audioChunksRef.current = [];
     currentTranscriptRef.current = '';
     setInputVal('');
+    // Cancelling a note throws the composer text away on purpose; the stored
+    // draft must go with it or a restart would resurrect the discarded words.
+    clearComposerDraft();
     setIsRecordingVoice(false);
     setRecordDurationSec(0);
     setSpeechListening(false);
@@ -1667,6 +1713,8 @@ export default function ChatView() {
     setRecordDurationSec(0);
     setSpeechListening(false);
     setInputVal('');
+    // The voice note and its transcript are on their way to the model now.
+    clearComposerDraft();
 
     // Trigger instant message dispatch to LLM!
     setTimeout(() => {
@@ -1821,6 +1869,9 @@ export default function ChatView() {
     }
     if (dispatchPromptSafely(textToSend)) {
       setInputVal('');
+      // The prompt was consumed by the send: a killed WebView must not bring
+      // it back as if it had never gone out.
+      clearComposerDraft();
       // The shared draft is on its way to the model now; its hint is stale.
       setSharedDraftHint(false);
     }
@@ -2464,6 +2515,12 @@ export default function ChatView() {
                     onClick={() => {
                       setShowMoreTools(false);
                       clearCurrentConversation();
+                      // Clearing a session wipes messages, not the composer, so
+                      // an unsent draft the user can still see has to survive a
+                      // restart - dropping it here would be the very data loss
+                      // this draft storage fixes. Only a leftover key behind an
+                      // already-empty composer is stale and worth removing.
+                      if (!inputVal.trim()) clearComposerDraft();
                     }}
                     title="Clear current session messages"
                     className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-left text-xs font-bold text-rose-300 hover:bg-rose-950/40 transition-all cursor-pointer"
@@ -2729,6 +2786,7 @@ export default function ChatView() {
                           // composer invited a one-tap double-send.
                           if (dispatchPromptSafely(qp.prompt)) {
                             setInputVal('');
+                            clearComposerDraft();
                           }
                         }}
                         className="text-left p-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-850 border border-zinc-800 hover:border-cyan-500/50 text-xs transition-all group cursor-pointer"
@@ -3762,6 +3820,7 @@ export default function ChatView() {
                     const prompt = 'Remind me in 30 minutes to review on-device AI logs and battery status';
                     if (dispatchPromptSafely(prompt)) {
                       setInputVal('');
+                      clearComposerDraft();
                     }
                     setShowQuickActions(false);
                   }}
@@ -3777,6 +3836,7 @@ export default function ChatView() {
                     const prompt = 'Audit phone battery, thermal load, and WebGPU tensor speeds';
                     if (dispatchPromptSafely(prompt)) {
                       setInputVal('');
+                      clearComposerDraft();
                     }
                     setShowQuickActions(false);
                   }}
