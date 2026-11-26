@@ -155,6 +155,7 @@ interface AppStore {
   agentSessions: Record<string, ChatSession>;
   activeChatSessionId: string;
   activeAgentSessionId: string;
+  sessionsHydrated: boolean;
   restorePersistedSessions: () => void;
   resetAllSessions: () => void;
   createNewSession: (mode?: 'chat' | 'agent') => void;
@@ -927,6 +928,7 @@ export const useAppStore = create<AppStore>((set, get) => {
   },
   activeChatSessionId: 'session-chat-default',
   activeAgentSessionId: 'session-agent-default',
+  sessionsHydrated: false,
 
   // Conversation Persistence Vault: bring back chats saved by a previous app
   // run. Called once after mount (never during SSR/hydration) so the server
@@ -968,6 +970,7 @@ export const useAppStore = create<AppStore>((set, get) => {
                 ? persisted.activeAgentSessionId
                 : Object.keys(agentSessions)[0] || state.activeAgentSessionId
               : state.activeAgentSessionId,
+            sessionsHydrated: true,
           };
         });
       }
@@ -1051,7 +1054,12 @@ export const useAppStore = create<AppStore>((set, get) => {
           };
         });
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => {
+        if (!get().sessionsHydrated) {
+          set({ sessionsHydrated: true });
+        }
+      });
   },
 
   // Honest "Clear Cache" support: drop every in-memory conversation so the

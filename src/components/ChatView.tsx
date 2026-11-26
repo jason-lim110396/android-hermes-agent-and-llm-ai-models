@@ -406,6 +406,7 @@ export default function ChatView() {
   const agentSessions = useAppStore((s) => s.agentSessions);
   const activeChatSessionId = useAppStore((s) => s.activeChatSessionId);
   const activeAgentSessionId = useAppStore((s) => s.activeAgentSessionId);
+  const sessionsHydrated = useAppStore((s) => s.sessionsHydrated);
   const createNewSession = useAppStore((s) => s.createNewSession);
   const switchSession = useAppStore((s) => s.switchSession);
   const clearCurrentConversation = useAppStore((s) => s.clearCurrentConversation);
@@ -459,14 +460,7 @@ export default function ChatView() {
   // starts empty and fills one tick later, as if the user had typed it.
   useEffect(() => {
     const sessionId = draftSessionRef.current;
-    // A draft written by the previous build sits under one global key; the
-    // restored conversation adopts it once, so upgrading does not lose it.
-    const legacyDraft = loadLegacyComposerDraft();
-    if (legacyDraft) {
-      saveComposerDraft(sessionId, legacyDraft);
-      clearLegacyComposerDraft();
-    }
-    const storedDraft = loadComposerDraft(sessionId) || legacyDraft;
+    const storedDraft = loadComposerDraft(sessionId);
     if (!storedDraft) return;
     // Only fill an empty composer, and keep the ref in step with it so a
     // hide/reload before the save effect runs still flushes the real text.
@@ -490,11 +484,33 @@ export default function ChatView() {
     setSharedDraftHint(false);
   }, [composerSessionId]);
 
+  // A draft written by the previous build sits under one global key. Wait
+  // until session persistence has hydrated so the restored active conversation
+  // adopts it instead of migrating into the pre-hydration default session.
+  useEffect(() => {
+    if (!sessionsHydrated) return;
+    const legacyDraft = loadLegacyComposerDraft();
+    if (!legacyDraft) return;
+    const existing = loadComposerDraft(composerSessionId);
+    if (!existing) {
+      saveComposerDraft(composerSessionId, legacyDraft);
+      draftRef.current = legacyDraft;
+      setInputVal((prev) => (prev.trim() ? prev : legacyDraft));
+    }
+    clearLegacyComposerDraft();
+  }, [sessionsHydrated, composerSessionId]);
+
   // Keep the stored draft in sync with the composer, one write per typing
   // pause instead of one per keystroke (localStorage is synchronous on the
   // WebView thread). The ref holds the latest text so the flush below can
-  // write it without a pending timer.
+  // write it without a pending timer. Skip the mount commit so the initial
+  // empty inputVal cannot overwrite a draft just restored above.
+  const didMountInputEffectRef = useRef(false);
   useEffect(() => {
+    if (!didMountInputEffectRef.current) {
+      didMountInputEffectRef.current = true;
+      return;
+    }
     draftRef.current = inputVal;
     const sessionId = draftSessionRef.current;
     const timer = setTimeout(() => saveComposerDraft(sessionId, inputVal), 500);
