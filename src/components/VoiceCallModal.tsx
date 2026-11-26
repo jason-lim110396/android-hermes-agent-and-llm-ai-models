@@ -122,20 +122,19 @@ export default function VoiceCallModal({ isOpen, onClose }: VoiceCallModalProps)
   useEffect(() => {
     if (!isOpen) return;
     const unsub = onSpeakingChange((active) => {
+      if (!isOpenRef.current) return;
       if (active) {
         setCallState('speaking');
-      } else {
+      } else if (!isGeneratingRef.current) {
         // Assistant finished speaking: resume hands-free listening
-        if (!isGenerating && !isMutedRef.current) {
-          setCallState('listening');
-          if (hasSpeechRecognition) {
-            startRecognitionSafe();
-          }
+        setCallState('listening');
+        if (!isMutedRef.current && hasSpeechRecognition) {
+          startRecognitionSafe();
         }
       }
     });
     return () => unsub();
-  }, [isOpen, isGenerating, hasSpeechRecognition]);
+  }, [isOpen, hasSpeechRecognition]);
 
   // Clean text for speech synthesis (strip markdown, asterisks, code blocks)
   const cleanTextForTts = (raw: string): string => {
@@ -322,8 +321,11 @@ export default function VoiceCallModal({ isOpen, onClose }: VoiceCallModalProps)
     }
 
     const startTimeout = setTimeout(() => {
+      // If TTS is still speaking the greeting, onSpeakingChange(false) will
+      // transition to 'listening' and start recognition once speech finishes.
+      if (!isOpenRef.current || isSpeakingRef.current || isGeneratingRef.current) return;
       setCallState('listening');
-      if (hasSpeechRecognition) {
+      if (!isMutedRef.current && hasSpeechRecognition) {
         startRecognitionSafe();
       }
     }, 800);
