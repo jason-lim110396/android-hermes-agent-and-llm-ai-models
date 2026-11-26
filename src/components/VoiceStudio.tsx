@@ -370,16 +370,22 @@ export default function VoiceStudio() {
   }, []);
 
   useEffect(() => {
-    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+    if (typeof window === 'undefined') return;
+    const synth = (window as { speechSynthesis?: SpeechSynthesis }).speechSynthesis;
+    if (!synth || typeof synth.getVoices !== 'function') return;
     const updateVoices = () => {
       try {
-        window.speechSynthesis.getVoices();
+        synth.getVoices();
       } catch (_) {}
     };
     updateVoices();
-    window.speechSynthesis.addEventListener('voiceschanged', updateVoices);
+    try {
+      synth.addEventListener?.('voiceschanged', updateVoices);
+    } catch (_) {}
     return () => {
-      window.speechSynthesis.removeEventListener('voiceschanged', updateVoices);
+      try {
+        synth.removeEventListener?.('voiceschanged', updateVoices);
+      } catch (_) {}
     };
   }, []);
 
@@ -586,22 +592,27 @@ export default function VoiceStudio() {
         utterance.lang = 'en-US';
         utterance.volume = 1.0;
 
-        const voices = window.speechSynthesis.getVoices();
-        if (voices && voices.length > 0) {
-          const naturalVoice = voices.find(
-            (v) => (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('Neural')) && v.lang.startsWith('en')
-          ) || voices.find((v) => v.lang.startsWith('en')) || voices[0];
-          if (naturalVoice) {
-            utterance.voice = naturalVoice;
-            if (naturalVoice.lang) utterance.lang = naturalVoice.lang;
+        try {
+          const synth = (window as { speechSynthesis?: SpeechSynthesis }).speechSynthesis;
+          const voices = synth && typeof synth.getVoices === 'function' ? synth.getVoices() : [];
+          if (voices && voices.length > 0) {
+            const naturalVoice = voices.find(
+              (v) => (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('Neural')) && v.lang.startsWith('en')
+            ) || voices.find((v) => v.lang.startsWith('en')) || voices[0];
+            if (naturalVoice) {
+              utterance.voice = naturalVoice;
+              if (naturalVoice.lang) utterance.lang = naturalVoice.lang;
+            }
           }
-        }
+        } catch (_) {}
 
         utterance.onstart = () => {
           drawClonerSpectrum();
         };
       }
-      speakGuarded(utterance, text, { rate: voiceRate, pitch: voicePitch, lang: 'en-US' });
+      if (speakGuarded(utterance, text, { rate: voiceRate, pitch: voicePitch, lang: 'en-US' })) {
+        drawClonerSpectrum();
+      }
     } catch (_) {
       handlePreviewTrimmedAudio();
       useAppStore.setState({ isSpeaking: false });

@@ -1206,15 +1206,18 @@ export async function callRealLLMInference({
           utterance.rate = 1.0;
           utterance.pitch = modelSpec.id.includes('kokoro') ? 1.0 : 1.05;
 
-          if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-            const voices = window.speechSynthesis.getVoices();
-            if (voices && voices.length > 0) {
-              const bestVoice = voices.find(
-                (v) => (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('Neural') || v.name.includes('Premium')) && v.lang.startsWith('en')
-              ) || voices.find((v) => v.lang.startsWith('en')) || voices[0];
-              if (bestVoice) utterance.voice = bestVoice;
+          try {
+            const synth = typeof window !== 'undefined' ? (window as { speechSynthesis?: SpeechSynthesis }).speechSynthesis : undefined;
+            if (synth && typeof synth.getVoices === 'function') {
+              const voices = synth.getVoices();
+              if (voices && voices.length > 0) {
+                const bestVoice = voices.find(
+                  (v) => (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('Neural') || v.name.includes('Premium')) && v.lang.startsWith('en')
+                ) || voices.find((v) => v.lang.startsWith('en')) || voices[0];
+                if (bestVoice) utterance.voice = bestVoice;
+              }
             }
-          }
+          } catch (_) {}
         }
         speakGuarded(utterance, cleanSpoken);
       } catch (_) {}
