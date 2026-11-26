@@ -1366,25 +1366,28 @@ export const useAppStore = create<AppStore>((set, get) => {
       utterance.volume = 1.0;
 
       // Select highest quality natural/Google voice available on the device, or user preferred voice
-      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-        const voices = window.speechSynthesis.getVoices();
-        if (voices && voices.length > 0) {
-          const preferredUri = get().voiceURI;
-          const matched = preferredUri ? voices.find((v) => v.voiceURI === preferredUri) : null;
-          if (matched) {
-            utterance.voice = matched;
-            if (matched.lang) utterance.lang = matched.lang;
-          } else {
-            const naturalVoice = voices.find(
-              (v) => (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('Neural') || v.name.includes('Premium')) && v.lang.startsWith('en')
-            ) || voices.find((v) => v.lang.startsWith('en')) || voices[0];
-            if (naturalVoice) {
-              utterance.voice = naturalVoice;
-              if (naturalVoice.lang) utterance.lang = naturalVoice.lang;
+      try {
+        const synth = typeof window !== 'undefined' ? (window as { speechSynthesis?: SpeechSynthesis }).speechSynthesis : undefined;
+        if (synth && typeof synth.getVoices === 'function') {
+          const voices = synth.getVoices();
+          if (voices && voices.length > 0) {
+            const preferredUri = get().voiceURI;
+            const matched = preferredUri ? voices.find((v) => v.voiceURI === preferredUri) : null;
+            if (matched) {
+              utterance.voice = matched;
+              if (matched.lang) utterance.lang = matched.lang;
+            } else {
+              const naturalVoice = voices.find(
+                (v) => (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('Neural') || v.name.includes('Premium')) && v.lang.startsWith('en')
+              ) || voices.find((v) => v.lang.startsWith('en')) || voices[0];
+              if (naturalVoice) {
+                utterance.voice = naturalVoice;
+                if (naturalVoice.lang) utterance.lang = naturalVoice.lang;
+              }
             }
           }
         }
-      }
+      } catch (_) {}
 
       speakGuarded(utterance, chunk);
     } catch (_) {
