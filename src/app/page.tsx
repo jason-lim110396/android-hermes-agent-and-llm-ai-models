@@ -20,7 +20,7 @@ import { useAppStore, NavigationTab } from '@/appStore';
 import { holdWakeLock, releaseWakeLock } from '@/utils/wakeLock';
 import { initAndroidBackButton, pushBackHandler } from '@/utils/backButton';
 import { startVisibleInterval } from '@/utils/visibleInterval';
-import { consumePendingSharedText, consumePendingShareNotice, startShareNoticeListener, startShareTargetListener } from '@/utils/shareTarget';
+import { consumePendingSharedText, consumePendingShareNotice, consumePendingSharedImage, startShareNoticeListener, startShareTargetListener, startShareImageListener, type SharedImagePayload } from '@/utils/shareTarget';
 import { startProactiveMemoryWatcher } from '@/utils/memoryGuard';
 import { notifyWebViewReady } from '@/utils/bootSplash';
 import { disarmBootWatchdog } from '@/utils/bootWatchdog';
@@ -66,6 +66,7 @@ export default function Home() {
   const setCurrentTab = useAppStore((s) => s.setCurrentTab);
   const setPendingComposerText = useAppStore((s) => s.setPendingComposerText);
   const setPendingShareNotice = useAppStore((s) => s.setPendingShareNotice);
+  const setPendingSharedImage = useAppStore((s) => s.setPendingSharedImage);
   const refreshHardwareProfile = useAppStore((s) => s.refreshHardwareProfile);
   const isGenerating = useAppStore((s) => s.isGenerating);
   const isSpeaking = useAppStore((s) => s.isSpeaking);
@@ -176,20 +177,33 @@ export default function Home() {
       setCurrentTab('chat');
       setPendingShareNotice(notice);
     };
+    // A photo shared from the Gallery becomes an unsent attachment on the
+    // composer: the Chat tab turns it into an attachment and never sends it.
+    const stageSharedImage = (image: SharedImagePayload) => {
+      if (cancelled) return;
+      setCurrentTab('chat');
+      setPendingShareNotice(null);
+      setPendingSharedImage(image);
+    };
     consumePendingSharedText().then((text) => {
       if (text) stageSharedText(text);
     });
     consumePendingShareNotice().then((notice) => {
       if (notice) stageShareNotice(notice);
     });
+    consumePendingSharedImage().then((image) => {
+      if (image) stageSharedImage(image);
+    });
     const stopListening = startShareTargetListener(stageSharedText);
     const stopNotices = startShareNoticeListener(stageShareNotice);
+    const stopImages = startShareImageListener(stageSharedImage);
     return () => {
       cancelled = true;
       stopListening();
       stopNotices();
+      stopImages();
     };
-  }, [setCurrentTab, setPendingComposerText, setPendingShareNotice]);
+  }, [setCurrentTab, setPendingComposerText, setPendingShareNotice, setPendingSharedImage]);
 
   const studioTabs: { id: NavigationTab; label: string; icon: any; color: string }[] = [
     { id: 'chat', label: 'Hermes Agent', icon: Bot, color: 'from-cyan-500 to-blue-600' },

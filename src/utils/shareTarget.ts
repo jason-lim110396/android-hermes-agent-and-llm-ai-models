@@ -30,9 +30,25 @@ export interface SharedNoticePayload {
   receivedAt: number;
 }
 
+/**
+ * Payload of the native `sharedImage` event and of `getPendingImage()`.
+ *
+ * A photo shared from the Gallery arrives already re-encoded by the native
+ * side: a chat-sized JPEG data URL plus a display name, never a content:// URI
+ * the on-device model cannot read.
+ */
+export interface SharedImagePayload {
+  /** JPEG data URL, empty when nothing was shared. */
+  dataUrl: string;
+  name: string;
+  mimeType: string;
+  receivedAt: number;
+}
+
 interface HermesSharePlugin {
   getPendingText(): Promise<SharedTextPayload>;
   getPendingNotice(): Promise<SharedNoticePayload>;
+  getPendingImage(): Promise<SharedImagePayload>;
   /** Clears the parked copy that a listener already inserted. */
   acknowledgeShared(options: { receivedAt: number }): Promise<unknown>;
   /** Opens the Android share sheet for an outgoing reply. */
@@ -44,6 +60,10 @@ interface HermesSharePlugin {
   addListener(
     eventName: 'sharedNotice',
     listenerFunc: (data: SharedNoticePayload) => void
+  ): Promise<PluginListenerHandle>;
+  addListener(
+    eventName: 'sharedImage',
+    listenerFunc: (data: SharedImagePayload) => void
   ): Promise<PluginListenerHandle>;
   removeAllListeners(): Promise<void>;
 }
@@ -155,6 +175,85 @@ export async function consumePendingShareNotice(): Promise<string | null> {
   } catch {
     return null;
   }
+}
+
+/**
+ * The shared photo with its empty/broken cases removed, or null when this
+ * payload is not a usable JPEG data URL. Used by both delivery paths so a
+ * malformed payload never reaches the attachment tray.
+ */
+function normalizeSharedImage(payload: SharedImagePayload | null | undefined): SharedImagePayload | null {
+  if (!payload) return null;
+  const dataUrl = typeof payload.dataUrl === 'string' ? payload.dataUrl : '';
+  if (!dataUrl.startsWith('data:image/')) return null;
+  const name = typeof payload.name === 'string' && payload.name.trim() ? payload.name.trim() : 'shared-photo.jpg';
+  const mimeType =
+    typeof payload.mimeType === 'string' && payload.mimeType.startsWith('image/')
+      ? payload.mimeType
+      : 'image/jpeg';
+  return {
+    dataUrl,
+    name,
+    mimeType,
+    receivedAt: typeof payload.receivedAt === 'number' ? payload.receivedAt : 0,
+  };
+}
+
+/**
+ * Read the photo that launched the app (a Gallery share), once.
+ *
+ * Returns null on the web, when nothing was shared, or when the bridge is
+ * unavailable - it never throws and never invents an attachment.
+ */
+export async function consumePendingSharedImage(): Promise<SharedImagePayload | null> {
+  const plugin = getSharePlugin();
+  if (!plugin) return null;
+  try {
+    const result = await plugin.getPendingImage();
+    return normalizeSharedImage(result);
+  } catch {
+    return null;
+  }
+}
+
+/** Subscribe to photos shared while the app is already running. */
+export function startShareImageListener(onImage: (image: SharedImagePayload) => void): () => void {
+  const plugin = getSharePlugin();
+  if (!plugin) return () => {};
+
+  let cancelled = false;
+  let handle: PluginListenerHandle | null = null;
+
+  try {
+    plugin
+      .addListener('sharedImage', (data) => {
+        const image = normalizeSharedImage(data);
+        if (!cancelled && image) {
+          onImage(image);
+          // Inserted once: drop the parked copy so a later mount cannot attach
+          // the same photo again.
+          acknowledgeShared(plugin, data?.receivedAt);
+        }
+      })
+      .then((added) => {
+        if (cancelled) {
+          added.remove().catch(() => {});
+          return;
+        }
+        handle = added;
+      })
+      .catch(() => {});
+  } catch {
+    return () => {};
+  }
+
+  return () => {
+    cancelled = true;
+    if (handle) {
+      handle.remove().catch(() => {});
+      handle = null;
+    }
+  };
 }
 
 /** Subscribe to unsupported-share notices; safe no-op on the web. */

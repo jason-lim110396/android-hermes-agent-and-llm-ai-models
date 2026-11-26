@@ -34,6 +34,7 @@ import {
   loadFallbackSettings,
   saveFallbackSettings,
 } from './utils/modelFallback';
+import type { SharedImagePayload } from './utils/shareTarget';
 
 // Global tracking for mock/fallback download timers
 const activeDownloadIntervals = new Map<string, NodeJS.Timeout>();
@@ -194,6 +195,13 @@ interface AppStore {
    */
   pendingComposerText: string | null;
   setPendingComposerText: (text: string | null) => void;
+  /**
+   * Photo handed over by the Android share sheet (Gallery -> Hermes). The Chat
+   * tab turns it into an unsent attachment and clears it, so a shared photo is
+   * delivered once and never sent without the user pressing send.
+   */
+  pendingSharedImage: SharedImagePayload | null;
+  setPendingSharedImage: (image: SharedImagePayload | null) => void;
   /**
    * Honest reason the last Android share could not become a draft (for
    * example an image-only share). Shown as a dismissible notice in Chat.
@@ -1581,6 +1589,8 @@ export const useAppStore = create<AppStore>((set, get) => {
   // share that lands while another tab is open still reaches the composer.
   pendingComposerText: null,
   setPendingComposerText: (text) => set({ pendingComposerText: text }),
+  pendingSharedImage: null,
+  setPendingSharedImage: (image) => set({ pendingSharedImage: image }),
   pendingShareNotice: null,
   setPendingShareNotice: (notice) => set({ pendingShareNotice: notice }),
 
