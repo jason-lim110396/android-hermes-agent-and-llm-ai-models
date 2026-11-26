@@ -363,16 +363,17 @@ export default function VisionStudio() {
   };
 
   const handleCameraSnap = (att: Attachment) => {
-    const newPage: ScannedPage = {
-      id: `page-${Date.now()}`,
-      name: att.name || `Scan Page ${scannedPages.length + 1}`,
-      dataUrl: att.dataUrl,
-      isHighContrast: false,
-    };
-    setScannedPages((prev) => [...prev, newPage].slice(-MAX_SCANNED_PAGES));
-    // With the cap the just-added page is always last; select it directly
-    // instead of the pre-append length, which can point past the end.
-    setSelectedPageIndex(Math.min(scannedPages.length, MAX_SCANNED_PAGES - 1));
+    setScannedPages((prev) => {
+      const newPage: ScannedPage = {
+        id: `page-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        name: att.name || `Scan Page ${prev.length + 1}`,
+        dataUrl: att.dataUrl,
+        isHighContrast: false,
+      };
+      const next = [...prev, newPage].slice(-MAX_SCANNED_PAGES);
+      setSelectedPageIndex(next.length - 1);
+      return next;
+    });
     setAnalysisResult(null);
   };
 
@@ -563,38 +564,45 @@ export default function VisionStudio() {
         // why scanning appeared to work while extracting nothing.
         let extractedLines: string[] = [];
         let analyzerLabel = 'Android ML Kit text recognition (on-device, offline)';
+        const isSvgSample = currentPage.dataUrl.startsWith('data:image/svg+xml');
         const svgLines = readSvgTextNodes(currentPage.dataUrl);
         if (svgLines.length > 0) extractedLines = svgLines;
 
-        const ocr = await recognizeTextFromDataUrl(currentPage.dataUrl);
-        if (ocr.lines.length > 0) {
-          extractedLines = ocr.lines;
-          analyzerLabel =
-            ocr.script === 'cjk'
-              ? 'Android ML Kit text recognition (Chinese + Latin, on-device, offline)'
-              : 'Android ML Kit text recognition (Latin, on-device, offline)';
-          // A scan always replaces the translation source. The old code only
-          // filled an *empty* box, so the prefilled example paragraph won and
-          // real OCR text never reached the translate tab.
-          setOcrSourceText(ocr.text);
+        if (isSvgSample && svgLines.length > 0) {
+          analyzerLabel = 'Embedded SVG vector text (sample document)';
+          setOcrSourceText(svgLines.join('\n'));
           setOcrTranslatedResult('');
         } else {
-          const detail =
-            ocr.reason ||
-            'No readable text found on this page. Try a straight-on photo, better lighting, or tap "Enhance Text" and scan again.';
-          setAnalysisResult(
-            [
-              '### OCR: no text extracted',
-              `**Page**: ${currentPage.name} (Page ${selectedPageIndex + 1} of ${scannedPages.length})`,
-              '',
-              detail,
-              ...(extractedLines.length > 0
-                ? ['', '#### Text embedded in the file', ...extractedLines.map((line) => `- ${line}`)]
-                : []),
-            ].join('\n')
-          );
-          triggerHaptic([20, 40]);
-          return;
+          const ocr = await recognizeTextFromDataUrl(currentPage.dataUrl);
+          if (ocr.lines.length > 0) {
+            extractedLines = ocr.lines;
+            analyzerLabel =
+              ocr.script === 'cjk'
+                ? 'Android ML Kit text recognition (Chinese + Latin, on-device, offline)'
+                : 'Android ML Kit text recognition (Latin, on-device, offline)';
+            // A scan always replaces the translation source. The old code only
+            // filled an *empty* box, so the prefilled example paragraph won and
+            // real OCR text never reached the translate tab.
+            setOcrSourceText(ocr.text);
+            setOcrTranslatedResult('');
+          } else {
+            const detail =
+              ocr.reason ||
+              'No readable text found on this page. Try a straight-on photo, better lighting, or tap "Enhance Text" and scan again.';
+            setAnalysisResult(
+              [
+                '### OCR: no text extracted',
+                `**Page**: ${currentPage.name} (Page ${selectedPageIndex + 1} of ${scannedPages.length})`,
+                '',
+                detail,
+                ...(extractedLines.length > 0
+                  ? ['', '#### Text embedded in the file', ...extractedLines.map((line) => `- ${line}`)]
+                  : []),
+              ].join('\n')
+            );
+            triggerHaptic([20, 40]);
+            return;
+          }
         }
 
         setAnalysisResult(
