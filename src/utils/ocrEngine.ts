@@ -61,7 +61,7 @@ const EMPTY_UNAVAILABLE: OcrResult = {
  * error boundary on a phone.
  */
 export async function recognizeTextFromDataUrl(dataUrl: string): Promise<OcrResult> {
-  if (!dataUrl || !dataUrl.startsWith('data:image/')) {
+  if (!dataUrl || !dataUrl.startsWith('data:image/') || dataUrl.startsWith('data:image/svg+xml')) {
     return {
       ...EMPTY_UNAVAILABLE,
       reason: 'This page is not a raster image, so text recognition cannot run on it.',
