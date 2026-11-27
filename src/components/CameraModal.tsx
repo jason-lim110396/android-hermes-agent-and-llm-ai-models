@@ -143,7 +143,7 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
   useEffect(() => {
     if (!isOpen) return;
     const handleVisibility = () => {
-      if (document.visibilityState === 'hidden') {
+      if (typeof document === 'undefined' || document.visibilityState === 'hidden') {
         if (streamRef.current) {
           wasStreamingBeforeHiddenRef.current = true;
           stopCamera();
