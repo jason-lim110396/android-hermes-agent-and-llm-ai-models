@@ -80,7 +80,7 @@ export function subscribeNetworkChanges(listener: (telemetry: NetworkTelemetry) 
 
   const conn = (navigator as any).connection;
   if (conn && typeof conn.addEventListener === 'function') {
-    conn.addEventListener('change', handler);
+    if (typeof conn !== 'undefined') conn.addEventListener('change', handler);
   }
 
   return () => {
