@@ -75,7 +75,7 @@ export function subscribeNetworkChanges(listener: (telemetry: NetworkTelemetry) 
 
   const handler = () => listener(getNetworkTelemetry());
 
-  window.addEventListener('online', handler);
+  if (typeof window !== 'undefined') window.addEventListener('online', handler);
   window.addEventListener('offline', handler);
 
   const conn = (navigator as any).connection;
