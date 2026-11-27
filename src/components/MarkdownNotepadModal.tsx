@@ -64,7 +64,7 @@ if (typeof window !== 'undefined') {
   if (typeof window !== 'undefined') window.addEventListener('visibilitychange', () => {
     if (typeof document !== 'undefined' && document.visibilityState === 'hidden') flushVaultPersistNow();
   });
-  window.addEventListener('pagehide', flushVaultPersistNow);
+  if (typeof window !== 'undefined') window.addEventListener('pagehide', flushVaultPersistNow);
 }
 
 /** Debounced vault save: in-memory state updates at once, the synchronous
