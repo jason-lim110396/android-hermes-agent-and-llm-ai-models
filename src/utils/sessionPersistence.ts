@@ -300,7 +300,7 @@ if (typeof window !== 'undefined') {
     triggerMemoryCleanupHint();
   };
 
-  window.addEventListener('visibilitychange', () => {
+  if (typeof window !== 'undefined') window.addEventListener('visibilitychange', () => {
     if (typeof document !== 'undefined' && document.visibilityState === 'hidden') onBackgroundOrUnload();
   });
   window.addEventListener('pagehide', onBackgroundOrUnload);
