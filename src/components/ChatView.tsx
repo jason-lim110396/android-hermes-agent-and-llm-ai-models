@@ -199,7 +199,7 @@ const HardwareTickerBar = React.memo(function HardwareTickerBar({
     const resetBaseline = () => {
       lastTickAtRef.current = 0;
     };
-    document.addEventListener('visibilitychange', resetBaseline);
+    if (typeof document !== 'undefined') document.addEventListener('visibilitychange', resetBaseline);
     return () => {
       cancelTicker();
       document.removeEventListener('visibilitychange', resetBaseline);
@@ -530,10 +530,10 @@ export default function ChatView() {
       saveComposerDraft(draftSessionRef.current, draftRef.current);
     };
     const onVisibilityChange = () => {
-      if (document.visibilityState === 'hidden') flushDraft();
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') flushDraft();
     };
     window.addEventListener('pagehide', flushDraft);
-    document.addEventListener('visibilitychange', onVisibilityChange);
+    if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onVisibilityChange);
     return () => {
       window.removeEventListener('pagehide', flushDraft);
       document.removeEventListener('visibilitychange', onVisibilityChange);
