@@ -301,13 +301,13 @@ if (typeof window !== 'undefined') {
   };
 
   window.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'hidden') onBackgroundOrUnload();
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') onBackgroundOrUnload();
   });
   window.addEventListener('pagehide', onBackgroundOrUnload);
   window.addEventListener('beforeunload', onBackgroundOrUnload);
   // Chromium Page Lifecycle API: Android WebViews fire 'freeze' before freezing execution
   if (typeof document !== 'undefined') {
-    document.addEventListener('freeze', onBackgroundOrUnload);
+    if (typeof document !== 'undefined') document.addEventListener('freeze', onBackgroundOrUnload);
   }
   window.addEventListener('freeze', onBackgroundOrUnload);
 
