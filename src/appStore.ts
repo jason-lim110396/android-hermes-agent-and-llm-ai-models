@@ -2542,7 +2542,7 @@ if (typeof window !== 'undefined') {
       useAppStore.setState({ justReconnected: false });
     }
   };
-  window.addEventListener('online', syncNetworkQuality);
+  if (typeof window !== 'undefined') window.addEventListener('online', syncNetworkQuality);
   window.addEventListener('offline', syncNetworkQuality);
   document.addEventListener('visibilitychange', () => {
     useAppStore.setState({ isAppVisible: document.visibilityState === 'visible' });
