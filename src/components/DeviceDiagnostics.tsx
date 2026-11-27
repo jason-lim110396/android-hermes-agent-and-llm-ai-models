@@ -381,7 +381,7 @@ export default function DeviceDiagnostics() {
     };
 
     if (typeof window !== 'undefined' && 'DeviceOrientationEvent' in window) {
-      window.addEventListener('deviceorientation', handleOrientation);
+      if (typeof window !== 'undefined') window.addEventListener('deviceorientation', handleOrientation);
     }
 
     const cancelThermalTimer = startVisibleInterval(() => {
