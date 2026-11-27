@@ -28,7 +28,8 @@ const LEGACY_DRAFT_KEY = 'hermes_composer_draft_v1';
 export const MAX_COMPOSER_DRAFT_CHARS = 20000;
 
 function draftKey(sessionId: string): string {
-  return `${DRAFT_KEY_PREFIX}${sessionId || 'default'}`;
+  const id = sessionId == null ? 'default' : String(sessionId).trim() || 'default';
+  return `${DRAFT_KEY_PREFIX}${id}`;
 }
 
 function capDraft(text: string): string {
