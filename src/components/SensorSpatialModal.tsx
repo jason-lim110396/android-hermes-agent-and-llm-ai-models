@@ -197,7 +197,7 @@ export default function SensorSpatialModal({
     };
 
     if (typeof window !== 'undefined' && 'DeviceOrientationEvent' in window) {
-      window.addEventListener('deviceorientation', handleOrientation);
+      if (typeof window !== 'undefined') window.addEventListener('deviceorientation', handleOrientation);
     }
     if (typeof window !== 'undefined' && 'DeviceMotionEvent' in window) {
       window.addEventListener('devicemotion', handleMotion);
