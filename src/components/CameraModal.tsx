@@ -154,7 +154,7 @@ export default function CameraModal({ isOpen, onClose, onCapture }: CameraModalP
         startCamera(facingMode);
       }
     };
-    document.addEventListener('visibilitychange', handleVisibility);
+    if (typeof document !== 'undefined') document.addEventListener('visibilitychange', handleVisibility);
     return () => document.removeEventListener('visibilitychange', handleVisibility);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, facingMode]);
