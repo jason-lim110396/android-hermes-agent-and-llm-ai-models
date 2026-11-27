@@ -61,7 +61,7 @@ function flushVaultPersistNow(): void {
 }
 
 if (typeof window !== 'undefined') {
-  window.addEventListener('visibilitychange', () => {
+  if (typeof window !== 'undefined') window.addEventListener('visibilitychange', () => {
     if (typeof document !== 'undefined' && document.visibilityState === 'hidden') flushVaultPersistNow();
   });
   window.addEventListener('pagehide', flushVaultPersistNow);
