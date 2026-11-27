@@ -309,7 +309,7 @@ if (typeof window !== 'undefined') {
   if (typeof document !== 'undefined') {
     if (typeof document !== 'undefined') document.addEventListener('freeze', onBackgroundOrUnload);
   }
-  window.addEventListener('freeze', onBackgroundOrUnload);
+  if (typeof window !== 'undefined') window.addEventListener('freeze', onBackgroundOrUnload);
 
   try {
     CapApp.addListener('appStateChange', (state) => {

@@ -149,7 +149,7 @@ export default function SensorSpatialModal({
           });
         };
         updateBatt();
-        batt.addEventListener('levelchange', updateBatt);
+        if (typeof batt !== 'undefined') batt.addEventListener('levelchange', updateBatt);
         batt.addEventListener('chargingchange', updateBatt);
       }).catch(() => {});
     }
@@ -169,7 +169,7 @@ export default function SensorSpatialModal({
           });
         };
         updateConn();
-        conn.addEventListener('change', updateConn);
+        if (typeof conn !== 'undefined') conn.addEventListener('change', updateConn);
       }
     }
 
