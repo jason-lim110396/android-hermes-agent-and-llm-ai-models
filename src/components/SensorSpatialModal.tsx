@@ -231,7 +231,7 @@ export default function SensorSpatialModal({
       try {
         const sensor = new (window as any).AmbientLightSensor();
         ambientSensor = sensor;
-        sensor.addEventListener('reading', () => {
+        if (typeof sensor !== 'undefined') sensor.addEventListener('reading', () => {
           const lux = sensor.illuminance;
           setAmbientLux(Math.round(lux));
           if (lux < 50) setLuxCategory('Dim / Night Mode (<50 lux)');
