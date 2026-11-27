@@ -121,7 +121,7 @@ if (typeof window !== 'undefined') {
         }
       };
       updateBattery();
-      battery.addEventListener('levelchange', updateBattery);
+      if (typeof battery !== 'undefined') battery.addEventListener('levelchange', updateBattery);
       battery.addEventListener('chargingchange', updateBattery);
     }).catch(() => {});
   }
