@@ -119,7 +119,7 @@ export default function ImageStudio() {
       setScrubImage(null);
       setLowMemoryMode(true);
     };
-    window.addEventListener('hermes:memory-cleanup', handleMemoryCleanup);
+    if (typeof window !== 'undefined') window.addEventListener('hermes:memory-cleanup', handleMemoryCleanup);
     return () => {
       window.removeEventListener('hermes:memory-cleanup', handleMemoryCleanup);
     };
