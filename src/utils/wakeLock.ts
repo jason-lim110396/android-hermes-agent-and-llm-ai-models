@@ -110,7 +110,7 @@ if (typeof window !== 'undefined') {
     if (saved !== null) userPrefEnabled = saved === 'true';
   } catch (_) {}
 
-  window.addEventListener('visibilitychange', handleVisibility);
+  if (typeof window !== 'undefined') window.addEventListener('visibilitychange', handleVisibility);
 
   if (typeof navigator !== 'undefined' && 'getBattery' in navigator) {
     (navigator as any).getBattery().then((battery: any) => {
