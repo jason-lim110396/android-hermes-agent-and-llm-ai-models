@@ -169,7 +169,7 @@ export default function SensorSpatialModal({
           });
         };
         updateConn();
-        conn.addEventListener('change', updateConn);
+        if (typeof conn !== 'undefined') conn.addEventListener('change', updateConn);
       }
     }
 
