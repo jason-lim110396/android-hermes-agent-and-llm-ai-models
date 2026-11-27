@@ -122,7 +122,7 @@ if (typeof window !== 'undefined') {
       };
       updateBattery();
       if (typeof battery !== 'undefined') battery.addEventListener('levelchange', updateBattery);
-      battery.addEventListener('chargingchange', updateBattery);
+      if (typeof battery !== 'undefined') battery.addEventListener('chargingchange', updateBattery);
     }).catch(() => {});
   }
 }
