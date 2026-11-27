@@ -207,7 +207,7 @@ export function startProactiveMemoryWatcher(): () => void {
     if (typeof document !== 'undefined') document.addEventListener('visibilitychange', handleVisibilityChange);
   }
   if (typeof window !== 'undefined') {
-    window.addEventListener('pagehide', handlePageHide);
+    if (typeof window !== 'undefined') window.addEventListener('pagehide', handlePageHide);
   }
 
   return () => {
