@@ -530,7 +530,7 @@ export default function ChatView() {
       saveComposerDraft(draftSessionRef.current, draftRef.current);
     };
     const onVisibilityChange = () => {
-      if (document.visibilityState === 'hidden') flushDraft();
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') flushDraft();
     };
     window.addEventListener('pagehide', flushDraft);
     document.addEventListener('visibilitychange', onVisibilityChange);
