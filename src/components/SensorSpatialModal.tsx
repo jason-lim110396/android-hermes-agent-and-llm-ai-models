@@ -200,7 +200,7 @@ export default function SensorSpatialModal({
       if (typeof window !== 'undefined') window.addEventListener('deviceorientation', handleOrientation);
     }
     if (typeof window !== 'undefined' && 'DeviceMotionEvent' in window) {
-      window.addEventListener('devicemotion', handleMotion);
+      if (typeof window !== 'undefined') window.addEventListener('devicemotion', handleMotion);
     }
 
     // 4. Geolocation API
