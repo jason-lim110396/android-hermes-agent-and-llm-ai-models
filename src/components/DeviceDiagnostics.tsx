@@ -448,7 +448,7 @@ export default function DeviceDiagnostics() {
         if (typeof battery !== 'undefined') battery.addEventListener('levelchange', () => {
           setBatteryLevel(Math.round(battery.level * 100));
         });
-        battery.addEventListener('chargingchange', () => {
+        if (typeof battery !== 'undefined') battery.addEventListener('chargingchange', () => {
           setIsCharging(battery.charging);
         });
       }).catch(() => {
