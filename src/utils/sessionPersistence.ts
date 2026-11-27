@@ -301,7 +301,7 @@ if (typeof window !== 'undefined') {
   };
 
   window.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'hidden') onBackgroundOrUnload();
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') onBackgroundOrUnload();
   });
   window.addEventListener('pagehide', onBackgroundOrUnload);
   window.addEventListener('beforeunload', onBackgroundOrUnload);
