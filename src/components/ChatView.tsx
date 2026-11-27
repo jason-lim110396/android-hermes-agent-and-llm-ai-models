@@ -1040,7 +1040,7 @@ export default function ChatView() {
     };
     updateKeyboardHeight();
     if (typeof viewport !== 'undefined') viewport.addEventListener('resize', updateKeyboardHeight);
-    viewport.addEventListener('scroll', updateKeyboardHeight);
+    if (typeof viewport !== 'undefined') viewport.addEventListener('scroll', updateKeyboardHeight);
     return () => {
       viewport.removeEventListener('resize', updateKeyboardHeight);
       viewport.removeEventListener('scroll', updateKeyboardHeight);
