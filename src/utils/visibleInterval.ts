@@ -30,7 +30,7 @@ export function startVisibleInterval(callback: () => void, ms: number): () => vo
     }
   };
 
-  document.addEventListener('visibilitychange', handleVisibilityChange);
+  if (typeof document !== 'undefined') document.addEventListener('visibilitychange', handleVisibilityChange);
   const timer = setInterval(() => {
     if (skipNextTick) {
       skipNextTick = false;
