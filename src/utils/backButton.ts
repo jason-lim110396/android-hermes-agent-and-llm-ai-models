@@ -25,6 +25,9 @@ const handlerStack: BackHandler[] = [];
  * inline arrow registered once per open is fine.
  */
 export function pushBackHandler(handler: BackHandler): () => void {
+  if (typeof handler !== 'function') {
+    return () => {};
+  }
   handlerStack.push(handler);
   return () => {
     const i = handlerStack.lastIndexOf(handler);
