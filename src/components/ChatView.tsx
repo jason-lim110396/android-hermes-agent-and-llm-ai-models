@@ -562,7 +562,7 @@ export default function ChatView() {
         setShowModelPicker(false);
       }
     };
-    document.addEventListener('pointerdown', handlePointerDown);
+    if (typeof document !== 'undefined') document.addEventListener('pointerdown', handlePointerDown);
     return () => document.removeEventListener('pointerdown', handlePointerDown);
   }, [showModelPicker]);
 
