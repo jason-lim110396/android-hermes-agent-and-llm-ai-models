@@ -73,7 +73,7 @@ const TEMPLATES: { id: string; name: string; category: string; code: string }[] 
     }
 
     let pointer = { x: width / 2, y: height / 2 };
-    window.addEventListener('pointermove', (e) => {
+    if (typeof window !== 'undefined') window.addEventListener('pointermove', (e) => {
       pointer.x = e.clientX;
       pointer.y = e.clientY;
     });
