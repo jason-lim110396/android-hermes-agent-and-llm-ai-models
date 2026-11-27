@@ -303,8 +303,8 @@ if (typeof window !== 'undefined') {
   if (typeof window !== 'undefined') window.addEventListener('visibilitychange', () => {
     if (typeof document !== 'undefined' && document.visibilityState === 'hidden') onBackgroundOrUnload();
   });
-  window.addEventListener('pagehide', onBackgroundOrUnload);
-  window.addEventListener('beforeunload', onBackgroundOrUnload);
+  if (typeof window !== 'undefined') window.addEventListener('pagehide', onBackgroundOrUnload);
+  if (typeof window !== 'undefined') window.addEventListener('beforeunload', onBackgroundOrUnload);
   // Chromium Page Lifecycle API: Android WebViews fire 'freeze' before freezing execution
   if (typeof document !== 'undefined') {
     if (typeof document !== 'undefined') document.addEventListener('freeze', onBackgroundOrUnload);
