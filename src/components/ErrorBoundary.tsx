@@ -38,7 +38,7 @@ export function registerGlobalCrashHandlers() {
 
   // Capture phase: resource-load <error> events do not bubble, so only a capturing
   // listener sees them; script errors dispatched at window still arrive in the target phase
-  window.addEventListener('error', (event: ErrorEvent) => {
+  if (typeof window !== 'undefined') window.addEventListener('error', (event: ErrorEvent) => {
     // Resource-load failures (script/img/link/svg) arrive with the failing element as
     // the event target and an empty message, instead of a script error on window
     const target = event.target as EventTarget | null;
