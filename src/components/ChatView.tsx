@@ -532,7 +532,7 @@ export default function ChatView() {
     const onVisibilityChange = () => {
       if (typeof document !== 'undefined' && document.visibilityState === 'hidden') flushDraft();
     };
-    window.addEventListener('pagehide', flushDraft);
+    if (typeof window !== 'undefined') window.addEventListener('pagehide', flushDraft);
     if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onVisibilityChange);
     return () => {
       window.removeEventListener('pagehide', flushDraft);
