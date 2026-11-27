@@ -329,7 +329,7 @@ export default function VisionStudio() {
       setScannedPages((prev) => (prev.length > 3 ? prev.slice(-3) : prev));
       setSelectedPageIndex(0);
     };
-    window.addEventListener('hermes:memory-cleanup', handleMemoryCleanup);
+    if (typeof window !== 'undefined') window.addEventListener('hermes:memory-cleanup', handleMemoryCleanup);
     return () => {
       window.removeEventListener('hermes:memory-cleanup', handleMemoryCleanup);
     };
