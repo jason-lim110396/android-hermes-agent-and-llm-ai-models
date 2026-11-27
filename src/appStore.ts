@@ -2543,7 +2543,7 @@ if (typeof window !== 'undefined') {
     }
   };
   if (typeof window !== 'undefined') window.addEventListener('online', syncNetworkQuality);
-  window.addEventListener('offline', syncNetworkQuality);
+  if (typeof window !== 'undefined') window.addEventListener('offline', syncNetworkQuality);
   document.addEventListener('visibilitychange', () => {
     useAppStore.setState({ isAppVisible: document.visibilityState === 'visible' });
   });
