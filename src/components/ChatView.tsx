@@ -1428,7 +1428,7 @@ export default function ChatView() {
       cleanupAudioVisualizer();
       flushPersistNow();
     };
-    window.addEventListener('hermes:memory-cleanup', handleMemoryCleanup);
+    if (typeof window !== 'undefined') window.addEventListener('hermes:memory-cleanup', handleMemoryCleanup);
     return () => {
       window.removeEventListener('hermes:memory-cleanup', handleMemoryCleanup);
     };
