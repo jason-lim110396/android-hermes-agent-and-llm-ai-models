@@ -2544,7 +2544,7 @@ if (typeof window !== 'undefined') {
   };
   if (typeof window !== 'undefined') window.addEventListener('online', syncNetworkQuality);
   if (typeof window !== 'undefined') window.addEventListener('offline', syncNetworkQuality);
-  document.addEventListener('visibilitychange', () => {
+  if (typeof document !== 'undefined') document.addEventListener('visibilitychange', () => {
     useAppStore.setState({ isAppVisible: document.visibilityState === 'visible' });
   });
   const conn = (navigator as any).connection;
