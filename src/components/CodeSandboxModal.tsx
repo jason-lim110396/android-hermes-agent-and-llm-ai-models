@@ -299,7 +299,7 @@ export default function CodeSandboxModal({
         ].slice(-200));
       }
     };
-    window.addEventListener('message', handleMessage);
+    if (typeof window !== 'undefined') window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
   }, []);
 
