@@ -55,7 +55,7 @@ const TEMPLATES: { id: string; name: string; category: string; code: string }[] 
     let width = canvas.width = window.innerWidth;
     let height = canvas.height = window.innerHeight;
 
-    window.addEventListener('resize', () => {
+    if (typeof window !== 'undefined') window.addEventListener('resize', () => {
       width = canvas.width = window.innerWidth;
       height = canvas.height = window.innerHeight;
     });
