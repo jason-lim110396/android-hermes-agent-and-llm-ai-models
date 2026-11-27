@@ -324,7 +324,7 @@ export default function CodeSandboxModal({
           wrapConsole('warn');
           wrapConsole('error');
           wrapConsole('info');
-          window.addEventListener('error', function(e) {
+          if (typeof window !== 'undefined') window.addEventListener('error', function(e) {
             console.error(e.message + ' (' + e.filename + ':' + e.lineno + ')');
           });
         })();
