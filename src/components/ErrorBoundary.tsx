@@ -54,7 +54,7 @@ export function registerGlobalCrashHandlers() {
     recordError(event.message || 'Unknown script error', 'window.onerror');
   }, true);
 
-  window.addEventListener('unhandledrejection', (event: PromiseRejectionEvent) => {
+  if (typeof window !== 'undefined') window.addEventListener('unhandledrejection', (event: PromiseRejectionEvent) => {
     const reason = event.reason instanceof Error ? event.reason.message : String(event.reason ?? 'unknown rejection');
     recordError(reason, 'unhandledrejection');
   });
