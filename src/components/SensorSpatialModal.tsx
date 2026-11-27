@@ -150,7 +150,7 @@ export default function SensorSpatialModal({
         };
         updateBatt();
         batt.addEventListener('levelchange', updateBatt);
-        batt.addEventListener('chargingchange', updateBatt);
+        if (typeof batt !== 'undefined') batt.addEventListener('chargingchange', updateBatt);
       }).catch(() => {});
     }
 
