@@ -290,7 +290,7 @@ export default function SettingsView() {
     setHighContrastMode(next);
     if (typeof window !== 'undefined') {
       window.localStorage.setItem('hermes_high_contrast', String(next));
-      document.documentElement.classList.toggle('high-contrast-mode', next);
+      if (typeof document !== 'undefined') document.documentElement.classList.toggle('high-contrast-mode', next);
     }
     triggerHaptic(20);
   };
