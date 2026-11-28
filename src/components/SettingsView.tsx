@@ -313,7 +313,7 @@ export default function SettingsView() {
     setActiveTheme(themeId);
     if (typeof window !== 'undefined') {
       window.localStorage.setItem('hermes_app_theme', themeId);
-      document.documentElement.setAttribute('data-theme', themeId);
+      if (typeof document !== 'undefined') document.documentElement.setAttribute('data-theme', themeId);
     }
     triggerHaptic(25);
   };
