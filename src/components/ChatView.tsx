@@ -909,7 +909,7 @@ export default function ChatView() {
     setCustomSnippets(next);
     if (typeof window !== 'undefined') {
       try {
-        window.localStorage.setItem('hermes_custom_snippets', JSON.stringify(next));
+        if (typeof window !== 'undefined') window.localStorage.setItem('hermes_custom_snippets', JSON.stringify(next));
       } catch (_) {}
     }
     setNewSnippetTitle('');
@@ -922,7 +922,7 @@ export default function ChatView() {
     setCustomSnippets(next);
     if (typeof window !== 'undefined') {
       try {
-        window.localStorage.setItem('hermes_custom_snippets', JSON.stringify(next));
+        if (typeof window !== 'undefined') window.localStorage.setItem('hermes_custom_snippets', JSON.stringify(next));
       } catch (_) {}
     }
   };

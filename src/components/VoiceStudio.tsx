@@ -483,7 +483,7 @@ export default function VoiceStudio() {
     };
     if (typeof document !== 'undefined') document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [stopSpeaking]);
 

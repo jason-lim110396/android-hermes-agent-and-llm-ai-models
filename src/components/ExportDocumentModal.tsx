@@ -220,7 +220,7 @@ export default function ExportDocumentModal({
     a.download = `${title.replace(/[^a-zA-Z0-9_-]/g, '_')}_${Date.now()}.${extension}`;
     document.body.appendChild(a);
     a.click();
-    document.body.removeChild(a);
+    if (typeof document !== 'undefined') document.body.removeChild(a);
     URL.revokeObjectURL(url);
     triggerHaptic(30);
   };
