@@ -563,7 +563,7 @@ export default function ChatView() {
       }
     };
     if (typeof document !== 'undefined') document.addEventListener('pointerdown', handlePointerDown);
-    return () => document.removeEventListener('pointerdown', handlePointerDown);
+    return () => { if (typeof document !== 'undefined') document.removeEventListener('pointerdown', handlePointerDown); };
   }, [showModelPicker]);
 
   // Share-sheet draft: text shared from another app is inserted as an unsent
