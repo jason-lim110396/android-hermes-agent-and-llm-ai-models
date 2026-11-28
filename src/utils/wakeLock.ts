@@ -88,7 +88,7 @@ async function requestLock(): Promise<void> {
 
 function handleVisibility(): void {
   if (typeof document === 'undefined') return;
-  if (document.visibilityState === 'visible' && holdDesired && userPrefEnabled && !isBatterySaverActive) {
+  if (typeof document !== 'undefined' && document.visibilityState === 'visible' && holdDesired && userPrefEnabled && !isBatterySaverActive) {
     requestLock();
   }
 }
