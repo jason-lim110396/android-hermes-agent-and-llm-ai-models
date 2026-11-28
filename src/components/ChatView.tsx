@@ -4323,6 +4323,15 @@ export default function ChatView() {
                 value={inputVal}
                 onChange={(e) => setInputVal(e.target.value)}
                 autoComplete="off"
+                spellCheck={false}
+                autoCapitalize="sentences"
+                enterKeyHint="send"
+                inputMode="text"
+                autoCorrect="off"
+                dir="auto"
+                lang="en"
+                autoFocus
+                aria-label="Chat message composer"
                 onFocus={() => setIsComposerFocused(true)}
                 onBlur={() => setIsComposerFocused(false)}
                 onKeyDown={handleKeyDown}
