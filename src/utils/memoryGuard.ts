@@ -190,7 +190,7 @@ export function startProactiveMemoryWatcher(): () => void {
 
   const handleVisibilityChange = () => {
     if (typeof document === 'undefined') return;
-    if (document.visibilityState === 'hidden') {
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
       const stats = getHeapMemoryStats();
       const lowMem = isLowMemory();
       if (lowMem || (stats && stats.usageRatio >= 0.7)) {
