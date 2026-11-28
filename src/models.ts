@@ -418,8 +418,7 @@ export const AVAILABLE_MODELS: ModelSpec[] = [
     description: 'Stability AI distilled real-time diffusion model that synthesizes high-fidelity photos and digital art in 1 to 4 steps directly on WebGPU.',
     author: 'Stability AI',
     systemPromptPreset: 'You are an image generation model.'
-  }
-,
+  },
   {
     id: 'smollm-360m-cpu',
     ggufUrl: 'https://huggingface.co/HuggingFaceTB/SmolLM-360M-Instruct-GGUF/resolve/main/SmolLM-360M-Instruct-Q4_K_M.gguf',
