@@ -15,6 +15,7 @@ const WATCHDOG_ID = 'hermes-boot-fallback';
 
 export function disarmBootWatchdog(): void {
   if (typeof document === 'undefined') return;
+  if (typeof document === 'undefined') return;
   const panel = document.getElementById(WATCHDOG_ID);
   if (!panel) return;
   // Cancel the reveal animation as well as hiding: a cancelled animation
