@@ -34,6 +34,6 @@ export function setChatFontSize(size: ChatFontSize): void {
   if (typeof window === 'undefined') return;
   try {
     localStorage.setItem(STORAGE_KEY, size);
-    document.documentElement.setAttribute('data-chat-size', size);
+    if (typeof document !== 'undefined') document.documentElement.setAttribute('data-chat-size', size);
   } catch (_) {}
 }
