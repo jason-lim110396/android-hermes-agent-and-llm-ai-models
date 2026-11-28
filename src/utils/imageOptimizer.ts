@@ -67,6 +67,7 @@ export async function downsampleImageFile(file: File): Promise<OptimizedImage> {
       return { dataUrl: original, mimeType: file.type, sizeBytes: file.size };
     }
     const scale = MAX_DIMENSION / longest;
+    if (typeof document === 'undefined') return { dataUrl: original, mimeType: file.type, sizeBytes: file.size };
     const canvas = document.createElement('canvas');
     canvas.width = Math.round(img.width * scale);
     canvas.height = Math.round(img.height * scale);
@@ -115,7 +116,8 @@ export function applyHighContrastDocumentFilter(dataUrl: string): Promise<string
     const img = new Image();
     img.onload = () => {
       try {
-        const canvas = document.createElement('canvas');
+        if (typeof document === 'undefined') return;
+    const canvas = document.createElement('canvas');
         canvas.width = img.width;
         canvas.height = img.height;
         const ctx = canvas.getContext('2d');
