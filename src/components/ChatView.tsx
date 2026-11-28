@@ -4322,6 +4322,7 @@ export default function ChatView() {
                 ref={composerRef}
                 value={inputVal}
                 onChange={(e) => setInputVal(e.target.value)}
+                autoCorrect="off"
                 onFocus={() => setIsComposerFocused(true)}
                 onBlur={() => setIsComposerFocused(false)}
                 onKeyDown={handleKeyDown}
