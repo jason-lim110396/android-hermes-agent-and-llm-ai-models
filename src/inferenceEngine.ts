@@ -1623,7 +1623,6 @@ export async function generateOnDeviceAIImage(
   };
 
   if (typeof document === 'undefined') return '';
-
   const canvas = document.createElement('canvas');
   canvas.width = 640;
   canvas.height = 640;
