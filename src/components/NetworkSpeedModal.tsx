@@ -262,7 +262,7 @@ export default function NetworkSpeedModal({
 
       const updated = [r, ...history].slice(0, 5);
       setHistory(updated);
-      localStorage.setItem('hermes_speed_history', JSON.stringify(updated));
+      if (typeof localStorage !== 'undefined') localStorage.setItem('hermes_speed_history', JSON.stringify(updated));
       triggerHaptic([30, 20, 60]);
     } catch (err) {
       if (!isCurrentRun() || (err instanceof Error && err.name === 'AbortError')) return;
