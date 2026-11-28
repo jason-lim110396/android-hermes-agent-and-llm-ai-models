@@ -176,7 +176,7 @@ export default function ModelHub() {
     const next = !wifiOnlyMode;
     setWifiOnlyMode(next);
     if (typeof window !== 'undefined') {
-      window.localStorage.setItem('hermes_wifi_only', String(next));
+      if (typeof window !== 'undefined') window.localStorage.setItem('hermes_wifi_only', String(next));
     }
     triggerHaptic(20);
   };
