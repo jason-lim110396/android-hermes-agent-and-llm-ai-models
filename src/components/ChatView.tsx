@@ -4322,6 +4322,7 @@ export default function ChatView() {
                 ref={composerRef}
                 value={inputVal}
                 onChange={(e) => setInputVal(e.target.value)}
+                aria-label="Chat message composer"
                 onFocus={() => setIsComposerFocused(true)}
                 onBlur={() => setIsComposerFocused(false)}
                 onKeyDown={handleKeyDown}
