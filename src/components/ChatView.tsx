@@ -202,7 +202,7 @@ const HardwareTickerBar = React.memo(function HardwareTickerBar({
     if (typeof document !== 'undefined') document.addEventListener('visibilitychange', resetBaseline);
     return () => {
       cancelTicker();
-      document.removeEventListener('visibilitychange', resetBaseline);
+      if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', resetBaseline);
     };
   }, []);
 
