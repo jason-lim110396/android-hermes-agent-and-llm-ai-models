@@ -683,7 +683,7 @@ export const useAppStore = create<AppStore>((set, get) => {
       let isWifiOnly = false;
       if (typeof window !== 'undefined') {
         try {
-          isWifiOnly = window.localStorage.getItem('hermes_wifi_only') === 'true';
+          isWifiOnly = typeof window !== 'undefined' && window.localStorage.getItem('hermes_wifi_only') === 'true';
         } catch (_) {}
       }
       if (isWifiOnly) {
