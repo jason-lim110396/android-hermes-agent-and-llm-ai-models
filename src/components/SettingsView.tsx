@@ -290,7 +290,7 @@ export default function SettingsView() {
     setHighContrastMode(next);
     if (typeof window !== 'undefined') {
       window.localStorage.setItem('hermes_high_contrast', String(next));
-      document.documentElement.classList.toggle('high-contrast-mode', next);
+      if (typeof document !== 'undefined') document.documentElement.classList.toggle('high-contrast-mode', next);
     }
     triggerHaptic(20);
   };
@@ -313,7 +313,7 @@ export default function SettingsView() {
     setActiveTheme(themeId);
     if (typeof window !== 'undefined') {
       window.localStorage.setItem('hermes_app_theme', themeId);
-      document.documentElement.setAttribute('data-theme', themeId);
+      if (typeof document !== 'undefined') document.documentElement.setAttribute('data-theme', themeId);
     }
     triggerHaptic(25);
   };

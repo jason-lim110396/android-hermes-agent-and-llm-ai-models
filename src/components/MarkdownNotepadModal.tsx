@@ -54,7 +54,7 @@ function flushVaultPersistNow(): void {
   pendingVault = null;
   if (!pending) return;
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(pending));
+    if (typeof localStorage !== 'undefined') localStorage.setItem(STORAGE_KEY, JSON.stringify(pending));
   } catch {
     // storage quota or unavailable - same best-effort behavior as before.
   }
