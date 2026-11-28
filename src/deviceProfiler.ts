@@ -56,6 +56,7 @@ export async function profileMobileHardware(): Promise<DeviceHardwareProfile> {
 
   if (typeof document !== 'undefined') {
     try {
+      if (typeof document === 'undefined') return;
       const canvas = document.createElement('canvas');
       const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
       if (gl) {
