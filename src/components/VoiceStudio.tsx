@@ -651,7 +651,7 @@ export default function VoiceStudio() {
     const updated = [newProfile, ...customPresets];
     setCustomPresets(updated);
     if (typeof window !== 'undefined') {
-      window.localStorage.setItem('hermes_custom_voice_profiles', JSON.stringify(updated));
+      if (typeof window !== 'undefined') window.localStorage.setItem('hermes_custom_voice_profiles', JSON.stringify(updated));
     }
     setSelectedVoiceId(newProfile.id);
     setPitch(newProfile.pitch);
@@ -666,7 +666,7 @@ export default function VoiceStudio() {
     const updated = customPresets.filter((p) => p.id !== id);
     setCustomPresets(updated);
     if (typeof window !== 'undefined') {
-      window.localStorage.setItem('hermes_custom_voice_profiles', JSON.stringify(updated));
+      if (typeof window !== 'undefined') window.localStorage.setItem('hermes_custom_voice_profiles', JSON.stringify(updated));
     }
     if (selectedVoiceId === id) {
       setSelectedVoiceId(DEFAULT_VOICE_PRESETS[0].id);
