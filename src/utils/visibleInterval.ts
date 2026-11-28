@@ -17,13 +17,13 @@ export function startVisibleInterval(callback: () => void, ms: number): () => vo
   let skipNextTick = false;
 
   const run = () => {
-    if (!document.hidden) {
+    if (typeof document !== 'undefined' && !document.hidden) {
       callback();
     }
   };
 
   const handleVisibilityChange = () => {
-    if (!document.hidden) {
+    if (typeof document !== 'undefined' && !document.hidden) {
       // Refresh promptly on resume: run the callback once when visible again.
       run();
       skipNextTick = true;
