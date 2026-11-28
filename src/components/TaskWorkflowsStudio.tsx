@@ -247,7 +247,7 @@ export default function TaskWorkflowsStudio() {
     a.download = `workflow-${activeWorkflowId}-${Date.now()}.md`;
     document.body.appendChild(a);
     a.click();
-    document.body.removeChild(a);
+    if (typeof document !== 'undefined') document.body.removeChild(a);
     URL.revokeObjectURL(url);
     triggerHaptic(20);
   };
