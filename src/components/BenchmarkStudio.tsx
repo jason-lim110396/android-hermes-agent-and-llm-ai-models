@@ -74,7 +74,7 @@ export default function BenchmarkStudio() {
     triggerHaptic(15);
     setBenchmarkHistory([]);
     if (typeof window !== 'undefined') {
-      window.localStorage.removeItem('hermes_benchmark_history');
+      if (typeof window !== 'undefined') window.localStorage.removeItem('hermes_benchmark_history');
     }
   };
 
